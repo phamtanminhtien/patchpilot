@@ -89,7 +89,7 @@ export function StarterScreen({
             <p className="text-warning text-sm font-medium">{createError}</p>
           ) : null}
 
-          <div className="bg-canvas grid gap-3 rounded-lg p-3 shadow-sm">
+          <div className="bg-hover grid gap-3 rounded-lg p-3">
             <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <History

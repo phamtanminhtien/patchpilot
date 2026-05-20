@@ -155,7 +155,7 @@ export function VibePage() {
             </div>
 
             <Surface
-              className="gap-0 overflow-hidden shadow-md"
+              className="bg-composer! gap-0 overflow-hidden shadow-md"
               layout="grid"
               padding="none"
             >
@@ -168,22 +168,21 @@ export function VibePage() {
                 id="agent-prompt"
                 placeholder="Ask PatchPilot anything. Agent task creation will appear here when the endpoint is available."
               />
-              <div className="bg-canvas flex min-w-0 flex-col gap-2 px-3 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+              <div className="bg-composer-bar! flex min-w-0 flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="bg-panel text-muted inline-flex min-h-10 min-w-0 items-center gap-2 rounded-md px-3 text-xs font-medium shadow-sm">
+                  <span className="hover:bg-hover text-muted inline-flex min-h-10 min-w-0 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium">
                     <ShieldCheck aria-hidden="true" className="size-4" />
                     Default permissions
                     <ChevronDown aria-hidden="true" className="size-4" />
                   </span>
                   {workspace ? (
-                    <Button asChild size="compact" variant="secondary">
-                      <Link
-                        to={`/workspace?workspaceId=${encodeURIComponent(workspace.id)}`}
-                      >
-                        <FolderOpen aria-hidden="true" className="size-4" />
-                        {workspace.name}
-                      </Link>
-                    </Button>
+                    <Link
+                      to={`/workspace?workspaceId=${encodeURIComponent(workspace.id)}`}
+                      className="hover:bg-hover text-muted flex min-h-10 min-w-0 items-center gap-2 rounded-md px-3 text-xs font-medium"
+                    >
+                      <FolderOpen aria-hidden="true" className="size-4" />
+                      {workspace.name}
+                    </Link>
                   ) : (
                     <span className="text-warning text-sm font-medium">
                       {error ? apiErrorMessage(error) : "Workspace is loading."}

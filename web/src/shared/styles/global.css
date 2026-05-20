@@ -4,6 +4,8 @@
   --color-canvas: var(--pp-bg-canvas);
   --color-panel: var(--pp-bg-panel);
   --color-hover: var(--pp-bg-hover);
+  --color-composer: var(--pp-bg-composer);
+  --color-composer-bar: var(--pp-bg-composer-bar);
   --color-accent-soft: var(--pp-bg-accent-soft);
   --color-ink: var(--pp-color-ink);
   --color-muted: var(--pp-color-muted);
@@ -33,6 +35,8 @@
   --pp-bg-canvas: #f5f7fb;
   --pp-bg-panel: #ffffff;
   --pp-bg-hover: #e9eef6;
+  --pp-bg-composer: var(--pp-bg-panel);
+  --pp-bg-composer-bar: var(--pp-bg-hover);
   --pp-bg-accent-soft: #e8efff;
   --pp-bg-pattern: #d9e1ec;
   --pp-color-ink: #151923;
@@ -60,45 +64,49 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --pp-bg-canvas: #11141c;
-  --pp-bg-panel: #191e2a;
-  --pp-bg-hover: #242b3a;
-  --pp-bg-accent-soft: #1f2d56;
-  --pp-bg-pattern: #31394a;
-  --pp-color-ink: #f4f7fb;
-  --pp-color-muted: #a8b1c0;
-  --pp-color-line: #31394a;
-  --pp-color-accent: #8ca7ff;
-  --pp-color-accent-hover: #a4b8ff;
-  --pp-color-accent-ink: #11182f;
-  --pp-color-focus: #8ca7ff;
+  --pp-bg-canvas: #181818;
+  --pp-bg-panel: #242424;
+  --pp-bg-hover: #353535;
+  --pp-bg-composer: var(--pp-bg-hover);
+  --pp-bg-composer-bar: var(--pp-bg-panel);
+  --pp-bg-accent-soft: #294136;
+  --pp-bg-pattern: #353535;
+  --pp-color-ink: #fafafa;
+  --pp-color-muted: #d0d0d0;
+  --pp-color-line: #4a4a4a;
+  --pp-color-accent: #8fe6b7;
+  --pp-color-accent-hover: #a7efc8;
+  --pp-color-accent-ink: #102117;
+  --pp-color-focus: #e0b15d;
   --pp-color-warning: #ff9f7a;
   --pp-shadow-sm:
-    0 10px 26px -18px rgb(0 0 0 / 0.82), 0 1px 4px 0 rgb(0 0 0 / 0.3);
+    0 1px 2px 0 rgb(0 0 0 / 0.28), 0 8px 18px -18px rgb(0 0 0 / 0.65);
   --pp-shadow-md:
-    0 28px 60px -32px rgb(0 0 0 / 0.9), 0 8px 22px -14px rgb(0 0 0 / 0.58);
+    0 2px 6px 0 rgb(0 0 0 / 0.3), 0 16px 32px -28px rgb(0 0 0 / 0.72);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --pp-bg-canvas: #11141c;
-    --pp-bg-panel: #191e2a;
-    --pp-bg-hover: #242b3a;
-    --pp-bg-accent-soft: #1f2d56;
-    --pp-bg-pattern: #31394a;
-    --pp-color-ink: #f4f7fb;
-    --pp-color-muted: #a8b1c0;
-    --pp-color-line: #31394a;
-    --pp-color-accent: #8ca7ff;
-    --pp-color-accent-hover: #a4b8ff;
-    --pp-color-accent-ink: #11182f;
-    --pp-color-focus: #8ca7ff;
+    --pp-bg-canvas: #181818;
+    --pp-bg-panel: #242424;
+    --pp-bg-hover: #353535;
+    --pp-bg-composer: var(--pp-bg-hover);
+    --pp-bg-composer-bar: var(--pp-bg-panel);
+    --pp-bg-accent-soft: #294136;
+    --pp-bg-pattern: #353535;
+    --pp-color-ink: #fafafa;
+    --pp-color-muted: #d0d0d0;
+    --pp-color-line: #4a4a4a;
+    --pp-color-accent: #8fe6b7;
+    --pp-color-accent-hover: #a7efc8;
+    --pp-color-accent-ink: #102117;
+    --pp-color-focus: #e0b15d;
     --pp-color-warning: #ff9f7a;
     --pp-shadow-sm:
-      0 10px 26px -18px rgb(0 0 0 / 0.82), 0 1px 4px 0 rgb(0 0 0 / 0.3);
+      0 1px 2px 0 rgb(0 0 0 / 0.28), 0 8px 18px -18px rgb(0 0 0 / 0.65);
     --pp-shadow-md:
-      0 28px 60px -32px rgb(0 0 0 / 0.9), 0 8px 22px -14px rgb(0 0 0 / 0.58);
+      0 2px 6px 0 rgb(0 0 0 / 0.3), 0 16px 32px -28px rgb(0 0 0 / 0.72);
   }
 }
 
@@ -120,6 +128,11 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+}
+
+.workspace-main-scroll {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
 }
 
 .pp-pattern-bg {

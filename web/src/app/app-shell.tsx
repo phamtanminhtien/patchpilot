@@ -49,7 +49,7 @@ export function AppShell({
           <div className="flex shrink-0 items-center gap-1.5">
             <nav
               aria-label="Mode"
-              className="bg-canvas grid grid-cols-2 rounded-md p-0.5 shadow-sm"
+              className="bg-hover grid grid-cols-2 rounded-md p-0.5"
             >
               <ModeLink
                 active={mode === "vibe"}

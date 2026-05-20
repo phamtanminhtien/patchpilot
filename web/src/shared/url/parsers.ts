@@ -10,4 +10,5 @@ export const panelParser = parseAsStringLiteral([
   "commands",
   "preview",
 ] as const).withDefault("files");
+export const pathParser = parseAsString.withDefault("");
 export const workspaceIdParser = parseAsString.withDefault("");
