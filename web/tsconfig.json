@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2023",
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "src",
+    "vite.config.ts",
+    "vitest.setup.ts",
+    "eslint.config.js",
+    "playwright.config.ts"
+  ]
+}

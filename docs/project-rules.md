@@ -144,6 +144,7 @@ SSE:
 - MVP Git: status, diff, commit only.
 - Commits require non-empty selected paths, do not push, do not auto-stage unrelated files, show untracked files, and use exact user message.
 - Push/pull/branch/merge/rebase are post-MVP.
+- Local Git hooks live in `.githooks`; `make setup` configures `core.hooksPath` and executable bits. Pre-commit calls `make pre-commit`, which runs Go formatting/tests and frontend `lint-staged` checks before allowing a commit.
 
 ## Testing
 
