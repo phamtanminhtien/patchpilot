@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { getGitStatus, listFiles } from "@/shared/api";
-import { Button, classNames, Section } from "@/shared/ui";
+import { Button, classNames, Section, Surface } from "@/shared/ui";
 import { panelParser, workspaceIdParser } from "@/shared/url";
 
 const panels = [
@@ -56,14 +56,19 @@ export function WorkspacePage() {
         >
           <Tabs.List className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {panels.map((item) => (
-              <Tabs.Trigger
-                className="border-line bg-panel text-ink data-[state=active]:border-accent data-[state=active]:text-accent inline-flex min-h-11 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"
+              <Button
+                asChild
+                className="data-[state=active]:border-accent data-[state=active]:text-accent"
                 key={item.value}
-                value={item.value}
+                size="compact"
+                variant="secondary"
+                width="full"
               >
-                <item.icon className="size-4" />
-                {item.label}
-              </Tabs.Trigger>
+                <Tabs.Trigger value={item.value}>
+                  <item.icon className="size-4" />
+                  {item.label}
+                </Tabs.Trigger>
+              </Button>
             ))}
           </Tabs.List>
 
@@ -130,10 +135,10 @@ export function WorkspacePage() {
 
 function Panel({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <div className="border-line bg-panel rounded-lg border p-4">
+    <Surface>
       <h2 className="text-ink mb-3 text-lg font-semibold">{title}</h2>
       {children}
-    </div>
+    </Surface>
   );
 }
 

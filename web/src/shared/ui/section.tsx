@@ -1,14 +1,40 @@
 import type { ReactNode } from "react";
 
+import { classNames } from "./class-name";
+import { createVariant, type VariantPropsOf } from "./variant";
+
+const sectionVariant = createVariant({
+  base: "border-line border-b",
+  variants: {
+    tone: {
+      panel: "bg-panel",
+      transparent: "bg-transparent",
+    },
+  },
+  defaultVariants: {
+    tone: "panel",
+  },
+});
+
+type SectionVariantProps = VariantPropsOf<typeof sectionVariant>;
+
 interface SectionProps {
   children: ReactNode;
+  className?: string;
   eyebrow?: string;
   title: string;
+  tone?: SectionVariantProps["tone"];
 }
 
-export function Section({ children, eyebrow, title }: SectionProps) {
+export function Section({
+  children,
+  className,
+  eyebrow,
+  title,
+  tone,
+}: SectionProps) {
   return (
-    <section className="border-line bg-panel border-b">
+    <section className={classNames(sectionVariant({ tone }), className)}>
       <div className="mx-auto grid w-full max-w-6xl gap-4 px-4 py-5 sm:px-6">
         <div className="grid gap-1">
           {eyebrow ? (

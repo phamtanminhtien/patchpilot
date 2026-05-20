@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { apiErrorMessage, createWorkspace, getWorkspace } from "@/shared/api";
-import { Button, Section, TextField } from "@/shared/ui";
+import { Button, Section, Surface, TextField } from "@/shared/ui";
 import { workspaceIdParser } from "@/shared/url";
 
 export function VibePage() {
@@ -66,9 +66,9 @@ export function VibePage() {
 
       <section className="mx-auto grid w-full max-w-6xl gap-4 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid gap-4">
-          <div className="border-line bg-panel rounded-lg border p-4">
+          <Surface>
             <div className="flex items-start gap-3">
-              <span className="bg-accent/10 text-accent grid size-10 shrink-0 place-items-center rounded-md">
+              <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
                 <Bot className="size-5" />
               </span>
               <div className="grid gap-1">
@@ -79,11 +79,11 @@ export function VibePage() {
                 </p>
               </div>
             </div>
-          </div>
+          </Surface>
 
-          <div className="border-line bg-panel rounded-lg border p-4">
+          <Surface>
             <div className="flex items-start gap-3">
-              <span className="bg-accent/10 text-accent grid size-10 shrink-0 place-items-center rounded-md">
+              <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
                 <GitPullRequestArrow className="size-5" />
               </span>
               <div className="grid gap-1">
@@ -94,10 +94,10 @@ export function VibePage() {
                 </p>
               </div>
             </div>
-          </div>
+          </Surface>
         </div>
 
-        <aside className="border-line bg-panel grid content-start gap-3 rounded-lg border p-4">
+        <Surface as="aside" className="content-start gap-3" layout="grid">
           <p className="text-muted text-xs font-semibold uppercase">
             Current workspace
           </p>
@@ -125,7 +125,7 @@ export function VibePage() {
               Open a local Git repository to start the MVP flow.
             </p>
           )}
-        </aside>
+        </Surface>
       </section>
     </main>
   );
