@@ -22,17 +22,17 @@ Locked engineering contract. Precedence: this file > `docs/mvp-spec.md` > `docs/
 Backend:
 
 - Go 1.26.x, `net/http`, `http.ServeMux`, REST mutations, SSE realtime.
-- SQLite via `database/sql` + `modernc.org/sqlite`; embedded versioned SQL migrations.
+- SQLite via GORM 1.x with `github.com/glebarez/sqlite` (pure-Go `modernc.org/sqlite` driver); embedded versioned SQL migrations.
 - Git only via `internal/git`; process execution only via `internal/runner`.
 - One Go binary serves API and embedded frontend.
-- No Go web framework, GraphQL, gRPC, WebSocket for MVP, ORM, or CGO-only default dependency.
+- No Go web framework, GraphQL, gRPC, WebSocket for MVP, ORM other than GORM, or CGO-only default dependency.
 
 Frontend:
 
 - Node.js 24.x LTS, pnpm 10.x, TypeScript 5.x, React 19.x, Vite 8.x.
-- React Router 7.x, TanStack Query 5.x, Axios 1.x, nuqs 2.x, CodeMirror 6, `lucide-react`.
+- React Router 7.x, TanStack Query 5.x, Axios 1.x, nuqs 2.x, Zustand 5.x, Radix UI primitives, CodeMirror 6, `lucide-react`.
 - Tailwind CSS 4.x via `@tailwindcss/vite`; Vitest, React Testing Library, Playwright.
-- No competing app framework, global store, UI framework, CSS Modules, xterm.js, WebSocket, raw `fetch` for PatchPilot APIs, or generated SVG primary UI.
+- No competing app framework, state store other than Zustand, non-Radix UI framework, CSS Modules, xterm.js, WebSocket, direct `fetch` for frontend API calls, or generated SVG primary UI.
 
 Runtime:
 
@@ -82,9 +82,9 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 Frontend API:
 
 - Axios instance: `web/src/shared/api/client.ts`, `baseURL: "/api"`, `withCredentials: true`.
-- Features call typed APIs from `web/src/shared/api`; no direct Axios.
+- Features call typed APIs from `web/src/shared/api`; no direct Axios outside the shared API layer.
 - DTOs/errors live under `web/src/shared/api`; preserve backend error fields.
-- Raw `fetch` only for same-host preview proxy outside `/api`.
+- Do not use raw `fetch` for PatchPilot APIs; use the shared Axios client and typed API functions.
 
 SSE:
 
@@ -128,7 +128,7 @@ SSE:
 - No default landing page, nested cards, gradient blobs/orbs/bokeh, one-hue dominant palette, or marketing copy in workflow screens.
 - Tailwind is the only component styling system; global CSS uses `@import "tailwindcss";`.
 - Tokens live in global CSS and Tailwind theme variables.
-- Shared UI primitives in `web/src/shared/ui`; components use Tailwind utilities.
+- Shared UI primitives in `web/src/shared/ui`; components use Tailwind utilities and may wrap Radix primitives.
 - Repeated classes become shared primitives.
 - No feature global CSS, CSS Modules, Tailwind CDN, or `@apply` for component styling.
 - Inline styles/arbitrary Tailwind values only for dynamic values, locked tokens, measured constraints, or third-party needs.
@@ -136,11 +136,11 @@ SSE:
 
 ## State And Git
 
-- Server state: TanStack Query. Local UI: React state. Cross-route context: `web/src/app`. URL state: nuqs.
+- Server state: TanStack Query. Local UI: React state or Zustand for shared client-only UI state. Cross-route context: `web/src/app`. URL state: nuqs.
 - Install React Router 7 nuqs adapter at route root from `nuqs/adapters/react-router/v7`.
 - Deep-linkable workspace/mode/task/file/patch/port/tab selections live in URL state.
 - Shared query parsers live in `web/src/shared/url`; features do not define ad hoc parsers.
-- Do not duplicate server state into a global store or keep command output in React state beyond visible buffer.
+- Do not duplicate server state into Zustand or keep command output in React state/Zustand beyond visible buffer.
 - MVP Git: status, diff, commit only.
 - Commits require non-empty selected paths, do not push, do not auto-stage unrelated files, show untracked files, and use exact user message.
 - Push/pull/branch/merge/rebase are post-MVP.
