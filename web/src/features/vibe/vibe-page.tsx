@@ -1,15 +1,15 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  ArrowRight,
-  Bot,
-  CheckCircle2,
-  GitPullRequestArrow,
-  Loader2,
-  Play,
+  ChevronDown,
+  FolderOpen,
+  MessageSquare,
+  Plus,
+  Search,
   Send,
+  ShieldCheck,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 
 import { AppShell } from "@/app/app-shell";
@@ -90,155 +90,150 @@ export function VibePage() {
 
   return (
     <AppShell mode="vibe" workspace={workspace} workspaceId={workspaceId}>
-      <section className="mx-auto grid w-full max-w-6xl gap-4 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="grid gap-4">
-          <Surface className="content-start gap-4" layout="grid">
-            <div className="flex items-start gap-3">
-              <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
-                <Bot aria-hidden="true" className="size-5" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-muted text-xs font-semibold uppercase">
-                  Vibe Mode
-                </p>
-                <h2 className="text-ink text-xl font-semibold">
-                  Agent task console
-                </h2>
-              </div>
+      <section className="grid min-h-[calc(100vh-2.5rem)] w-full overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <aside className="border-line bg-panel hidden min-h-0 border-r px-3 py-3 lg:grid lg:grid-rows-[auto_minmax(0,1fr)_auto]">
+          <div className="grid gap-1.5">
+            <button
+              className="text-ink flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55"
+              disabled
+              type="button"
+            >
+              <Plus aria-hidden="true" className="size-4 shrink-0" />
+              <span className="truncate">New chat</span>
+            </button>
+            <button
+              className="text-muted flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55"
+              disabled
+              type="button"
+            >
+              <Search aria-hidden="true" className="size-4 shrink-0" />
+              <span className="truncate">Search</span>
+            </button>
+          </div>
+
+          <div className="min-h-0 overflow-auto py-5">
+            <div className="grid gap-5">
+              <ConversationGroup
+                items={[
+                  "Ask PatchPilot anything",
+                  "Review next patch proposal",
+                  "Run checks after approval",
+                ]}
+                title="Pinned"
+              />
+              <ConversationGroup
+                items={[
+                  workspace?.name ?? "Workspace loading",
+                  "Agent task console",
+                  "Open workspace tools",
+                ]}
+                title="PatchPilot"
+              />
             </div>
+          </div>
 
-            <div className="border-line bg-canvas grid gap-3 rounded-md border p-3">
-              <label
-                className="text-ink grid gap-2 text-sm font-medium"
-                htmlFor="agent-prompt"
-              >
-                Ask AI
-                <textarea
-                  className="border-line bg-panel text-ink placeholder:text-muted focus:border-accent min-h-28 resize-y rounded-md border px-3 py-2 text-base transition"
-                  disabled
-                  id="agent-prompt"
-                  placeholder="Agent task creation will appear here when the endpoint is available."
-                />
-              </label>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button disabled icon={<Send />}>
-                  Start task
-                </Button>
-                <p className="text-muted text-sm">
-                  Waiting for agent task APIs.
-                </p>
-              </div>
-            </div>
-          </Surface>
-
-          <Surface className="content-start gap-4" layout="grid">
-            <PanelTitle
-              icon={<Play aria-hidden="true" className="size-5" />}
-              kicker="Activity"
-              title="Agent timeline"
-            />
-            <ol className="grid gap-3">
-              {[
-                "Read approved files",
-                "Stream tool activity",
-                "Create patch proposal",
-              ].map((item) => (
-                <li className="flex min-w-0 items-center gap-3" key={item}>
-                  <span className="border-line bg-panel grid size-8 shrink-0 place-items-center rounded-md border">
-                    <Loader2 aria-hidden="true" className="text-muted size-4" />
-                  </span>
-                  <span className="text-muted text-sm">{item}</span>
-                </li>
-              ))}
-            </ol>
-          </Surface>
-
-          <Surface className="content-start gap-4" layout="grid">
-            <PanelTitle
-              icon={
-                <GitPullRequestArrow aria-hidden="true" className="size-5" />
-              }
-              kicker="Review"
-              title="Patch proposal"
-            />
-            <div className="border-line grid gap-3 rounded-md border p-3">
-              <div className="flex min-w-0 items-start gap-3">
-                <CheckCircle2
-                  aria-hidden="true"
-                  className="text-muted mt-0.5 size-5 shrink-0"
-                />
-                <p className="text-muted text-sm leading-6">
-                  Patch summaries and mobile diff approval controls will appear
-                  here once patch APIs exist.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button disabled>Apply patch</Button>
-                <Button disabled variant="secondary">
-                  Reject patch
-                </Button>
-              </div>
-            </div>
-          </Surface>
-        </div>
-
-        <Surface as="aside" className="content-start gap-4" layout="grid">
-          <PanelTitle
-            icon={<ArrowRight aria-hidden="true" className="size-5" />}
-            kicker="Context"
-            title="Workspace"
-          />
-          {workspace ? (
-            <div className="grid gap-4">
-              <div className="grid gap-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h2 className="text-ink truncate text-lg font-semibold">
-                    {workspace.name}
-                  </h2>
-                  <StatusPill status={workspace.status} />
-                </div>
-                <p className="text-muted text-sm leading-6 break-all">
-                  {workspace.rootPath}
-                </p>
-              </div>
-              <Button asChild variant="secondary">
+          <div className="grid gap-2">
+            {workspace ? (
+              <Button asChild size="compact" variant="ghost" width="full">
                 <Link
                   to={`/workspace?workspaceId=${encodeURIComponent(workspace.id)}`}
                 >
-                  <ArrowRight aria-hidden="true" className="size-4" />
+                  <FolderOpen aria-hidden="true" className="size-4" />
                   Open workspace
                 </Link>
               </Button>
+            ) : null}
+          </div>
+        </aside>
+
+        <div className="grid min-w-0 place-items-center px-3 py-6 sm:px-4">
+          <div className="grid w-full max-w-4xl gap-5">
+            <div className="grid justify-items-center gap-3 text-center">
+              <h1 className="text-ink text-2xl font-semibold text-balance sm:text-3xl">
+                What should we build in PatchPilot?
+              </h1>
             </div>
-          ) : (
-            <p className="text-warning text-sm font-medium">
-              {error ? apiErrorMessage(error) : "Workspace is loading."}
-            </p>
-          )}
-        </Surface>
+
+            <Surface
+              className="bg-panel/95 gap-0 overflow-hidden shadow-md"
+              layout="grid"
+              padding="none"
+            >
+              <label className="sr-only" htmlFor="agent-prompt">
+                Ask AI
+              </label>
+              <textarea
+                className="text-ink placeholder:text-muted min-h-24 resize-none bg-transparent px-4 py-4 text-sm leading-6 transition"
+                disabled
+                id="agent-prompt"
+                placeholder="Ask PatchPilot anything. Agent task creation will appear here when the endpoint is available."
+              />
+              <div className="border-line flex min-w-0 flex-col gap-2 border-t px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="border-line text-muted inline-flex min-h-10 min-w-0 items-center gap-2 rounded-md border px-3 text-xs font-medium">
+                    <ShieldCheck aria-hidden="true" className="size-4" />
+                    Default permissions
+                    <ChevronDown aria-hidden="true" className="size-4" />
+                  </span>
+                  {workspace ? (
+                    <Button asChild size="compact" variant="secondary">
+                      <Link
+                        to={`/workspace?workspaceId=${encodeURIComponent(workspace.id)}`}
+                      >
+                        <FolderOpen aria-hidden="true" className="size-4" />
+                        {workspace.name}
+                      </Link>
+                    </Button>
+                  ) : (
+                    <span className="text-warning text-sm font-medium">
+                      {error ? apiErrorMessage(error) : "Workspace is loading."}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-end">
+                  {workspace ? <StatusPill status={workspace.status} /> : null}
+                  <Button disabled icon={<Send />} size="compact">
+                    Start task
+                  </Button>
+                </div>
+              </div>
+            </Surface>
+
+            {workspace ? (
+              <p className="text-muted mx-auto max-w-full truncate text-center text-xs">
+                {workspace.rootPath}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </section>
     </AppShell>
   );
 }
 
-function PanelTitle({
-  icon,
-  kicker,
+function ConversationGroup({
+  items,
   title,
 }: {
-  icon: ReactNode;
-  kicker: string;
+  items: string[];
   title: string;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <p className="text-muted text-xs font-semibold uppercase">{kicker}</p>
-        <h2 className="text-ink truncate text-lg font-semibold">{title}</h2>
+    <section className="grid gap-1">
+      <h2 className="text-muted px-2 text-xs font-semibold">{title}</h2>
+      <div className="grid gap-0.5">
+        {items.map((item, index) => (
+          <div
+            aria-current={index === 0 ? "page" : undefined}
+            className="text-muted aria-[current=page]:bg-hover aria-[current=page]:text-ink flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 text-sm"
+            key={item}
+          >
+            <MessageSquare aria-hidden="true" className="size-4 shrink-0" />
+            <span className="truncate">{item}</span>
+          </div>
+        ))}
       </div>
-    </div>
+    </section>
   );
 }

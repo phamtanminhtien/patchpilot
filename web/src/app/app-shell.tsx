@@ -27,33 +27,29 @@ export function AppShell({
   return (
     <main className="bg-canvas min-h-screen">
       <header className="border-line bg-panel border-b">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
-              <Bot aria-hidden="true" className="size-5" />
+        <div className="flex min-h-10 w-full items-center gap-2 px-2 py-1 sm:px-3">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="bg-accent-soft text-accent grid size-7 shrink-0 place-items-center rounded-sm">
+              <Bot aria-hidden="true" className="size-3.5" />
             </span>
-            <div className="min-w-0">
-              <p className="text-muted text-xs font-semibold uppercase">
-                PatchPilot
-              </p>
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h1 className="text-ink truncate text-lg font-semibold">
-                  {workspace?.name ?? "No workspace open"}
-                </h1>
-                {workspace ? <StatusPill status={workspace.status} /> : null}
-              </div>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="sr-only">PatchPilot</span>
+              <h1 className="text-ink truncate text-sm font-semibold">
+                {workspace?.name ?? "No workspace open"}
+              </h1>
+              {workspace ? <StatusPill status={workspace.status} /> : null}
               {workspace ? (
-                <p className="text-muted max-w-full truncate text-xs">
+                <span className="text-muted hidden min-w-0 truncate text-xs md:inline">
                   {workspace.rootPath}
-                </p>
+                </span>
               ) : null}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
             <nav
               aria-label="Mode"
-              className="border-line bg-canvas grid grid-cols-2 rounded-md border p-1"
+              className="border-line bg-canvas grid grid-cols-2 rounded-md border p-0.5"
             >
               <ModeLink
                 active={mode === "vibe"}
@@ -94,7 +90,7 @@ function ModeLink({
     <Link
       aria-current={active ? "page" : undefined}
       className={classNames(
-        "text-muted hover:bg-hover hover:text-ink inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition",
+        "text-muted hover:bg-hover hover:text-ink inline-flex min-h-7 min-w-0 items-center justify-center gap-1 rounded-sm px-1.5 text-xs font-medium transition",
         active ? "bg-panel text-accent shadow-sm" : undefined,
       )}
       to={to}

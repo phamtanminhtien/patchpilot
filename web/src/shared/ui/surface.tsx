@@ -11,8 +11,8 @@ const surfaceVariant = createVariant({
       grid: "grid",
     },
     padding: {
-      compact: "p-3",
-      default: "p-4",
+      compact: "p-2",
+      default: "p-3",
       none: "p-0",
     },
     radius: {

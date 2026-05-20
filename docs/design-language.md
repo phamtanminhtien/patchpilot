@@ -17,7 +17,6 @@ The interface should be:
 ## Visual Direction
 
 - Prefer flat, work-focused layouts over decorative presentation.
-- Use full-width sections and constrained inner content for screen structure.
 - Use cards only for repeated items, side panels, modals, or framed tools.
 - Do not nest cards inside cards.
 - Do not use landing-page heroes, gradient blobs, bokeh, decorative orbs, or one-hue dominant palettes in workflow screens.
@@ -76,7 +75,7 @@ Token rules:
 - Mobile first: every primary workflow must fit and work at 320px width.
 - iPad should support split or two-column layouts only when both columns remain useful.
 - Desktop can show denser workspace controls, but must not become VS Code parity.
-- Default max content width is compact and readable; use `max-w-6xl` unless the screen has a stronger reason.
+- Workflow screens lock the app shell to the full viewport width and height; panels, lists, diffs, command output, preview frames, and other overflow-prone regions scroll internally when needed.
 - Primary actions must be at least 44px tall.
 - Fixed-format controls must have stable dimensions so icons, labels, counters, loading states, and hover states do not shift layout.
 - Text must wrap or truncate intentionally. No uncontrolled overflow, especially for paths, command output labels, branch names, and patch filenames.

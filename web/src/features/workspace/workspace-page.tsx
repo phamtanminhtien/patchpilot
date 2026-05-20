@@ -135,7 +135,7 @@ export function WorkspacePage() {
   return (
     <AppShell mode="workspace" workspace={workspace} workspaceId={workspaceId}>
       <Tabs.Root
-        className="mx-auto grid w-full max-w-6xl gap-4 px-4 py-5 sm:px-6 lg:grid-cols-[5rem_18rem_minmax(0,1fr)]"
+        className="grid w-full gap-3 px-3 py-3 sm:px-4 lg:grid-cols-[4.25rem_15rem_minmax(0,1fr)]"
         onValueChange={(value) => {
           void setPanel(value as typeof panel);
         }}
@@ -144,7 +144,7 @@ export function WorkspacePage() {
         <Tabs.List className="border-line bg-panel grid grid-cols-4 gap-1 rounded-lg border p-1 lg:grid-cols-1 lg:content-start">
           {panels.map((item) => (
             <Tabs.Trigger
-              className="text-muted hover:bg-hover hover:text-ink data-[state=active]:bg-accent-soft data-[state=active]:text-accent grid min-h-14 min-w-0 place-items-center gap-1 rounded-md px-2 py-2 text-xs font-medium transition"
+              className="text-muted hover:bg-hover hover:text-ink data-[state=active]:bg-accent-soft data-[state=active]:text-accent grid min-h-12 min-w-0 place-items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition"
               key={item.value}
               value={item.value}
             >
@@ -154,24 +154,24 @@ export function WorkspacePage() {
           ))}
         </Tabs.List>
 
-        <Surface as="aside" className="content-start gap-4" layout="grid">
+        <Surface as="aside" className="content-start gap-3" layout="grid">
           <div className="grid gap-2">
             <p className="text-muted text-xs font-semibold uppercase">
               Explorer
             </p>
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="text-ink truncate text-lg font-semibold">
+              <h2 className="text-ink truncate text-base font-semibold">
                 {activePanel.label}
               </h2>
               {workspace ? <StatusPill status={workspace.status} /> : null}
             </div>
-            <p className="text-muted text-sm leading-6">
+            <p className="text-muted text-sm leading-5">
               {activePanel.description}
             </p>
           </div>
 
           {workspace ? (
-            <div className="border-line grid gap-1 border-t pt-3">
+            <div className="border-line grid gap-1 border-t pt-2">
               <p className="text-muted text-xs font-semibold uppercase">
                 Workspace
               </p>
@@ -207,7 +207,7 @@ export function WorkspacePage() {
                 <ul className="grid gap-2">
                   {(filesQuery.data?.entries ?? []).map((entry) => (
                     <li
-                      className="border-line flex min-h-11 min-w-0 items-center gap-2 rounded-md border px-3"
+                      className="border-line flex min-h-9 min-w-0 items-center gap-2 rounded-md border px-2"
                       key={entry.path}
                     >
                       <Code2
@@ -266,14 +266,14 @@ export function WorkspacePage() {
 function Panel({ children, title }: { children: ReactNode; title: string }) {
   return (
     <Surface>
-      <h2 className="text-ink mb-3 text-lg font-semibold">{title}</h2>
+      <h2 className="text-ink mb-2 text-base font-semibold">{title}</h2>
       {children}
     </Surface>
   );
 }
 
 function EmptyState({ message }: { message: string }) {
-  return <p className="text-muted text-sm leading-6">{message}</p>;
+  return <p className="text-muted text-sm leading-5">{message}</p>;
 }
 
 function ErrorState({ message }: { message: string }) {

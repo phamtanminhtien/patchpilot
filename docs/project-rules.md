@@ -125,6 +125,7 @@ SSE:
 - Default route: mobile/iPad Vibe Mode, desktop Workspace Mode; users can switch modes.
 - Vibe shows summary before detail; diff review must work on mobile.
 - Primary actions >=44px; tool buttons use `lucide-react`.
+- Web app shell locks to full viewport width and height; scroll belongs to explicit inner regions that need it, not the document body.
 - Text must not overflow; fixed-format UI has stable dimensions.
 - No default landing page, nested cards, gradient blobs/orbs/bokeh, one-hue dominant palette, or marketing copy in workflow screens.
 - Tailwind is the only component styling system; global CSS uses `@import "tailwindcss";`.
