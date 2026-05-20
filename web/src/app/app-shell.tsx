@@ -26,10 +26,10 @@ export function AppShell({
 
   return (
     <main className="bg-canvas min-h-screen">
-      <header className="border-line bg-panel border-b">
+      <header className="bg-panel shadow-sm">
         <div className="flex min-h-10 w-full items-center gap-2 px-2 py-1 sm:px-3">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="bg-accent-soft text-accent grid size-7 shrink-0 place-items-center rounded-sm">
+            <span className="bg-accent-soft text-accent grid size-7 shrink-0 place-items-center rounded-sm shadow-sm">
               <Bot aria-hidden="true" className="size-3.5" />
             </span>
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -49,7 +49,7 @@ export function AppShell({
           <div className="flex shrink-0 items-center gap-1.5">
             <nav
               aria-label="Mode"
-              className="border-line bg-canvas grid grid-cols-2 rounded-md border p-0.5"
+              className="bg-canvas grid grid-cols-2 rounded-md p-0.5 shadow-sm"
             >
               <ModeLink
                 active={mode === "vibe"}

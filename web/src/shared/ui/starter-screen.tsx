@@ -51,12 +51,9 @@ export function StarterScreen({
           <div className="mb-4 flex justify-end">{themeControl}</div>
         ) : null}
 
-        <Surface
-          className="bg-panel/95 content-start gap-5 shadow-md"
-          layout="grid"
-        >
+        <Surface className="content-start gap-5 shadow-md" layout="grid">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
+            <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md shadow-sm">
               <Bot aria-hidden="true" className="size-5" />
             </span>
             <div className="min-w-0">
@@ -92,7 +89,7 @@ export function StarterScreen({
             <p className="text-warning text-sm font-medium">{createError}</p>
           ) : null}
 
-          <div className="border-line grid gap-3 border-t pt-4">
+          <div className="bg-canvas grid gap-3 rounded-lg p-3 shadow-sm">
             <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <History
@@ -119,7 +116,7 @@ export function StarterScreen({
               {recentWorkspaces.map((workspace) => (
                 <button
                   className={classNames(
-                    "border-line bg-canvas hover:bg-hover grid min-h-12 min-w-0 gap-1 rounded-md border px-3 py-2 text-left transition",
+                    "bg-panel hover:bg-hover grid min-h-12 min-w-0 gap-1 rounded-md px-3 py-2 text-left shadow-sm transition",
                   )}
                   key={workspace.id}
                   onClick={() => onSelectWorkspace(workspace.id)}

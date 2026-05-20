@@ -4,7 +4,7 @@ import { classNames } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const surfaceVariant = createVariant({
-  base: "border-line bg-panel border",
+  base: "bg-panel shadow-sm",
   variants: {
     layout: {
       block: "",

@@ -4,7 +4,7 @@ import { classNames } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const inputVariant = createVariant({
-  base: "w-full rounded-md border transition placeholder:text-muted",
+  base: "w-full rounded-md shadow-sm transition placeholder:text-muted",
   variants: {
     size: {
       small: "min-h-9 px-2.5 py-1.5 text-xs",
@@ -12,8 +12,8 @@ const inputVariant = createVariant({
       default: "min-h-11 px-3 py-2 text-base",
     },
     state: {
-      default: "border-line bg-panel text-ink focus:border-accent",
-      invalid: "border-warning bg-panel text-ink focus:border-warning",
+      default: "bg-panel text-ink focus-visible:outline-accent",
+      invalid: "bg-panel text-ink focus-visible:outline-warning",
     },
   },
   defaultVariants: {

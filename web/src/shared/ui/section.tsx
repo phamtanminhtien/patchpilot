@@ -4,7 +4,7 @@ import { classNames } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const sectionVariant = createVariant({
-  base: "border-line border-b",
+  base: "shadow-sm",
   variants: {
     tone: {
       panel: "bg-panel",

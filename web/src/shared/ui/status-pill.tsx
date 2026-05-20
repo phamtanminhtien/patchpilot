@@ -16,7 +16,7 @@ export function StatusPill({ className, status }: StatusPillProps) {
   return (
     <span
       className={classNames(
-        "inline-flex min-h-7 max-w-full items-center rounded-md px-2 text-xs font-medium",
+        "inline-flex min-h-7 max-w-full items-center rounded-md px-2 text-xs font-medium shadow-sm",
         tone,
         className,
       )}

@@ -10,6 +10,8 @@ describe("TextField", () => {
     const input = screen.getByLabelText("Workspace root");
 
     expect(input).toHaveClass("min-h-11", "px-3", "py-2", "text-base");
+    expect(input).toHaveClass("shadow-sm");
+    expect(input).not.toHaveClass("border");
     expect(input.closest("label")).toHaveClass("gap-2", "text-sm");
   });
 

@@ -141,7 +141,7 @@ export function WorkspacePage() {
         }}
         value={panel}
       >
-        <Tabs.List className="border-line bg-panel grid grid-cols-4 gap-1 rounded-lg border p-1 lg:grid-cols-1 lg:content-start">
+        <Tabs.List className="bg-panel grid grid-cols-4 gap-1 rounded-lg p-1 shadow-sm lg:grid-cols-1 lg:content-start">
           {panels.map((item) => (
             <Tabs.Trigger
               className="text-muted hover:bg-hover hover:text-ink data-[state=active]:bg-accent-soft data-[state=active]:text-accent grid min-h-12 min-w-0 place-items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition"
@@ -171,7 +171,7 @@ export function WorkspacePage() {
           </div>
 
           {workspace ? (
-            <div className="border-line grid gap-1 border-t pt-2">
+            <div className="bg-canvas grid gap-1 rounded-lg p-3 shadow-sm">
               <p className="text-muted text-xs font-semibold uppercase">
                 Workspace
               </p>
@@ -207,7 +207,7 @@ export function WorkspacePage() {
                 <ul className="grid gap-2">
                   {(filesQuery.data?.entries ?? []).map((entry) => (
                     <li
-                      className="border-line flex min-h-9 min-w-0 items-center gap-2 rounded-md border px-2"
+                      className="bg-canvas flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 shadow-sm"
                       key={entry.path}
                     >
                       <Code2
@@ -238,7 +238,7 @@ export function WorkspacePage() {
               {gitQuery.error ? (
                 <ErrorState message={apiErrorMessage(gitQuery.error)} />
               ) : (
-                <pre className="border-line bg-canvas text-ink min-h-48 overflow-auto rounded-md border p-3 text-sm">
+                <pre className="bg-canvas text-ink min-h-48 overflow-auto rounded-md p-3 text-sm shadow-sm">
                   {gitQuery.data?.porcelain ||
                     "Working tree status will appear here."}
                 </pre>

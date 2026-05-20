@@ -91,7 +91,7 @@ export function VibePage() {
   return (
     <AppShell mode="vibe" workspace={workspace} workspaceId={workspaceId}>
       <section className="grid min-h-[calc(100vh-2.5rem)] w-full overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
-        <aside className="border-line bg-panel hidden min-h-0 border-r px-3 py-3 lg:grid lg:grid-rows-[auto_minmax(0,1fr)_auto]">
+        <aside className="bg-panel hidden min-h-0 px-3 py-3 shadow-sm lg:grid lg:grid-rows-[auto_minmax(0,1fr)_auto]">
           <div className="grid gap-1.5">
             <button
               className="text-ink flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55"
@@ -155,7 +155,7 @@ export function VibePage() {
             </div>
 
             <Surface
-              className="bg-panel/95 gap-0 overflow-hidden shadow-md"
+              className="gap-0 overflow-hidden shadow-md"
               layout="grid"
               padding="none"
             >
@@ -168,9 +168,9 @@ export function VibePage() {
                 id="agent-prompt"
                 placeholder="Ask PatchPilot anything. Agent task creation will appear here when the endpoint is available."
               />
-              <div className="border-line flex min-w-0 flex-col gap-2 border-t px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="bg-canvas flex min-w-0 flex-col gap-2 px-3 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="border-line text-muted inline-flex min-h-10 min-w-0 items-center gap-2 rounded-md border px-3 text-xs font-medium">
+                  <span className="bg-panel text-muted inline-flex min-h-10 min-w-0 items-center gap-2 rounded-md px-3 text-xs font-medium shadow-sm">
                     <ShieldCheck aria-hidden="true" className="size-4" />
                     Default permissions
                     <ChevronDown aria-hidden="true" className="size-4" />

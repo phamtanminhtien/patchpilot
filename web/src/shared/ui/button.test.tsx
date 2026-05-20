@@ -43,4 +43,16 @@ describe("Button", () => {
     expect(iconFrame).toHaveAttribute("aria-hidden", "true");
     expect(iconFrame).toHaveClass("size-5", "shrink-0", "[&>svg]:size-5");
   });
+
+  it("keeps secondary buttons borderless and elevated", () => {
+    render(<Button variant="secondary">Open workspace</Button>);
+
+    expect(screen.getByRole("button", { name: "Open workspace" })).toHaveClass(
+      "bg-panel",
+      "shadow-sm",
+    );
+    expect(
+      screen.getByRole("button", { name: "Open workspace" }),
+    ).not.toHaveClass("border");
+  });
 });

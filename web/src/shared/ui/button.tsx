@@ -15,7 +15,7 @@ const buttonVariant = createVariant({
     variant: {
       ghost: "bg-transparent text-ink hover:bg-hover",
       primary: "bg-accent text-accent-ink shadow-sm hover:bg-accent-hover",
-      secondary: "border border-line bg-panel text-ink hover:bg-hover",
+      secondary: "bg-panel text-ink shadow-sm hover:bg-hover",
     },
     width: {
       auto: "",

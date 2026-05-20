@@ -21,7 +21,7 @@ The interface should be:
 - Do not nest cards inside cards.
 - Do not use landing-page heroes, gradient blobs, bokeh, decorative orbs, or one-hue dominant palettes in workflow screens.
 - Avoid oversized typography in panels and tools; reserve large type for real page-level headings only.
-- Keep borders subtle and use spacing to group information before adding more chrome.
+- Default UI is soft-borderless: avoid outlines around cards and controls, and use spacing, background contrast, and shadow to group information.
 
 ## Design Tokens
 
@@ -47,7 +47,7 @@ Color roles:
 
 - `ink`: primary text.
 - `muted`: secondary text.
-- `line`: borders and dividers.
+- `line`: reserved for separators with a clear scanability need, focus/error support, or dense regions where shadow and spacing are insufficient.
 - `accent`: primary action and selected state.
 - `accent-ink`: text/icons on accent surfaces.
 - `warning`: destructive, failed, or risky state.
@@ -56,7 +56,7 @@ Spacing and radius roles:
 
 - `space-unit`: base spacing unit used by Tailwind spacing utilities.
 - `space-touch`: minimum primary action size, currently 44px.
-- `radius-sm`, `radius-md`, `radius-lg`: rounded control and panel radii.
+- `radius-sm`, `radius-md`, `radius-lg`, `radius-xl`: rounded control and panel radii.
 
 Token rules:
 
@@ -64,11 +64,11 @@ Token rules:
 - Use `accent-soft` for low-emphasis selected, icon, or badge backgrounds.
 - Use `hover` for neutral hover states instead of raw black/white opacity utilities.
 - Use `warning` only for failed/risky/destructive states.
-- Prefer `line` and spacing for separation before adding tinted backgrounds.
-- Starter background patterns must stay visibly behind the launcher surface; use shadow and panel tokens to keep foreground UI distinct.
+- Prefer spacing, opaque surface contrast, and shadow for separation before using `line`.
+- Starter background patterns must stay visibly behind the launcher surface; use shadow and opaque panel tokens to keep foreground UI distinct.
 - Keep status colors semantic; do not introduce status-specific palettes without a real state model.
 - Light and dark values must stay paired under the same semantic background/color variable names.
-- Spacing and radius changes must update token values, not one-off component utilities.
+- Spacing, radius, and elevation changes must update token values, not one-off component utilities.
 
 ## Layout
 
