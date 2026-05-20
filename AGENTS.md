@@ -4,7 +4,8 @@ Read before editing:
 
 1. `docs/project-rules.md` - locked rules, highest authority.
 2. `docs/mvp-spec.md` - MVP scope/plan.
-3. Task-related files.
+3. `docs/design-language.md` - required when creating or changing UI.
+4. Task-related files.
 
 If the task conflicts with `docs/project-rules.md`, stop and ask for explicit approval.
 

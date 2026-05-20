@@ -128,7 +128,8 @@ SSE:
 - Text must not overflow; fixed-format UI has stable dimensions.
 - No default landing page, nested cards, gradient blobs/orbs/bokeh, one-hue dominant palette, or marketing copy in workflow screens.
 - Tailwind is the only component styling system; global CSS uses `@import "tailwindcss";`.
-- Tokens live in global CSS and Tailwind theme variables.
+- Design tokens for background, color, spacing, radius, shadow, and focus live in global CSS and Tailwind theme variables.
+- Components must use CSS variables through Tailwind theme tokens; no hardcoded hex/rgb/hsl values, raw palette utilities, or ad hoc spacing/radius values in components.
 - Shared UI primitives in `web/src/shared/ui`; components use Tailwind utilities and may wrap Radix primitives.
 - Repeated classes become shared primitives.
 - No feature global CSS, CSS Modules, Tailwind CDN, or `@apply` for component styling.
