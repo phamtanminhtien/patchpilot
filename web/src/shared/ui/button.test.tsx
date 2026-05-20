@@ -11,6 +11,27 @@ describe("Button", () => {
       "min-h-11",
       "px-4",
       "py-2",
+      "text-base",
+    );
+  });
+
+  it("keeps text sizing attached to size variants", () => {
+    render(
+      <>
+        <Button size="small">Cancel</Button>
+        <Button size="compact">Run command</Button>
+      </>,
+    );
+
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass(
+      "min-h-9",
+      "px-2.5",
+      "py-1.5",
+      "text-xs",
+    );
+    expect(screen.getByRole("button", { name: "Run command" })).toHaveClass(
+      "min-h-10",
+      "text-sm",
     );
   });
 

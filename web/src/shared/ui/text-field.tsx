@@ -4,10 +4,12 @@ import { classNames } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const inputVariant = createVariant({
-  base: "w-full rounded-md border text-base transition placeholder:text-muted",
+  base: "w-full rounded-md border transition placeholder:text-muted",
   variants: {
     size: {
-      default: "min-h-11 px-3 py-2",
+      small: "min-h-9 px-2.5 py-1.5 text-xs",
+      compact: "min-h-10 px-3 py-2 text-sm",
+      default: "min-h-11 px-3 py-2 text-base",
     },
     state: {
       default: "border-line bg-panel text-ink focus:border-accent",
@@ -22,8 +24,26 @@ const inputVariant = createVariant({
 
 type TextFieldVariantProps = VariantPropsOf<typeof inputVariant>;
 
-interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
+const labelVariant = createVariant({
+  base: "text-ink grid font-medium",
+  variants: {
+    size: {
+      small: "gap-1 text-xs",
+      compact: "gap-2 text-sm",
+      default: "gap-2 text-sm",
+    },
+  },
+  defaultVariants: {
+    size: "default",
+  },
+});
+
+interface TextFieldProps extends Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "size"
+> {
   label: string;
+  size?: TextFieldVariantProps["size"];
   state?: TextFieldVariantProps["state"];
 }
 
@@ -31,6 +51,7 @@ export function TextField({
   className,
   id,
   label,
+  size,
   state,
   ...props
 }: TextFieldProps) {
@@ -38,13 +59,10 @@ export function TextField({
     id ?? props.name ?? label.toLowerCase().replaceAll(/\s+/g, "-");
 
   return (
-    <label
-      className="text-ink grid gap-2 text-sm font-medium"
-      htmlFor={inputId}
-    >
+    <label className={labelVariant({ size })} htmlFor={inputId}>
       {label}
       <input
-        className={classNames(inputVariant({ state }), className)}
+        className={classNames(inputVariant({ size, state }), className)}
         id={inputId}
         {...props}
       />
