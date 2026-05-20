@@ -4,13 +4,9 @@ import { useQueryState } from "nuqs";
 import { useState } from "react";
 import { Link } from "react-router";
 
-import {
-  apiErrorMessage,
-  createWorkspace,
-  getWorkspace,
-} from "../../shared/api";
-import { Button, Section, TextField } from "../../shared/ui";
-import { workspaceIdParser } from "../../shared/url";
+import { apiErrorMessage, createWorkspace, getWorkspace } from "@/shared/api";
+import { Button, Section, TextField } from "@/shared/ui";
+import { workspaceIdParser } from "@/shared/url";
 
 export function VibePage() {
   const [workspaceId, setWorkspaceId] = useQueryState(

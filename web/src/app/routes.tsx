@@ -1,8 +1,8 @@
 import { createBrowserRouter } from "react-router";
 
-import { VibePage } from "../features/vibe/vibe-page";
-import { WorkspacePage } from "../features/workspace/workspace-page";
-import { DefaultRoute } from "./default-route";
+import { DefaultRoute } from "@/app/default-route";
+import { VibePage } from "@/features/vibe/vibe-page";
+import { WorkspacePage } from "@/features/workspace/workspace-page";
 
 export const router = createBrowserRouter([
   {

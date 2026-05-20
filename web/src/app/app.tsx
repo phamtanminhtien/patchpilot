@@ -3,7 +3,7 @@ import { NuqsAdapter } from "nuqs/adapters/react-router/v7";
 import { useState } from "react";
 import { RouterProvider } from "react-router";
 
-import { router } from "./routes";
+import { router } from "@/app/routes";
 
 export function App() {
   const [queryClient] = useState(

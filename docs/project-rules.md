@@ -62,6 +62,7 @@ web/src/features/workspace/ lightweight workspace support screens
 web/src/shared/        shared api, events, ui, styles, url, utils
 ```
 
+- Frontend imports may use the `@/*` alias for `web/src/*`.
 - Feature modules must not import each other directly; shared code belongs in `web/src/shared`.
 - Domain packages must not import `internal/api` or write HTTP responses.
 - Handlers call service functions and contain no business logic.

@@ -5,9 +5,9 @@ import { useQueryState } from "nuqs";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import { getGitStatus, listFiles } from "../../shared/api";
-import { Button, classNames, Section } from "../../shared/ui";
-import { panelParser, workspaceIdParser } from "../../shared/url";
+import { getGitStatus, listFiles } from "@/shared/api";
+import { Button, classNames, Section } from "@/shared/ui";
+import { panelParser, workspaceIdParser } from "@/shared/url";
 
 const panels = [
   { icon: Files, label: "Files", value: "files" },
