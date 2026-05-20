@@ -3,7 +3,6 @@
 WEB_DIR := web
 
 setup:
-	go install github.com/conventionalcommit/commitlint@latest
 	git config core.hooksPath .githooks
 	chmod +x .githooks/commit-msg
 	chmod +x .githooks/pre-commit
