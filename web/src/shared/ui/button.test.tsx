@@ -13,4 +13,13 @@ describe("Button", () => {
       "py-2",
     );
   });
+
+  it("keeps leading icons from overflowing into the label", () => {
+    render(<Button icon={<svg data-testid="button-icon" />}>Open repo</Button>);
+
+    const iconFrame = screen.getByTestId("button-icon").parentElement;
+
+    expect(iconFrame).toHaveAttribute("aria-hidden", "true");
+    expect(iconFrame).toHaveClass("size-5", "shrink-0", "[&>svg]:size-5");
+  });
 });

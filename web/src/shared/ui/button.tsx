@@ -54,7 +54,12 @@ export function Button({
   ) : (
     <>
       {icon ? (
-        <span className="grid size-4 place-items-center">{icon}</span>
+        <span
+          aria-hidden="true"
+          className="grid size-5 shrink-0 place-items-center [&>svg]:size-5"
+        >
+          {icon}
+        </span>
       ) : null}
       {children}
     </>
