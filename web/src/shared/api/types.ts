@@ -17,6 +17,10 @@ export interface Workspace {
   updatedAt: string;
 }
 
+export interface WorkspaceListResponse {
+  workspaces: Workspace[];
+}
+
 export interface FileEntry {
   isDir: boolean;
   name: string;

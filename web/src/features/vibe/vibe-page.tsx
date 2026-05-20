@@ -1,11 +1,32 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRight, Bot, FolderOpen, GitPullRequestArrow } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  CheckCircle2,
+  GitPullRequestArrow,
+  Loader2,
+  Play,
+  Send,
+} from "lucide-react";
 import { useQueryState } from "nuqs";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 
-import { apiErrorMessage, createWorkspace, getWorkspace } from "@/shared/api";
-import { Button, Section, Surface, TextField } from "@/shared/ui";
+import { AppShell } from "@/app/app-shell";
+import { useThemePreference } from "@/app/theme";
+import {
+  apiErrorMessage,
+  createWorkspace,
+  getWorkspace,
+  listWorkspaces,
+} from "@/shared/api";
+import {
+  Button,
+  StarterScreen,
+  StatusPill,
+  Surface,
+  ThemeSwitcher,
+} from "@/shared/ui";
 import { workspaceIdParser } from "@/shared/url";
 
 export function VibePage() {
@@ -14,11 +35,18 @@ export function VibePage() {
     workspaceIdParser,
   );
   const [rootPath, setRootPath] = useState("");
+  const { preference, setPreference } = useThemePreference();
 
   const workspaceQuery = useQuery({
     enabled: workspaceId.length > 0,
     queryFn: () => getWorkspace(workspaceId),
     queryKey: ["workspace", workspaceId],
+  });
+
+  const workspacesQuery = useQuery({
+    enabled: workspaceId.length === 0,
+    queryFn: listWorkspaces,
+    queryKey: ["workspaces"],
   });
 
   const createWorkspaceMutation = useMutation({
@@ -31,102 +59,186 @@ export function VibePage() {
   const workspace = workspaceQuery.data;
   const error = createWorkspaceMutation.error ?? workspaceQuery.error;
 
-  return (
-    <main className="bg-canvas min-h-screen">
-      <Section eyebrow="Vibe Mode" title="Patch-first AI coding loop">
-        <form
-          className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
-          onSubmit={(event) => {
-            event.preventDefault();
-            createWorkspaceMutation.mutate(rootPath);
-          }}
-        >
-          <TextField
-            label="Workspace root"
-            name="workspace-root"
-            onChange={(event) => setRootPath(event.target.value)}
-            placeholder="/absolute/path/to/repo"
-            value={rootPath}
-          />
-          <Button
-            disabled={
-              createWorkspaceMutation.isPending || rootPath.trim().length === 0
-            }
-            icon={<FolderOpen />}
-          >
-            Open repo
-          </Button>
-        </form>
-        {error ? (
-          <p className="text-warning text-sm font-medium">
-            {apiErrorMessage(error)}
-          </p>
-        ) : null}
-      </Section>
+  if (workspaceId.length === 0) {
+    return (
+      <StarterScreen
+        createError={
+          createWorkspaceMutation.error
+            ? apiErrorMessage(createWorkspaceMutation.error)
+            : undefined
+        }
+        isCreating={createWorkspaceMutation.isPending}
+        isLoadingRecent={workspacesQuery.isPending}
+        onRootPathChange={setRootPath}
+        onSelectWorkspace={(selectedWorkspaceId) => {
+          void setWorkspaceId(selectedWorkspaceId);
+        }}
+        onSubmit={() => createWorkspaceMutation.mutate(rootPath)}
+        recentError={
+          workspacesQuery.error
+            ? apiErrorMessage(workspacesQuery.error)
+            : undefined
+        }
+        recentWorkspaces={workspacesQuery.data?.workspaces ?? []}
+        rootPath={rootPath}
+        themeControl={
+          <ThemeSwitcher onChange={setPreference} value={preference} />
+        }
+      />
+    );
+  }
 
+  return (
+    <AppShell mode="vibe" workspace={workspace} workspaceId={workspaceId}>
       <section className="mx-auto grid w-full max-w-6xl gap-4 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid gap-4">
-          <Surface>
+          <Surface className="content-start gap-4" layout="grid">
             <div className="flex items-start gap-3">
               <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
-                <Bot className="size-5" />
+                <Bot aria-hidden="true" className="size-5" />
               </span>
-              <div className="grid gap-1">
-                <h2 className="text-ink text-lg font-semibold">Ask AI</h2>
-                <p className="text-muted text-sm leading-6">
-                  Agent task creation is waiting on backend endpoints. This area
-                  is reserved for prompt entry, progress, and patch review.
+              <div className="min-w-0">
+                <p className="text-muted text-xs font-semibold uppercase">
+                  Vibe Mode
+                </p>
+                <h2 className="text-ink text-xl font-semibold">
+                  Agent task console
+                </h2>
+              </div>
+            </div>
+
+            <div className="border-line bg-canvas grid gap-3 rounded-md border p-3">
+              <label
+                className="text-ink grid gap-2 text-sm font-medium"
+                htmlFor="agent-prompt"
+              >
+                Ask AI
+                <textarea
+                  className="border-line bg-panel text-ink placeholder:text-muted focus:border-accent min-h-28 resize-y rounded-md border px-3 py-2 text-base transition"
+                  disabled
+                  id="agent-prompt"
+                  placeholder="Agent task creation will appear here when the endpoint is available."
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button disabled icon={<Send />}>
+                  Start task
+                </Button>
+                <p className="text-muted text-sm">
+                  Waiting for agent task APIs.
                 </p>
               </div>
             </div>
           </Surface>
 
-          <Surface>
-            <div className="flex items-start gap-3">
-              <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
-                <GitPullRequestArrow className="size-5" />
-              </span>
-              <div className="grid gap-1">
-                <h2 className="text-ink text-lg font-semibold">Patch review</h2>
+          <Surface className="content-start gap-4" layout="grid">
+            <PanelTitle
+              icon={<Play aria-hidden="true" className="size-5" />}
+              kicker="Activity"
+              title="Agent timeline"
+            />
+            <ol className="grid gap-3">
+              {[
+                "Read approved files",
+                "Stream tool activity",
+                "Create patch proposal",
+              ].map((item) => (
+                <li className="flex min-w-0 items-center gap-3" key={item}>
+                  <span className="border-line bg-panel grid size-8 shrink-0 place-items-center rounded-md border">
+                    <Loader2 aria-hidden="true" className="text-muted size-4" />
+                  </span>
+                  <span className="text-muted text-sm">{item}</span>
+                </li>
+              ))}
+            </ol>
+          </Surface>
+
+          <Surface className="content-start gap-4" layout="grid">
+            <PanelTitle
+              icon={
+                <GitPullRequestArrow aria-hidden="true" className="size-5" />
+              }
+              kicker="Review"
+              title="Patch proposal"
+            />
+            <div className="border-line grid gap-3 rounded-md border p-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <CheckCircle2
+                  aria-hidden="true"
+                  className="text-muted mt-0.5 size-5 shrink-0"
+                />
                 <p className="text-muted text-sm leading-6">
-                  Proposed patch summaries and mobile diff approval controls
-                  will appear here once patch APIs exist.
+                  Patch summaries and mobile diff approval controls will appear
+                  here once patch APIs exist.
                 </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button disabled>Apply patch</Button>
+                <Button disabled variant="secondary">
+                  Reject patch
+                </Button>
               </div>
             </div>
           </Surface>
         </div>
 
-        <Surface as="aside" className="content-start gap-3" layout="grid">
-          <p className="text-muted text-xs font-semibold uppercase">
-            Current workspace
-          </p>
+        <Surface as="aside" className="content-start gap-4" layout="grid">
+          <PanelTitle
+            icon={<ArrowRight aria-hidden="true" className="size-5" />}
+            kicker="Context"
+            title="Workspace"
+          />
           {workspace ? (
-            <div className="grid gap-3">
-              <div>
-                <h2 className="text-ink text-xl font-semibold break-words">
-                  {workspace.name}
-                </h2>
+            <div className="grid gap-4">
+              <div className="grid gap-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <h2 className="text-ink truncate text-lg font-semibold">
+                    {workspace.name}
+                  </h2>
+                  <StatusPill status={workspace.status} />
+                </div>
                 <p className="text-muted text-sm leading-6 break-all">
                   {workspace.rootPath}
                 </p>
               </div>
-              <p className="text-muted text-sm">Status: {workspace.status}</p>
-              <Button asChild icon={<ArrowRight />} variant="secondary">
+              <Button asChild variant="secondary">
                 <Link
                   to={`/workspace?workspaceId=${encodeURIComponent(workspace.id)}`}
                 >
+                  <ArrowRight aria-hidden="true" className="size-4" />
                   Open workspace
                 </Link>
               </Button>
             </div>
           ) : (
-            <p className="text-muted text-sm leading-6">
-              Open a local Git repository to start the MVP flow.
+            <p className="text-warning text-sm font-medium">
+              {error ? apiErrorMessage(error) : "Workspace is loading."}
             </p>
           )}
         </Surface>
       </section>
-    </main>
+    </AppShell>
+  );
+}
+
+function PanelTitle({
+  icon,
+  kicker,
+  title,
+}: {
+  icon: ReactNode;
+  kicker: string;
+  title: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-muted text-xs font-semibold uppercase">{kicker}</p>
+        <h2 className="text-ink truncate text-lg font-semibold">{title}</h2>
+      </div>
+    </div>
   );
 }

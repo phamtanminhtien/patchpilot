@@ -13,6 +13,7 @@
   --color-accent-ink: var(--pp-color-accent-ink);
   --color-focus: var(--pp-color-focus);
   --color-warning: var(--pp-color-warning);
+  --color-pattern: var(--pp-bg-pattern);
   --spacing: var(--pp-space-unit);
   --spacing-touch: var(--pp-space-touch);
   --radius-sm: var(--pp-radius-sm);
@@ -20,6 +21,7 @@
   --radius-lg: var(--pp-radius-lg);
   --radius-xl: var(--pp-radius-xl);
   --shadow-sm: var(--pp-shadow-sm);
+  --shadow-md: var(--pp-shadow-md);
   --outline-offset-focus: var(--pp-focus-offset);
   --outline-width-focus: var(--pp-focus-width);
   --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
@@ -32,6 +34,7 @@
   --pp-bg-panel: #ffffff;
   --pp-bg-hover: #e9eef6;
   --pp-bg-accent-soft: #e8efff;
+  --pp-bg-pattern: #d9e1ec;
   --pp-color-ink: #151923;
   --pp-color-muted: #637083;
   --pp-color-line: #d9e1ec;
@@ -42,11 +45,13 @@
   --pp-color-warning: #b04a2f;
   --pp-space-unit: 0.25rem;
   --pp-space-touch: 2.75rem;
-  --pp-radius-sm: 0.375rem;
-  --pp-radius-md: 0.625rem;
-  --pp-radius-lg: 0.875rem;
-  --pp-radius-xl: 1.125rem;
+  --pp-radius-sm: 0.5rem;
+  --pp-radius-md: 0.75rem;
+  --pp-radius-lg: 1rem;
+  --pp-radius-xl: 1.25rem;
   --pp-shadow-sm: 0 1px 2px 0 rgb(21 25 35 / 0.08);
+  --pp-shadow-md:
+    0 18px 44px -28px rgb(21 25 35 / 0.34), 0 2px 8px 0 rgb(21 25 35 / 0.08);
   --pp-focus-offset: 2px;
   --pp-focus-width: 2px;
 }
@@ -57,6 +62,7 @@
   --pp-bg-panel: #191e2a;
   --pp-bg-hover: #242b3a;
   --pp-bg-accent-soft: #1f2d56;
+  --pp-bg-pattern: #31394a;
   --pp-color-ink: #f4f7fb;
   --pp-color-muted: #a8b1c0;
   --pp-color-line: #31394a;
@@ -66,6 +72,8 @@
   --pp-color-focus: #8ca7ff;
   --pp-color-warning: #ff9f7a;
   --pp-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.28);
+  --pp-shadow-md:
+    0 18px 48px -28px rgb(0 0 0 / 0.74), 0 2px 10px 0 rgb(0 0 0 / 0.38);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -75,6 +83,7 @@
     --pp-bg-panel: #191e2a;
     --pp-bg-hover: #242b3a;
     --pp-bg-accent-soft: #1f2d56;
+    --pp-bg-pattern: #31394a;
     --pp-color-ink: #f4f7fb;
     --pp-color-muted: #a8b1c0;
     --pp-color-line: #31394a;
@@ -84,6 +93,8 @@
     --pp-color-focus: #8ca7ff;
     --pp-color-warning: #ff9f7a;
     --pp-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.28);
+    --pp-shadow-md:
+      0 18px 48px -28px rgb(0 0 0 / 0.74), 0 2px 10px 0 rgb(0 0 0 / 0.38);
   }
 }
 
@@ -105,6 +116,22 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+}
+
+.pp-pattern-bg {
+  background-color: var(--pp-bg-canvas);
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--pp-bg-pattern) 26%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--pp-bg-pattern) 26%, transparent) 1px,
+      transparent 1px
+    );
+  background-position: center;
+  background-size: 2.5rem 2.5rem;
 }
 
 button,

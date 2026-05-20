@@ -57,7 +57,7 @@ Spacing and radius roles:
 
 - `space-unit`: base spacing unit used by Tailwind spacing utilities.
 - `space-touch`: minimum primary action size, currently 44px.
-- `radius-sm`, `radius-md`, `radius-lg`: normal control and panel radii.
+- `radius-sm`, `radius-md`, `radius-lg`: rounded control and panel radii.
 
 Token rules:
 
@@ -66,6 +66,7 @@ Token rules:
 - Use `hover` for neutral hover states instead of raw black/white opacity utilities.
 - Use `warning` only for failed/risky/destructive states.
 - Prefer `line` and spacing for separation before adding tinted backgrounds.
+- Starter background patterns must stay visibly behind the launcher surface; use shadow and panel tokens to keep foreground UI distinct.
 - Keep status colors semantic; do not introduce status-specific palettes without a real state model.
 - Light and dark values must stay paired under the same semantic background/color variable names.
 - Spacing and radius changes must update token values, not one-off component utilities.
@@ -79,6 +80,28 @@ Token rules:
 - Primary actions must be at least 44px tall.
 - Fixed-format controls must have stable dimensions so icons, labels, counters, loading states, and hover states do not shift layout.
 - Text must wrap or truncate intentionally. No uncontrolled overflow, especially for paths, command output labels, branch names, and patch filenames.
+
+### App Shell
+
+- Workflow screens use a shared app shell with a compact top bar, mode switch, current workspace signal, and theme control.
+- The theme control exposes `System`, `Light`, and `Dark`. `System` must leave root theme selection to CSS media queries.
+- When no workspace is selected, show a centered starter launcher instead of workflow chrome, app header, or mode switch.
+- Starter launchers include a compact `Open repo` form, lightweight theme control, and compact recent workspaces when available.
+- Selecting a recent workspace should set the active `workspaceId` without changing the user's selected mode.
+
+### Vibe Mode Layout
+
+- Vibe Mode may borrow Codex-style layout cues: a task thread, prompt/action composer, agent activity, and patch review area.
+- Keep the primary path centered on the AI coding loop: open repo, ask AI, inspect progress, review patch.
+- Use context rails only when they add state or available actions; on mobile they stack below the primary task flow.
+- Placeholder states are acceptable only when they describe MVP state and next available action.
+
+### Workspace Mode Layout
+
+- Workspace Mode may borrow VS Code-style shell cues: activity navigation, sidebar-like context, and a primary work panel.
+- The allowed workspace tools remain Files, Git, Commands, and Preview.
+- Do not add multi-tab editors, LSP surfaces, terminal emulator behavior, branch management, marketplace panels, or other IDE parity features.
+- Activity navigation must be stable in size and readable on mobile; desktop can use a narrow rail when useful.
 
 ## Typography
 

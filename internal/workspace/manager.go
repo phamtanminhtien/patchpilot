@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -99,6 +100,23 @@ func (m *Manager) Get(id string) (Workspace, error) {
 		return Workspace{}, ErrNotFound
 	}
 	return ws, nil
+}
+
+func (m *Manager) List() []Workspace {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	workspaces := make([]Workspace, 0, len(m.workspaces))
+	for _, ws := range m.workspaces {
+		workspaces = append(workspaces, ws)
+	}
+	sort.Slice(workspaces, func(i, j int) bool {
+		if workspaces[i].CreatedAt.Equal(workspaces[j].CreatedAt) {
+			return workspaces[i].ID > workspaces[j].ID
+		}
+		return workspaces[i].CreatedAt.After(workspaces[j].CreatedAt)
+	})
+	return workspaces
 }
 
 func (m *Manager) normalizeRoot(rootPath string) (string, error) {

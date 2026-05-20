@@ -5,7 +5,7 @@ import { classNames } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const buttonVariant = createVariant({
-  base: "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55",
+  base: "inline-flex items-center justify-center gap-2 rounded-md text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-55",
   variants: {
     size: {
       compact: "min-h-10 px-3 py-2",

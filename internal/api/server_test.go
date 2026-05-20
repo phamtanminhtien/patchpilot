@@ -46,6 +46,42 @@ func TestCreateWorkspaceReturnsRestError(t *testing.T) {
 	}
 }
 
+func TestListWorkspacesReturnsNewestFirst(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	mustMkdirAll(t, filepath.Join(firstRoot, ".git"))
+	mustMkdirAll(t, filepath.Join(secondRoot, ".git"))
+	server := newTestServer(t, filepath.Dir(firstRoot))
+
+	firstCreate := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+firstRoot+`"}`)
+	if firstCreate.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", firstCreate.Code, firstCreate.Body.String())
+	}
+	var firstWorkspace workspace.Workspace
+	mustDecode(t, firstCreate, &firstWorkspace)
+	secondCreate := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+secondRoot+`"}`)
+	if secondCreate.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", secondCreate.Code, secondCreate.Body.String())
+	}
+	var secondWorkspace workspace.Workspace
+	mustDecode(t, secondCreate, &secondWorkspace)
+
+	response := request(server, http.MethodGet, "/api/workspaces", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Workspaces []workspace.Workspace `json:"workspaces"`
+	}
+	mustDecode(t, response, &body)
+	if len(body.Workspaces) != 2 {
+		t.Fatalf("expected 2 workspaces, got %+v", body.Workspaces)
+	}
+	if body.Workspaces[0].ID != secondWorkspace.ID || body.Workspaces[1].ID != firstWorkspace.ID {
+		t.Fatalf("expected newest-first workspaces, got %+v", body.Workspaces)
+	}
+}
+
 func TestFileAndCommandHandlers(t *testing.T) {
 	root := t.TempDir()
 	mustMkdirAll(t, filepath.Join(root, ".git"))

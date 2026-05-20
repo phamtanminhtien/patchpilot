@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RouterProvider } from "react-router";
 
 import { router } from "@/app/routes";
+import { ThemeProvider } from "@/app/theme";
 
 export function App() {
   const [queryClient] = useState(
@@ -21,9 +22,11 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <NuqsAdapter>
-        <RouterProvider router={router} />
-      </NuqsAdapter>
+      <ThemeProvider>
+        <NuqsAdapter>
+          <RouterProvider router={router} />
+        </NuqsAdapter>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

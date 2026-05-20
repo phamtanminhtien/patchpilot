@@ -122,6 +122,16 @@ GET  /workspaces/:workspaceId/ports/:port/proxy/*
 GET  /api/workspaces/:workspaceId/events
 ```
 
+Workspace list response:
+
+```json
+{
+  "workspaces": []
+}
+```
+
+The list is newest-first.
+
 SSE envelope:
 
 ```json

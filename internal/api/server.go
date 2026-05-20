@@ -25,6 +25,7 @@ func NewServer(workspaces *workspace.Manager, files *fileapi.Service, git *gitap
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/workspaces", s.createWorkspace)
+	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}", s.getWorkspace)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files", s.listFiles)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/file", s.readFile)
@@ -54,6 +55,10 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, ws)
+}
+
+func (s *Server) listWorkspaces(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"workspaces": s.workspaces.List()})
 }
 
 func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,51 @@
+import { Monitor, Moon, Sun } from "lucide-react";
+
+import { classNames } from "./class-name";
+
+type ThemePreference = "system" | "light" | "dark";
+
+const options = [
+  { icon: Monitor, label: "System", value: "system" },
+  { icon: Sun, label: "Light", value: "light" },
+  { icon: Moon, label: "Dark", value: "dark" },
+] as const;
+
+interface ThemeSwitcherProps {
+  className?: string;
+  onChange: (preference: ThemePreference) => void;
+  value: ThemePreference;
+}
+
+export function ThemeSwitcher({
+  className,
+  onChange,
+  value,
+}: ThemeSwitcherProps) {
+  return (
+    <div
+      aria-label="Theme"
+      className={classNames(
+        "border-line bg-panel inline-grid grid-cols-3 rounded-md border p-1",
+        className,
+      )}
+      role="group"
+    >
+      {options.map((option) => (
+        <button
+          aria-pressed={value === option.value}
+          className={classNames(
+            "text-muted hover:bg-hover hover:text-ink inline-flex min-h-8 min-w-8 items-center justify-center rounded-md px-2 transition",
+            value === option.value ? "bg-accent-soft text-accent" : undefined,
+          )}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+          title={option.label}
+        >
+          <option.icon aria-hidden="true" className="size-4 shrink-0" />
+          <span className="sr-only">{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
