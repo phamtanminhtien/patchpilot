@@ -196,13 +196,13 @@ function GitChangeSectionActions({
         <>
           <GitChangeActionButton
             disabled={isDiscardingChanges}
-            icon={<Trash2 aria-hidden="true" className="size-3.5" />}
+            icon={<Trash2 aria-hidden="true" className="size-3" />}
             label="Discard all changes"
             onClick={onDiscard}
           />
           <GitChangeActionButton
             disabled={isStagingChanges}
-            icon={<GitBranch aria-hidden="true" className="size-3.5" />}
+            icon={<GitBranch aria-hidden="true" className="size-3" />}
             label="Stage all changes"
             onClick={onStage}
           />
@@ -210,7 +210,7 @@ function GitChangeSectionActions({
       ) : (
         <GitChangeActionButton
           disabled={isUnstagingChanges}
-          icon={<Undo2 aria-hidden="true" className="size-3.5" />}
+          icon={<Undo2 aria-hidden="true" className="size-3" />}
           label="Unstage all staged changes"
           onClick={onUnstage}
         />

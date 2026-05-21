@@ -1,7 +1,8 @@
-import { Copy, FileCode2, Folder, FolderOpen, RefreshCw } from "lucide-react";
+import { Copy, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { FileIndexEntry } from "@/shared/api";
+import { FileIcon } from "@/shared/file-icons";
 import { cn, HoverCard } from "@/shared/ui";
 
 import type { GitChange } from "./git/workspace-git";
@@ -137,33 +138,12 @@ function FileTreeItem({
             isDirectory ? (isExpanded ? "expanded" : "collapsed") : "none"
           }
           icon={
-            isDirectory ? (
-              isExpanded ? (
-                <FolderOpen
-                  aria-hidden="true"
-                  className={cn(
-                    "size-3 shrink-0",
-                    nodeColorClass(gitStatus, true),
-                  )}
-                />
-              ) : (
-                <Folder
-                  aria-hidden="true"
-                  className={cn(
-                    "size-3 shrink-0",
-                    nodeColorClass(gitStatus, true),
-                  )}
-                />
-              )
-            ) : (
-              <FileCode2
-                aria-hidden="true"
-                className={cn(
-                  "size-3 shrink-0",
-                  nodeColorClass(gitStatus, false),
-                )}
-              />
-            )
+            <FileIcon
+              isDirectory={isDirectory}
+              isExpanded={isExpanded}
+              name={node.name}
+              path={node.path}
+            />
           }
           isDimmed={isIgnored}
           isSelected={isSelected}

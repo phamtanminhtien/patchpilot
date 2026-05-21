@@ -43,7 +43,7 @@ export function WorkspaceFileTreeItem({
       aria-current={isSelected ? "true" : undefined}
       aria-expanded={ariaExpanded}
       className={cn(
-        "hover:bg-hover grid min-h-7 w-full min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-1 py-0.5 pr-1.5 text-left text-xs",
+        "hover:bg-hover grid min-h-5.5 w-full min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-1 py-0.5 pr-1.5 text-left text-xs",
         isSelected ? "bg-hover text-ink" : undefined,
         isDimmed ? "opacity-55 hover:opacity-75" : undefined,
       )}

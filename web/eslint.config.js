@@ -49,10 +49,7 @@ export default tseslint.config(
       ],
       "@typescript-eslint/no-unused-vars": "off",
       "import/no-unused-modules": ["warn", { unusedExports: true }],
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
+      "react-refresh/only-export-components": "off",
       "simple-import-sort/exports": "warn",
       "simple-import-sort/imports": "warn",
       "unused-imports/no-unused-imports": "warn",
