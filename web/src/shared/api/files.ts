@@ -1,5 +1,9 @@
 import { apiClient } from "./client";
-import type { FileContent, FileListResponse } from "./types";
+import type {
+  FileContent,
+  FileListResponse,
+  FileSearchResponse,
+} from "./types";
 
 export async function listFiles(
   workspaceId: string,
@@ -22,6 +26,19 @@ export async function readFile(
     `/workspaces/${workspaceId}/file`,
     {
       params: { path },
+    },
+  );
+  return response.data;
+}
+
+export async function searchFiles(
+  workspaceId: string,
+  query: string,
+): Promise<FileSearchResponse> {
+  const response = await apiClient.get<FileSearchResponse>(
+    `/workspaces/${workspaceId}/search`,
+    {
+      params: { q: query },
     },
   );
   return response.data;

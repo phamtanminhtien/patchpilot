@@ -41,6 +41,17 @@ export interface FileContent {
   path: string;
 }
 
+export interface FileSearchResult {
+  kind: "filename" | "content";
+  line?: number;
+  path: string;
+  preview?: string;
+}
+
+export interface FileSearchResponse {
+  results: FileSearchResult[];
+}
+
 export interface GitStatus {
   porcelain: string;
 }

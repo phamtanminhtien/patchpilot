@@ -145,6 +145,13 @@ Health response:
 
 Health returns `503` with the standard REST error envelope when the app database is unavailable.
 
+File API response notes:
+
+- `GET /api/workspaces/:workspaceId/files?path=` returns `{"entries":[]}` for a workspace-relative directory.
+- `GET /api/workspaces/:workspaceId/file?path=` returns `{"path":"...","content":"..."}` for readable text files up to 1 MiB.
+- `GET /api/workspaces/:workspaceId/search?q=` returns `{"results":[]}` for basic filename/content matches under the workspace root.
+- File APIs ignore `.git`, `node_modules`, and `build` directories, skip symlinks while walking, and skip files larger than 1 MiB. Direct reads of ignored paths or files over 1 MiB return the standard REST error envelope.
+
 SSE envelope:
 
 ```json

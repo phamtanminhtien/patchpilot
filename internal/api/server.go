@@ -42,6 +42,7 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}", s.getWorkspace)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files", s.listFiles)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/file", s.readFile)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/search", s.searchFiles)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/status", s.gitStatus)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/diff", s.gitDiff)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
@@ -147,6 +148,19 @@ func (s *Server) readFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, file)
 }
 
+func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	results, err := s.files.Search(ws.RootPath, r.URL.Query().Get("q"))
+	if err != nil {
+		writeFileError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
 func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
@@ -222,8 +236,12 @@ func writeFileError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "invalid_path", "Path must be workspace-relative", nil)
 	case errors.Is(err, filestore.ErrOutsideRoot):
 		writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes workspace root", nil)
+	case errors.Is(err, filestore.ErrIgnoredPath):
+		writeError(w, http.StatusBadRequest, "ignored_path", "Path is ignored by the File API", nil)
 	case errors.Is(err, filestore.ErrNotTextFile):
 		writeError(w, http.StatusBadRequest, "not_text_file", "File is not a readable text file", nil)
+	case errors.Is(err, filestore.ErrFileTooLarge):
+		writeError(w, http.StatusBadRequest, "file_too_large", "File exceeds the max readable size", nil)
 	default:
 		writeError(w, http.StatusNotFound, "path_not_found", "Path not found", nil)
 	}

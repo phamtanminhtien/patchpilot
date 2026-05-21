@@ -182,6 +182,51 @@ func TestFileAndCommandHandlers(t *testing.T) {
 	}
 }
 
+func TestSearchFilesReturnsMatches(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	mustMkdirAll(t, filepath.Join(root, "src"))
+	if err := os.WriteFile(filepath.Join(root, "src", "note.txt"), []byte("hello world"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	response := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/search?q=hello", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Results []filestore.SearchResult `json:"results"`
+	}
+	mustDecode(t, response, &body)
+	if len(body.Results) != 1 || body.Results[0].Path != "src/note.txt" || body.Results[0].Kind != "content" {
+		t.Fatalf("unexpected search results: %+v", body.Results)
+	}
+}
+
+func TestReadLargeFileReturnsRestError(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), make([]byte, filestore.MaxReadableFileSize+1), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	response := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/file?path=large.txt", "")
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", response.Code, response.Body.String())
+	}
+	var body map[string]map[string]any
+	mustDecode(t, response, &body)
+	if body["error"]["code"] != "file_too_large" {
+		t.Fatalf("unexpected error body: %+v", body)
+	}
+}
+
 func newTestServer(t *testing.T, allowedRoot string) http.Handler {
 	t.Helper()
 	return newTestServerWithHealth(t, allowedRoot, fakeHealthChecker{})
