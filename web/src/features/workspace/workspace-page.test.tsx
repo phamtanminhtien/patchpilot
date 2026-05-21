@@ -129,6 +129,9 @@ describe("WorkspacePage", () => {
     expect(
       await screen.findByText(/export function App\(\)/),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/export function App\(\)/).closest("pre"),
+    ).toHaveClass("h-full", "min-h-0", "overflow-auto");
   });
 
   it("loads a selected Git diff from the change list", async () => {

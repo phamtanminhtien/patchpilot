@@ -204,7 +204,7 @@ export function WorkspacePage() {
           workspaceId={workspaceId}
         />
 
-        <div className="grid min-h-0 overflow-auto lg:contents">
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:contents">
           <WorkspaceSidebar
             activePanel={panel}
             files={filesQuery.data?.entries ?? []}
@@ -227,8 +227,8 @@ export function WorkspacePage() {
             }
           />
 
-          <main className="grid min-h-[34rem] lg:min-h-0 lg:grid-rows-[minmax(0,1fr)_10rem] lg:overflow-hidden">
-            <section className="workspace-main-scroll bg-panel min-h-0 overflow-auto shadow-md">
+          <main className="grid min-h-0 grid-rows-[minmax(0,1fr)_10rem] overflow-hidden">
+            <section className="workspace-main-scroll bg-panel min-h-0 overflow-hidden shadow-md">
               {panel === "files" ? (
                 <FilesPanel
                   file={fileQuery.data?.content}
@@ -588,7 +588,7 @@ function FilesPanel({
   }
 
   return (
-    <pre className="workspace-main-scroll text-ink min-h-full overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
+    <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
       {file ?? "File content will appear here."}
     </pre>
   );
@@ -646,7 +646,7 @@ function GitPanel({
   }
 
   return (
-    <pre className="workspace-main-scroll text-ink min-h-full overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
+    <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
       {diff}
     </pre>
   );
