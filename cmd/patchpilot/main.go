@@ -9,9 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/phamtanminhtien/patchpilot/internal/agent"
 	"github.com/phamtanminhtien/patchpilot/internal/api"
 	"github.com/phamtanminhtien/patchpilot/internal/config"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
+	"github.com/phamtanminhtien/patchpilot/internal/events"
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
 	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 	"github.com/phamtanminhtien/patchpilot/internal/logging"
@@ -50,12 +52,16 @@ func run(cfg config.Config, logger *zap.Logger) error {
 	}()
 
 	gitClient := gitrepo.NewClient()
+	fileService := filestore.NewService()
+	run := runner.NewRunner()
+	hub := events.NewHub()
 	workspaces, err := workspace.NewManager(cfg.AllowedRoots, store, gitClient)
 	if err != nil {
 		return err
 	}
+	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, agent.NewOpenAIProvider(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL))
 
-	server := api.NewServer(workspaces, filestore.NewService(), gitClient, runner.NewRunner(), store, store)
+	server := api.NewServer(workspaces, fileService, gitClient, run, store, hub, agentManager, store)
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           server.RoutesWithStatic(cfg.StaticDir),

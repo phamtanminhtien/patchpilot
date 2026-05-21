@@ -12,8 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/phamtanminhtien/patchpilot/internal/agent"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
+	"github.com/phamtanminhtien/patchpilot/internal/events"
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
 	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
@@ -26,6 +29,31 @@ type fakeHealthChecker struct {
 
 func (f fakeHealthChecker) Ping(context.Context) error {
 	return f.err
+}
+
+type fakeAgentProvider struct{}
+
+func (fakeAgentProvider) Configured() bool {
+	return true
+}
+
+type unavailableAgentProvider struct{}
+
+func (unavailableAgentProvider) Configured() bool {
+	return false
+}
+
+func (unavailableAgentProvider) Generate(context.Context, agent.ProviderRequest, *agent.Tools, agent.Stream) (agent.ProviderResult, error) {
+	return agent.ProviderResult{}, agent.ErrProviderUnavailable
+}
+
+func (fakeAgentProvider) Generate(ctx context.Context, request agent.ProviderRequest, _ *agent.Tools, stream agent.Stream) (agent.ProviderResult, error) {
+	stream.Delta(ctx, "fake provider response")
+	return agent.ProviderResult{
+		Plan:    "Inspect workspace and propose a patch.",
+		Summary: "Fake provider completed.",
+		Patch:   "diff --git a/example.txt b/example.txt\n",
+	}, nil
 }
 
 func TestHealthCheckReturnsOK(t *testing.T) {
@@ -207,6 +235,81 @@ func TestCommandHandlersConfirmAndBlockBySafety(t *testing.T) {
 	mustDecode(t, blocked, &blockedBody)
 	if blockedBody["error"]["code"] != "blocked_command" {
 		t.Fatalf("unexpected blocked body: %+v", blockedBody)
+	}
+}
+
+func TestAgentTaskHandlersCreateListAndGet(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks", `{"prompt":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+	var task agent.Task
+	mustDecode(t, response, &task)
+	if !strings.HasPrefix(task.ID, "task_") || task.Model != "gpt-5.5" || task.ReasoningEffort != "medium" {
+		t.Fatalf("unexpected task: %+v", task)
+	}
+
+	detail := waitForAgentDetail(t, server, ws.ID, task.ID, "waiting_approval")
+	if len(detail.Patches) != 1 {
+		t.Fatalf("expected one patch, got %+v", detail.Patches)
+	}
+
+	list := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/agent/tasks", "")
+	if list.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", list.Code, list.Body.String())
+	}
+	var listBody struct {
+		Tasks []agent.Task `json:"tasks"`
+	}
+	mustDecode(t, list, &listBody)
+	if len(listBody.Tasks) != 1 || listBody.Tasks[0].ID != task.ID {
+		t.Fatalf("unexpected task list: %+v", listBody.Tasks)
+	}
+}
+
+func TestAgentTaskHandlersValidateInputAndProvider(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	for name, testCase := range map[string]struct {
+		body string
+		code string
+	}{
+		"empty prompt": {`{"prompt":"","model":"gpt-5.5","reasoningEffort":"medium"}`, "empty_prompt"},
+		"bad model":    {`{"prompt":"fix","model":"bad","reasoningEffort":"medium"}`, "invalid_model"},
+		"bad effort":   {`{"prompt":"fix","model":"gpt-5.5","reasoningEffort":"none"}`, "invalid_reasoning_effort"},
+	} {
+		response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks", testCase.body)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected 400, got %d: %s", name, response.Code, response.Body.String())
+		}
+		var errorBody map[string]map[string]any
+		mustDecode(t, response, &errorBody)
+		if errorBody["error"]["code"] != testCase.code {
+			t.Fatalf("%s: expected %q, got %+v", name, testCase.code, errorBody)
+		}
+	}
+
+	unavailable := newTestServerWithAgentProvider(t, root, filepath.Join(t.TempDir(), "patchpilot.db"), fakeHealthChecker{}, unavailableAgentProvider{})
+	create = request(unavailable, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	mustDecode(t, create, &ws)
+	response := request(unavailable, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks", `{"prompt":"fix","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", response.Code, response.Body.String())
+	}
+	var errorBody map[string]map[string]any
+	mustDecode(t, response, &errorBody)
+	if errorBody["error"]["code"] != "agent_provider_unavailable" {
+		t.Fatalf("unexpected provider error: %+v", errorBody)
 	}
 }
 
@@ -465,6 +568,10 @@ func newTestServerWithHealth(t *testing.T, allowedRoot string, health HealthChec
 }
 
 func newTestServerWithDBPath(t *testing.T, allowedRoot string, dbPath string, health HealthChecker) http.Handler {
+	return newTestServerWithAgentProvider(t, allowedRoot, dbPath, health, fakeAgentProvider{})
+}
+
+func newTestServerWithAgentProvider(t *testing.T, allowedRoot string, dbPath string, health HealthChecker, provider agent.Provider) http.Handler {
 	t.Helper()
 	store, err := database.Open(dbPath)
 	if err != nil {
@@ -482,7 +589,31 @@ func newTestServerWithDBPath(t *testing.T, allowedRoot string, dbPath string, he
 	if health == nil {
 		health = store
 	}
-	return NewServer(manager, filestore.NewService(), gitrepo.NewClient(), runner.NewRunner(), store, health).Routes()
+	fileService := filestore.NewService()
+	gitClient := gitrepo.NewClient()
+	run := runner.NewRunner()
+	hub := events.NewHub()
+	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, provider)
+	return NewServer(manager, fileService, gitClient, run, store, hub, agentManager, health).Routes()
+}
+
+func waitForAgentDetail(t *testing.T, handler http.Handler, workspaceID, taskID, status string) agent.Detail {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		response := request(handler, http.MethodGet, "/api/workspaces/"+workspaceID+"/agent/tasks/"+taskID, "")
+		if response.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+		}
+		var detail agent.Detail
+		mustDecode(t, response, &detail)
+		if detail.Task.Status == status {
+			return detail
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("task did not reach %s", status)
+	return agent.Detail{}
 }
 
 func request(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {

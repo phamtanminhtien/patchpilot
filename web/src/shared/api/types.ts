@@ -130,3 +130,99 @@ export interface CommandEvent {
   type: "process.started" | "command.output" | "process.exited";
   workspaceId: string;
 }
+
+export type AgentTaskStatus =
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "applying"
+  | "testing"
+  | "done"
+  | "rejected"
+  | "failed";
+
+export type AgentModel = "gpt-5.5" | "gpt-5.4" | "gpt-5.4-mini";
+
+export type AgentReasoningEffort = "low" | "medium" | "high" | "xhigh";
+
+export interface CreateAgentTaskRequest {
+  model: AgentModel;
+  prompt: string;
+  reasoningEffort: AgentReasoningEffort;
+}
+
+export interface AgentTask {
+  createdAt: string;
+  error?: string | null;
+  finishedAt?: string | null;
+  generatedPatch: string;
+  id: string;
+  model: AgentModel;
+  plan: string;
+  prompt: string;
+  reasoningEffort: AgentReasoningEffort;
+  startedAt?: string | null;
+  status: AgentTaskStatus;
+  summary: string;
+  updatedAt: string;
+  workspaceId: string;
+}
+
+export interface AgentTaskListResponse {
+  tasks: AgentTask[];
+}
+
+export interface AgentTaskEvent {
+  createdAt: string;
+  id: string;
+  payload: unknown;
+  taskId: string;
+  type:
+    | "agent.delta"
+    | "agent.tool.started"
+    | "agent.tool.finished"
+    | "agent.approval_required"
+    | "agent.task.status_changed"
+    | "patch.created";
+  workspaceId: string;
+}
+
+export interface AgentToolCall {
+  createdAt: string;
+  finishedAt?: string | null;
+  id: string;
+  input: string;
+  name: string;
+  output: string;
+  startedAt?: string | null;
+  status: "running" | "finished" | "failed";
+  taskId: string;
+  workspaceId: string;
+}
+
+export interface AgentPatch {
+  appliedAt?: string | null;
+  baseCommit?: string | null;
+  createdAt: string;
+  diff: string;
+  id: string;
+  status: string;
+  summary: string;
+  taskId: string;
+  workspaceId: string;
+}
+
+export interface AgentTaskDetail {
+  events: AgentTaskEvent[];
+  patches: AgentPatch[];
+  task: AgentTask;
+  toolCalls: AgentToolCall[];
+}
+
+export interface WorkspaceEvent {
+  createdAt: string;
+  id: string;
+  payload: unknown;
+  type: CommandEvent["type"] | AgentTaskEvent["type"];
+  workspaceId: string;
+}

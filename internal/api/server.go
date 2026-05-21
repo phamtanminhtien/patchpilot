@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/phamtanminhtien/patchpilot/internal/agent"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
 	"github.com/phamtanminhtien/patchpilot/internal/events"
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
@@ -25,6 +26,7 @@ type Server struct {
 	runner     *runner.Runner
 	store      *database.Store
 	events     *events.Hub
+	agent      *agent.Manager
 	health     HealthChecker
 }
 
@@ -32,8 +34,11 @@ type HealthChecker interface {
 	Ping(context.Context) error
 }
 
-func NewServer(workspaces *workspace.Manager, files *filestore.Service, git *gitrepo.Client, runner *runner.Runner, store *database.Store, health HealthChecker) *Server {
-	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, store: store, events: events.NewHub(), health: health}
+func NewServer(workspaces *workspace.Manager, files *filestore.Service, git *gitrepo.Client, runner *runner.Runner, store *database.Store, hub *events.Hub, agentManager *agent.Manager, health HealthChecker) *Server {
+	if hub == nil {
+		hub = events.NewHub()
+	}
+	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, store: store, events: hub, agent: agentManager, health: health}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -57,6 +62,10 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/unstage", s.gitUnstage)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/discard", s.gitDiscard)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/commit", s.gitCommit)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks", s.createAgentTask)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/tasks", s.listAgentTasks)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/tasks/{taskId}", s.getAgentTask)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks/{taskId}/cancel", s.cancelAgentTask)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes", s.listProcesses)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes/{processId}", s.getProcess)
@@ -102,6 +111,12 @@ type createWorkspaceRequest struct {
 type createCommandRequest struct {
 	Command   string `json:"command"`
 	Confirmed bool   `json:"confirmed"`
+}
+
+type createAgentTaskRequest struct {
+	Prompt          string `json:"prompt"`
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoningEffort"`
 }
 
 type gitStageRequest struct {
@@ -339,6 +354,83 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, commit)
 }
 
+func (s *Server) createAgentTask(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
+		return
+	}
+	var req createAgentTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	task, err := s.agent.Create(r.Context(), ws.ID, ws.RootPath, agent.CreateTaskInput{
+		Prompt:          req.Prompt,
+		Model:           req.Model,
+		ReasoningEffort: req.ReasoningEffort,
+	})
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
+}
+
+func (s *Server) listAgentTasks(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
+		return
+	}
+	tasks, err := s.agent.List(r.Context(), ws.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "agent_task_list_failed", "Agent tasks could not be listed", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+}
+
+func (s *Server) getAgentTask(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
+		return
+	}
+	detail, err := s.agent.Detail(r.Context(), ws.ID, r.PathValue("taskId"))
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) cancelAgentTask(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
+		return
+	}
+	task, err := s.agent.Cancel(r.Context(), ws.ID, r.PathValue("taskId"))
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
 func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
@@ -465,6 +557,7 @@ func (s *Server) workspaceEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	s.replayAgentEvents(r.Context(), w, ws.ID)
 	s.replayCommandEvents(r.Context(), w, ws.ID)
 	flusher.Flush()
 	events, unsubscribe := s.events.Subscribe()
@@ -554,6 +647,26 @@ func (s *Server) replayCommandEvents(ctx context.Context, w http.ResponseWriter,
 				Payload:     commandResponseFromRecord(command),
 			})
 		}
+	}
+}
+
+func (s *Server) replayAgentEvents(ctx context.Context, w http.ResponseWriter, workspaceID string) {
+	taskEvents, err := s.store.ListAgentTaskEvents(ctx, workspaceID, "")
+	if err != nil {
+		return
+	}
+	for _, event := range taskEvents {
+		var payload any
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			continue
+		}
+		writeSSE(w, events.Event{
+			ID:          event.ID,
+			WorkspaceID: workspaceID,
+			Type:        event.Type,
+			CreatedAt:   event.CreatedAt,
+			Payload:     payload,
+		})
 	}
 }
 
@@ -694,6 +807,23 @@ func writeProcessError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "process_not_found", "Process not found", nil)
 	default:
 		writeError(w, http.StatusInternalServerError, "process_failed", "Process request failed", nil)
+	}
+}
+
+func writeAgentError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, agent.ErrEmptyPrompt):
+		writeError(w, http.StatusBadRequest, "empty_prompt", "Prompt is required", nil)
+	case errors.Is(err, agent.ErrInvalidModel):
+		writeError(w, http.StatusBadRequest, "invalid_model", "Model is not supported", nil)
+	case errors.Is(err, agent.ErrInvalidEffort):
+		writeError(w, http.StatusBadRequest, "invalid_reasoning_effort", "Reasoning effort is not supported", nil)
+	case errors.Is(err, agent.ErrProviderUnavailable):
+		writeError(w, http.StatusBadRequest, "agent_provider_unavailable", "OpenAI provider is not configured", nil)
+	case errors.Is(err, agent.ErrTaskNotFound):
+		writeError(w, http.StatusNotFound, "agent_task_not_found", "Agent task not found", nil)
+	default:
+		writeError(w, http.StatusInternalServerError, "agent_task_failed", "Agent task request failed", nil)
 	}
 }
 

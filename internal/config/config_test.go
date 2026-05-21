@@ -32,6 +32,9 @@ func TestLoadFromEnvUsesDefaults(t *testing.T) {
 	if cfg.LogFormat != "console" {
 		t.Fatalf("expected default console log format, got %q", cfg.LogFormat)
 	}
+	if cfg.OpenAIBaseURL != defaultOpenAIBaseURL {
+		t.Fatalf("expected default OpenAI base URL, got %q", cfg.OpenAIBaseURL)
+	}
 }
 
 func TestLoadFromEnvUsesOverrides(t *testing.T) {
@@ -53,6 +56,10 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 			return "web/dist"
 		case "PATCHPILOT_LOG_FORMAT":
 			return "JSON"
+		case "PATCHPILOT_OPENAI_API_KEY":
+			return "sk-test"
+		case "PATCHPILOT_OPENAI_BASE_URL":
+			return "https://proxy.example/v1/"
 		default:
 			return ""
 		}
@@ -74,6 +81,12 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 	}
 	if cfg.LogFormat != "json" {
 		t.Fatalf("unexpected log format: %q", cfg.LogFormat)
+	}
+	if cfg.OpenAIAPIKey != "sk-test" {
+		t.Fatalf("unexpected OpenAI API key: %q", cfg.OpenAIAPIKey)
+	}
+	if cfg.OpenAIBaseURL != "https://proxy.example/v1" {
+		t.Fatalf("unexpected OpenAI base URL: %q", cfg.OpenAIBaseURL)
 	}
 }
 

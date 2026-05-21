@@ -45,6 +45,118 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if !store.db.Migrator().HasTable(&CommandOutputRecord{}) {
 		t.Fatal("expected command_output table to be migrated")
 	}
+	if !store.db.Migrator().HasTable(&AgentTaskRecord{}) {
+		t.Fatal("expected agent_tasks table to be migrated")
+	}
+	if !store.db.Migrator().HasTable(&AgentTaskEventRecord{}) {
+		t.Fatal("expected agent_task_events table to be migrated")
+	}
+	if !store.db.Migrator().HasTable(&AgentToolCallRecord{}) {
+		t.Fatal("expected agent_tool_calls table to be migrated")
+	}
+	if !store.db.Migrator().HasTable(&PatchRecord{}) {
+		t.Fatal("expected patches table to be migrated")
+	}
+}
+
+func TestAgentTaskRepositoryPersistsEventsToolsAndPatches(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	}()
+
+	createdAt := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	task, err := store.CreateAgentTask(ctx, AgentTaskRecord{
+		WorkspaceID:     "ws_1",
+		Prompt:          "fix bug",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+		Status:          "queued",
+		CreatedAt:       createdAt,
+		UpdatedAt:       createdAt,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentTask returned error: %v", err)
+	}
+	if task.ID == "" || task.Model != "gpt-5.5" || task.ReasoningEffort != "medium" {
+		t.Fatalf("unexpected task: %+v", task)
+	}
+
+	startedAt := createdAt.Add(time.Second)
+	task, err = store.UpdateAgentTask(ctx, "ws_1", task.ID, map[string]any{
+		"status":     "running",
+		"started_at": startedAt,
+		"plan":       "inspect",
+	})
+	if err != nil {
+		t.Fatalf("UpdateAgentTask returned error: %v", err)
+	}
+	if task.Status != "running" || task.Plan != "inspect" || task.StartedAt == nil {
+		t.Fatalf("unexpected updated task: %+v", task)
+	}
+
+	event, err := store.CreateAgentTaskEvent(ctx, AgentTaskEventRecord{
+		WorkspaceID: "ws_1",
+		TaskID:      task.ID,
+		Type:        "agent.delta",
+		PayloadJSON: `{"text":"hello"}`,
+		CreatedAt:   startedAt.Add(time.Millisecond),
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentTaskEvent returned error: %v", err)
+	}
+	events, err := store.ListAgentTaskEvents(ctx, "ws_1", task.ID)
+	if err != nil {
+		t.Fatalf("ListAgentTaskEvents returned error: %v", err)
+	}
+	if len(events) != 1 || events[0].ID != event.ID {
+		t.Fatalf("unexpected events: %+v", events)
+	}
+
+	call, err := store.CreateAgentToolCall(ctx, AgentToolCallRecord{
+		WorkspaceID: "ws_1",
+		TaskID:      task.ID,
+		Name:        "git_status",
+		InputJSON:   "{}",
+		OutputJSON:  "{}",
+		Status:      "running",
+		StartedAt:   &startedAt,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentToolCall returned error: %v", err)
+	}
+	finishedAt := startedAt.Add(time.Second)
+	call, err = store.FinishAgentToolCall(ctx, "ws_1", task.ID, call.ID, "finished", `{"ok":true}`, finishedAt)
+	if err != nil {
+		t.Fatalf("FinishAgentToolCall returned error: %v", err)
+	}
+	if call.Status != "finished" || call.OutputJSON != `{"ok":true}` || call.FinishedAt == nil {
+		t.Fatalf("unexpected call: %+v", call)
+	}
+
+	patch, err := store.CreatePatch(ctx, PatchRecord{
+		WorkspaceID: "ws_1",
+		TaskID:      task.ID,
+		Diff:        "diff --git a/a b/a\n",
+		Summary:     "patch",
+		Status:      "created",
+	})
+	if err != nil {
+		t.Fatalf("CreatePatch returned error: %v", err)
+	}
+	patches, err := store.ListPatches(ctx, "ws_1", task.ID)
+	if err != nil {
+		t.Fatalf("ListPatches returned error: %v", err)
+	}
+	if len(patches) != 1 || patches[0].ID != patch.ID {
+		t.Fatalf("unexpected patches: %+v", patches)
+	}
 }
 
 func TestCommandRepositoryPersistsLifecycleAndOutput(t *testing.T) {

@@ -9,18 +9,21 @@ import (
 )
 
 const (
-	defaultAddr    = "127.0.0.1:8080"
-	defaultDataDir = ".patchpilot"
-	defaultDBName  = "patchpilot.db"
+	defaultAddr          = "127.0.0.1:8080"
+	defaultDataDir       = ".patchpilot"
+	defaultDBName        = "patchpilot.db"
+	defaultOpenAIBaseURL = "https://api.openai.com/v1"
 )
 
 type Config struct {
-	Addr         string
-	AllowedRoots []string
-	DataDir      string
-	DBPath       string
-	LogFormat    string
-	StaticDir    string
+	Addr          string
+	AllowedRoots  []string
+	DataDir       string
+	DBPath        string
+	LogFormat     string
+	OpenAIAPIKey  string
+	OpenAIBaseURL string
+	StaticDir     string
 }
 
 func Load() (Config, error) {
@@ -89,13 +92,23 @@ func LoadFromEnv(cwd string, home string, getenv func(string) string) (Config, e
 	}
 
 	return Config{
-		Addr:         addr,
-		AllowedRoots: allowedRoots,
-		DataDir:      dataDir,
-		DBPath:       dbPath,
-		LogFormat:    logFormat,
-		StaticDir:    staticDir,
+		Addr:          addr,
+		AllowedRoots:  allowedRoots,
+		DataDir:       dataDir,
+		DBPath:        dbPath,
+		LogFormat:     logFormat,
+		OpenAIAPIKey:  strings.TrimSpace(getenv("PATCHPILOT_OPENAI_API_KEY")),
+		OpenAIBaseURL: openAIBaseURL(getenv("PATCHPILOT_OPENAI_BASE_URL")),
+		StaticDir:     staticDir,
 	}, nil
+}
+
+func openAIBaseURL(value string) string {
+	value = strings.TrimRight(strings.TrimSpace(value), "/")
+	if value == "" {
+		return defaultOpenAIBaseURL
+	}
+	return value
 }
 
 func splitPathList(value, fallback string) ([]string, error) {

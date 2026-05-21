@@ -40,11 +40,19 @@ Show readiness while indexing and Git status after load.
 AI task:
 
 ```txt
-prompt -> create task -> agent reads/searches approved files
+prompt + model + reasoning effort -> create task -> agent reads/searches approved files
 -> stream progress -> return plan/summary/patch -> wait for approval
 ```
 
 Timeline includes deltas, tool starts/finishes, command output, patch creation, status changes.
+Vibe Mode sends `model` and `reasoningEffort` with every task. Initial model
+choices are `gpt-5.5`, `gpt-5.4`, and `gpt-5.4-mini`; initial reasoning
+effort choices are `low`, `medium`, `high`, and `xhigh`. `gpt-5.5` and
+`medium` are the default UI selections. `PATCHPILOT_OPENAI_API_KEY` is the
+required provider secret and is backend-only. `PATCHPILOT_OPENAI_BASE_URL`
+optionally overrides the OpenAI-compatible API base URL; when unset it defaults
+to `https://api.openai.com/v1`, and the provider calls `/responses` under that
+base URL.
 
 Review patch:
 
@@ -188,6 +196,13 @@ SSE envelope:
 
 Events: `workspace.ready`, `workspace.indexing`, `agent.delta`, `agent.tool.started`, `agent.tool.finished`, `agent.approval_required`, `agent.task.status_changed`, `patch.created`, `patch.applied`, `patch.rejected`, `command.output`, `process.started`, `process.exited`, `port.opened`, `port.exposed`, `git.changed`.
 
+Agent task API response notes:
+
+- `POST /api/workspaces/:workspaceId/agent/tasks` accepts `{"prompt":"...","model":"gpt-5.5","reasoningEffort":"medium"}` and returns `202` with a task.
+- `GET /api/workspaces/:workspaceId/agent/tasks` returns `{"tasks":[]}` newest-first.
+- `GET /api/workspaces/:workspaceId/agent/tasks/:taskId` returns `{"task":{...},"events":[],"toolCalls":[],"patches":[]}`.
+- `Task` fields: `id`, `workspaceId`, `prompt`, `model`, `reasoningEffort`, `status`, `plan`, `summary`, `error?`, `generatedPatch`, `createdAt`, `updatedAt`, `startedAt?`, `finishedAt?`.
+
 Command API response notes:
 
 - `POST /api/workspaces/:workspaceId/commands` accepts `{"command":"...","confirmed":false}`.
@@ -241,14 +256,15 @@ SQLite app state; source files on disk; Git owns repo history.
 PatchPilot-owned state may live in the default app space at `~/.patchpilot`.
 Workspace source files stay in their original repositories and are not copied into app space.
 
-Runtime config loads from OS environment variables, falling back to a local `.env` file in the process working directory. OS environment variables override `.env` values. `PATCHPILOT_ADDR` controls the backend listen address, `PATCHPILOT_ALLOWED_ROOTS` controls the OS path-list of allowed workspace roots, `PATCHPILOT_STATIC_DIR` optionally serves the built frontend, `PATCHPILOT_LOG_FORMAT` selects colorized `console` logs or `json` logs, and `PATCHPILOT_DB_PATH` overrides the SQLite database path. When `PATCHPILOT_DB_PATH` is unset, `PATCHPILOT_DATA_DIR` controls the directory for `patchpilot.db`; otherwise `~/.patchpilot/patchpilot.db` is used.
+Runtime config loads from OS environment variables, falling back to a local `.env` file in the process working directory. OS environment variables override `.env` values. `PATCHPILOT_ADDR` controls the backend listen address, `PATCHPILOT_ALLOWED_ROOTS` controls the OS path-list of allowed workspace roots, `PATCHPILOT_STATIC_DIR` optionally serves the built frontend, `PATCHPILOT_LOG_FORMAT` selects colorized `console` logs or `json` logs, `PATCHPILOT_OPENAI_API_KEY` configures the OpenAI-compatible provider secret, `PATCHPILOT_OPENAI_BASE_URL` optionally overrides the OpenAI-compatible API base URL, and `PATCHPILOT_DB_PATH` overrides the SQLite database path. When `PATCHPILOT_DB_PATH` is unset, `PATCHPILOT_DATA_DIR` controls the directory for `patchpilot.db`; otherwise `~/.patchpilot/patchpilot.db` is used.
 
 - `auth_sessions`: `id`, `session_hash`, `created_at`, `last_seen_at`, `expires_at`.
 - `workspaces`: `id`, `name`, `root_path`, `git_remote?`, `default_branch?`, `status(indexing|ready|error)`, timestamps.
 - `file_index`: `workspace_id`, `path`, `size`, `modified_at`, `indexed_at`.
 - `sessions`: `id`, `workspace_id`, `title`, `mode(vibe|workspace)`, timestamps.
-- `agent_tasks`: `id`, `workspace_id`, `session_id`, `prompt`, `status`, `plan?`, `summary?`, `error?`, timestamps.
-- `task_events`: `id`, `task_id`, `type`, `payload_json`, `created_at`.
+- `agent_tasks`: `id`, `workspace_id`, `session_id`, `prompt`, `model`, `reasoning_effort`, `status`, `plan?`, `summary?`, `error?`, `generated_patch?`, timestamps.
+- `agent_task_events`: `id`, `workspace_id`, `task_id`, `type`, `payload_json`, `created_at`.
+- `agent_tool_calls`: `id`, `workspace_id`, `task_id`, `name`, `input_json`, `output_json`, `status`, timestamps.
 - `patches`: `id`, `workspace_id`, `task_id`, `base_commit?`, `diff`, `summary`, `status`, `applied_at?`, `created_at`.
 - `commands`: `id`, `workspace_id`, `task_id?`, `command`, `cwd`, `status`, `exit_code?`, `started_at?`, `finished_at?`, `created_at`.
 - `command_output`: `id`, `command_id`, `stream(stdout|stderr)`, `chunk`, `created_at`.
