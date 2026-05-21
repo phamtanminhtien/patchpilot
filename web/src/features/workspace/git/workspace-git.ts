@@ -29,6 +29,40 @@ export function parseGitPorcelain(porcelain: string): GitChange[] {
     });
 }
 
+export function stagedGitPaths(changes: GitChange[]) {
+  return changes.filter(isStagedGitChange).map((change) => change.path);
+}
+
+export function unstagedGitPaths(changes: GitChange[]) {
+  return changes
+    .filter(
+      (change) => isUnstagedGitChange(change) && isGitChangeStageable(change),
+    )
+    .map((change) => change.path);
+}
+
+export function visibleGitChanges(changes: GitChange[]) {
+  return changes.filter((change) => !isIgnoredGitChange(change));
+}
+
+export function isGitChangeStageable(change: GitChange) {
+  return change.status !== "Ignored";
+}
+
+export function isIgnoredGitChange(change: GitChange) {
+  return change.status === "Ignored";
+}
+
+export function isStagedGitChange(change: GitChange) {
+  const indexStatus = change.code[0] ?? " ";
+  return indexStatus !== " " && indexStatus !== "?" && indexStatus !== "!";
+}
+
+export function isUnstagedGitChange(change: GitChange) {
+  const worktreeStatus = change.code[1] ?? " ";
+  return worktreeStatus !== " ";
+}
+
 function pathFromDisplay(displayPath: string) {
   const renameSeparator = " -> ";
   if (!displayPath.includes(renameSeparator)) {

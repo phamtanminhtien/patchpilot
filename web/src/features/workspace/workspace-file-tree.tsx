@@ -4,12 +4,15 @@ import { useMemo, useState } from "react";
 import type { FileIndexEntry } from "@/shared/api";
 import { cn, HoverCard } from "@/shared/ui";
 
+import type { GitChange } from "./git/workspace-git";
+import {
+  gitStatusBadgeCode,
+  gitStatusTextTone,
+} from "./git/workspace-git-status";
 import {
   WorkspaceFileTreeItem,
   type WorkspaceFileTreeStatus,
 } from "./workspace-file-tree-item";
-import type { GitChange } from "./workspace-git";
-import { gitStatusBadgeCode, gitStatusTextTone } from "./workspace-git-status";
 
 type FileTreeNode = {
   children: FileTreeNode[];

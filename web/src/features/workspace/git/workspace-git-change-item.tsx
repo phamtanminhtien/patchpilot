@@ -42,14 +42,14 @@ export function WorkspaceGitChangeItem({
   return (
     <div
       className={cn(
-        "group hover:bg-hover focus-within:bg-hover grid min-h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 px-2 text-xs",
+        "group hover:bg-hover focus-within:bg-hover relative grid min-h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 text-xs",
         isSelected ? "bg-hover text-ink" : undefined,
       )}
     >
       <button
         aria-current={isSelected ? "true" : undefined}
         aria-label={change.path}
-        className="grid min-h-7 min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-1 py-0.5 pr-1 text-left"
+        className="grid min-h-7 min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-1 py-0.5 pr-1 text-left transition-[padding] group-focus-within:pr-12 group-hover:pr-12"
         onClick={() => onSelect(change.path)}
         title={change.displayPath}
         type="button"
@@ -59,19 +59,18 @@ export function WorkspaceGitChangeItem({
           className={cn("size-3 shrink-0", gitStatusTextTone(change.status))}
         />
         <span className="flex min-w-0 items-baseline gap-1">
-          <span className="text-ink min-w-0 truncate font-medium">
+          <span className="text-ink max-w-full min-w-0 shrink-0 truncate">
             {filename}
           </span>
           {directory ? (
-            <>
-              <span className="text-muted shrink-0">-</span>
-              <span className="text-muted min-w-0 truncate">{directory}</span>
-            </>
+            <span className="text-muted min-w-0 truncate opacity-70">
+              {directory}
+            </span>
           ) : null}
         </span>
       </button>
 
-      <div className="pointer-events-none flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
+      <div className="bg-hover pointer-events-none absolute top-1/2 right-7 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
         {actionKind === "changes" ? (
           <>
             <GitChangeActionButton

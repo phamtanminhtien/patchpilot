@@ -3,7 +3,10 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/shared/ui";
 
-import { gitStatusBadgeCode, gitStatusBadgeTone } from "./workspace-git-status";
+import {
+  gitStatusBadgeCode,
+  gitStatusBadgeTone,
+} from "./git/workspace-git-status";
 
 export interface WorkspaceFileTreeStatus {
   code: string;

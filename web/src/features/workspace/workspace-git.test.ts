@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { parseGitPorcelain } from "./workspace-git";
+import {
+  isGitChangeStageable,
+  isIgnoredGitChange,
+  isStagedGitChange,
+  isUnstagedGitChange,
+  parseGitPorcelain,
+  stagedGitPaths,
+  unstagedGitPaths,
+  visibleGitChanges,
+} from "./git/workspace-git";
 
 describe("parseGitPorcelain", () => {
   it("maps porcelain rows into readable change records", () => {
@@ -51,5 +60,38 @@ describe("parseGitPorcelain", () => {
       path: "dist/",
       status: "Ignored",
     });
+  });
+
+  it("derives visible, staged, and unstaged path sets", () => {
+    const changes = parseGitPorcelain(
+      "M  staged.txt\n M changed.txt\n?? scratch.md\n!! dist/",
+    );
+
+    expect(stagedGitPaths(changes)).toEqual(["staged.txt"]);
+    expect(unstagedGitPaths(changes)).toEqual(["changed.txt", "scratch.md"]);
+    expect(visibleGitChanges(changes).map((change) => change.path)).toEqual([
+      "staged.txt",
+      "changed.txt",
+      "scratch.md",
+    ]);
+  });
+
+  it("classifies individual change states", () => {
+    const changes = parseGitPorcelain(
+      "M  staged.txt\n M changed.txt\n?? scratch.md\n!! dist/",
+    );
+    const staged = changes[0]!;
+    const changed = changes[1]!;
+    const untracked = changes[2]!;
+    const ignored = changes[3]!;
+
+    expect(isStagedGitChange(staged)).toBe(true);
+    expect(isUnstagedGitChange(staged)).toBe(false);
+    expect(isStagedGitChange(changed)).toBe(false);
+    expect(isUnstagedGitChange(changed)).toBe(true);
+    expect(isStagedGitChange(untracked)).toBe(false);
+    expect(isUnstagedGitChange(untracked)).toBe(true);
+    expect(isIgnoredGitChange(ignored)).toBe(true);
+    expect(isGitChangeStageable(ignored)).toBe(false);
   });
 });
