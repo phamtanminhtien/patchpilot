@@ -8,7 +8,9 @@ export function ErrorState({
   message: string;
 }) {
   return (
-    <p className={cn("text-warning text-xs font-medium", className)}>
+    <p
+      className={cn("text-warning text-center text-xs font-medium", className)}
+    >
       {message}
     </p>
   );

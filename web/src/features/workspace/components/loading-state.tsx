@@ -13,7 +13,7 @@ export function LoadingState({
     <div
       aria-label={label}
       className={cn(
-        "text-muted flex min-h-9 items-center gap-1.5 text-xs",
+        "text-muted flex h-full min-h-9 w-full items-center justify-center gap-1.5 text-center text-xs",
         className,
       )}
     >

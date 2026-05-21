@@ -1,10 +1,11 @@
-import { Copy, RefreshCw } from "lucide-react";
+import { Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { FileIndexEntry } from "@/shared/api";
 import { FileIcon } from "@/shared/file-icons";
 import { cn, HoverCard } from "@/shared/ui";
 
+import { LoadingState } from "./components/loading-state";
 import type { GitChange } from "./git/workspace-git";
 import {
   gitStatusBadgeCode,
@@ -399,18 +400,6 @@ function EmptyState({ message }: { message: string }) {
 
 function ErrorState({ message }: { message: string }) {
   return <p className="text-warning text-xs font-medium">{message}</p>;
-}
-
-function LoadingState({ label }: { label: string }) {
-  return (
-    <div
-      aria-label={label}
-      className="text-muted flex min-h-9 items-center gap-1.5 text-xs"
-    >
-      <RefreshCw aria-hidden="true" className="size-4 shrink-0 animate-spin" />
-      <span>{label}...</span>
-    </div>
-  );
 }
 
 function formatFileSize(size: number) {
