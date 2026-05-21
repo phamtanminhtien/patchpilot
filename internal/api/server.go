@@ -8,16 +8,16 @@ import (
 	"os"
 	"path/filepath"
 
-	fileapi "github.com/phamtanminhtien/patchpilot/internal/files"
-	gitapi "github.com/phamtanminhtien/patchpilot/internal/git"
+	"github.com/phamtanminhtien/patchpilot/internal/filestore"
+	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
 	"github.com/phamtanminhtien/patchpilot/internal/workspace"
 )
 
 type Server struct {
 	workspaces *workspace.Manager
-	files      *fileapi.Service
-	git        *gitapi.Client
+	files      *filestore.Service
+	git        *gitrepo.Client
 	runner     *runner.Runner
 	health     HealthChecker
 }
@@ -26,7 +26,7 @@ type HealthChecker interface {
 	Ping(context.Context) error
 }
 
-func NewServer(workspaces *workspace.Manager, files *fileapi.Service, git *gitapi.Client, runner *runner.Runner, health HealthChecker) *Server {
+func NewServer(workspaces *workspace.Manager, files *filestore.Service, git *gitrepo.Client, runner *runner.Runner, health HealthChecker) *Server {
 	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, health: health}
 }
 
@@ -92,7 +92,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
 		return
 	}
-	ws, err := s.workspaces.Create(req.RootPath)
+	ws, err := s.workspaces.Create(r.Context(), req.RootPath)
 	if err != nil {
 		writeWorkspaceError(w, err)
 		return
@@ -100,8 +100,13 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, ws)
 }
 
-func (s *Server) listWorkspaces(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"workspaces": s.workspaces.List()})
+func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
+	workspaces, err := s.workspaces.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "workspace_list_failed", "Workspaces could not be listed", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workspaces": workspaces})
 }
 
 func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +167,7 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	diff, err := s.git.Diff(r.Context(), ws.RootPath, r.URL.Query().Get("path"))
 	if err != nil {
-		if errors.Is(err, gitapi.ErrInvalidPath) {
+		if errors.Is(err, gitrepo.ErrInvalidPath) {
 			writeError(w, http.StatusBadRequest, "invalid_path", "Path must be workspace-relative", nil)
 			return
 		}
@@ -190,7 +195,7 @@ func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) workspaceFromRequest(w http.ResponseWriter, r *http.Request) (workspace.Workspace, bool) {
-	ws, err := s.workspaces.Get(r.PathValue("workspaceId"))
+	ws, err := s.workspaces.Get(r.Context(), r.PathValue("workspaceId"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "workspace_not_found", "Workspace not found", nil)
 		return workspace.Workspace{}, false
@@ -213,11 +218,11 @@ func writeWorkspaceError(w http.ResponseWriter, err error) {
 
 func writeFileError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, fileapi.ErrInvalidPath):
+	case errors.Is(err, filestore.ErrInvalidPath):
 		writeError(w, http.StatusBadRequest, "invalid_path", "Path must be workspace-relative", nil)
-	case errors.Is(err, fileapi.ErrOutsideRoot):
+	case errors.Is(err, filestore.ErrOutsideRoot):
 		writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes workspace root", nil)
-	case errors.Is(err, fileapi.ErrNotTextFile):
+	case errors.Is(err, filestore.ErrNotTextFile):
 		writeError(w, http.StatusBadRequest, "not_text_file", "File is not a readable text file", nil)
 	default:
 		writeError(w, http.StatusNotFound, "path_not_found", "Path not found", nil)

@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	fileapi "github.com/phamtanminhtien/patchpilot/internal/files"
-	gitapi "github.com/phamtanminhtien/patchpilot/internal/git"
+	"github.com/phamtanminhtien/patchpilot/internal/database"
+	"github.com/phamtanminhtien/patchpilot/internal/filestore"
+	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
 	"github.com/phamtanminhtien/patchpilot/internal/workspace"
 )
@@ -55,8 +57,7 @@ func TestHealthCheckReturnsUnavailableWhenDatabaseFails(t *testing.T) {
 }
 
 func TestCreateWorkspaceReturnsWorkspace(t *testing.T) {
-	root := t.TempDir()
-	mustMkdirAll(t, filepath.Join(root, ".git"))
+	root := initGitRepo(t, t.TempDir())
 	server := newTestServer(t, root)
 
 	response := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
@@ -85,10 +86,9 @@ func TestCreateWorkspaceReturnsRestError(t *testing.T) {
 }
 
 func TestListWorkspacesReturnsNewestFirst(t *testing.T) {
-	firstRoot := t.TempDir()
-	secondRoot := t.TempDir()
-	mustMkdirAll(t, filepath.Join(firstRoot, ".git"))
-	mustMkdirAll(t, filepath.Join(secondRoot, ".git"))
+	allowed := t.TempDir()
+	firstRoot := initGitRepo(t, filepath.Join(allowed, "first"))
+	secondRoot := initGitRepo(t, filepath.Join(allowed, "second"))
 	server := newTestServer(t, filepath.Dir(firstRoot))
 
 	firstCreate := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+firstRoot+`"}`)
@@ -120,9 +120,44 @@ func TestListWorkspacesReturnsNewestFirst(t *testing.T) {
 	}
 }
 
+func TestWorkspacesPersistAcrossServers(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	dbPath := filepath.Join(t.TempDir(), "patchpilot.db")
+	firstServer := newTestServerWithDBPath(t, root, dbPath, fakeHealthChecker{})
+
+	create := request(firstServer, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", create.Code, create.Body.String())
+	}
+	var created workspace.Workspace
+	mustDecode(t, create, &created)
+
+	secondServer := newTestServerWithDBPath(t, root, dbPath, fakeHealthChecker{})
+	list := request(secondServer, http.MethodGet, "/api/workspaces", "")
+	if list.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", list.Code, list.Body.String())
+	}
+	var body struct {
+		Workspaces []workspace.Workspace `json:"workspaces"`
+	}
+	mustDecode(t, list, &body)
+	if len(body.Workspaces) != 1 || body.Workspaces[0].ID != created.ID {
+		t.Fatalf("expected persisted workspace %q, got %+v", created.ID, body.Workspaces)
+	}
+
+	restore := request(secondServer, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	if restore.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", restore.Code, restore.Body.String())
+	}
+	var restored workspace.Workspace
+	mustDecode(t, restore, &restored)
+	if restored.ID != created.ID {
+		t.Fatalf("expected restored workspace ID %q, got %q", created.ID, restored.ID)
+	}
+}
+
 func TestFileAndCommandHandlers(t *testing.T) {
-	root := t.TempDir()
-	mustMkdirAll(t, filepath.Join(root, ".git"))
+	root := initGitRepo(t, t.TempDir())
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -154,11 +189,28 @@ func newTestServer(t *testing.T, allowedRoot string) http.Handler {
 
 func newTestServerWithHealth(t *testing.T, allowedRoot string, health HealthChecker) http.Handler {
 	t.Helper()
-	manager, err := workspace.NewManager([]string{allowedRoot})
+	return newTestServerWithDBPath(t, allowedRoot, filepath.Join(t.TempDir(), "patchpilot.db"), health)
+}
+
+func newTestServerWithDBPath(t *testing.T, allowedRoot string, dbPath string, health HealthChecker) http.Handler {
+	t.Helper()
+	store, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("database.Open returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	})
+	manager, err := workspace.NewManager([]string{allowedRoot}, store, gitrepo.NewClient())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
-	return NewServer(manager, fileapi.NewService(), gitapi.NewClient(), runner.NewRunner(), health).Routes()
+	if health == nil {
+		health = store
+	}
+	return NewServer(manager, filestore.NewService(), gitrepo.NewClient(), runner.NewRunner(), health).Routes()
 }
 
 func request(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -182,5 +234,22 @@ func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+func initGitRepo(t *testing.T, root string) string {
+	t.Helper()
+	mustMkdirAll(t, root)
+	run(t, root, "git", "init")
+	return root
+}
+
+func run(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s %v failed: %v\n%s", name, args, err, output)
 	}
 }

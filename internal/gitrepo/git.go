@@ -1,4 +1,4 @@
-package git
+package gitrepo
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 )
 
 var ErrInvalidPath = errors.New("invalid workspace-relative path")
+var ErrNotRepository = errors.New("not a git repository")
 
 type Client struct{}
 
@@ -33,6 +34,18 @@ func (c *Client) Status(ctx context.Context, root string) (Status, error) {
 		return Status{}, err
 	}
 	return Status{Porcelain: output}, nil
+}
+
+func (c *Client) RepositoryRoot(ctx context.Context, root string) (string, error) {
+	output, err := runGit(ctx, root, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", ErrNotRepository
+	}
+	repositoryRoot, err := filepath.EvalSymlinks(filepath.Clean(strings.TrimSpace(output)))
+	if err != nil {
+		return "", err
+	}
+	return repositoryRoot, nil
 }
 
 func (c *Client) Diff(ctx context.Context, root, relPath string) (Diff, error) {

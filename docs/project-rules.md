@@ -22,9 +22,9 @@ Locked engineering contract. Precedence: this file > `docs/mvp-spec.md` > `docs/
 Backend:
 
 - Go 1.26.x, `net/http`, `http.ServeMux`, REST mutations, SSE realtime.
-- SQLite via GORM 1.x with `github.com/glebarez/sqlite` (pure-Go `modernc.org/sqlite` driver); embedded versioned SQL migrations.
+- SQLite via GORM 1.x with `github.com/glebarez/sqlite` (pure-Go `modernc.org/sqlite` driver); direct schema setup is acceptable before first release.
 - Logging via `go.uber.org/zap`; default console logs colorize level, time, and caller for local dev, and `PATCHPILOT_LOG_FORMAT=json` enables JSON logs.
-- Git only via `internal/git`; process execution only via `internal/runner`.
+- Git only via `internal/gitrepo`; process execution only via `internal/runner`.
 - One Go binary serves API and embedded frontend.
 - No Go web framework, GraphQL, gRPC, WebSocket for MVP, ORM other than GORM, or CGO-only default dependency.
 
@@ -50,13 +50,13 @@ Runtime:
 cmd/patchpilot/        startup and wiring only
 internal/api/          HTTP handlers, middleware, routes, request/response encoding
 internal/auth/         admin-token login, session cookies, validation
-internal/db/           SQLite setup, migrations, transactions
+internal/db/           SQLite setup, schema setup, transactions
 internal/events/       SSE fan-out and replay
 internal/workspace/    workspace lifecycle and path validation
-internal/files/        listing, reads, search, small manual writes
+internal/filestore/    listing, reads, search, small manual writes
 internal/agent/        task orchestration and tool execution
 internal/patch/        patch storage/apply/reject/revert
-internal/git/          only package that may execute Git
+internal/gitrepo/      only package that may execute Git
 internal/runner/       only package that may execute workspace processes
 internal/ports/        port detection and same-host proxy
 web/src/app/           app shell, providers, cross-route context
@@ -102,7 +102,7 @@ SSE:
 
 - SQLite is only MVP app DB; source files stay on disk; Git is repo history source.
 - App-owned runtime/state files may live under `~/.patchpilot`; workspace source files must not be copied there.
-- Migrations are append-only, numbered/descriptive, run before API traffic, enable foreign keys.
+- Schema setup runs before API traffic and enables foreign keys. Versioned migrations start after first release.
 - Multi-table writes use transactions.
 - JSON columns only for event payloads, snapshots, unindexed metadata; query-critical fields are columns.
 - No plaintext secrets.
@@ -158,7 +158,7 @@ SSE:
 Coverage when area exists:
 
 - Go unit: domain logic.
-- Go integration: migrations, repositories, Git adapter, runner, API handlers.
+- Go integration: schema setup, repositories, Git adapter, runner, API handlers.
 - Frontend unit: pure utilities/reducers.
 - Frontend component: Vibe lifecycle, patch approval, command output, Git status.
 - Playwright: critical mobile AI loop once frontend shell exists.
@@ -176,7 +176,7 @@ pnpm --dir web lint
 pnpm --dir web exec playwright test
 ```
 
-Verify by change: backend `go test ./...`; frontend `pnpm --dir web test` + `pnpm --dir web build`; UI browser/Playwright; API handler tests; data migration tests; runner stdout/stderr/exit/cancel/truncation tests; port proxy route/workspace tests. If scaffolding is absent, say so.
+Verify by change: backend `go test ./...`; frontend `pnpm --dir web test` + `pnpm --dir web build`; UI browser/Playwright; API handler tests; data schema/repository tests; runner stdout/stderr/exit/cancel/truncation tests; port proxy route/workspace tests. If scaffolding is absent, say so.
 
 ## Docs And Dependencies
 

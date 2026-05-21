@@ -1,15 +1,17 @@
 package workspace
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
+
+	"github.com/phamtanminhtien/patchpilot/internal/database"
+	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 )
 
 var (
@@ -31,13 +33,17 @@ type Workspace struct {
 
 type Manager struct {
 	allowedRoots []string
-	nextID       atomic.Uint64
-
-	mu         sync.RWMutex
-	workspaces map[string]Workspace
+	store        *database.Store
+	git          *gitrepo.Client
 }
 
-func NewManager(allowedRoots []string) (*Manager, error) {
+func NewManager(allowedRoots []string, store *database.Store, git *gitrepo.Client) (*Manager, error) {
+	if store == nil {
+		return nil, errors.New("workspace store is required")
+	}
+	if git == nil {
+		return nil, errors.New("git client is required")
+	}
 	normalized := make([]string, 0, len(allowedRoots))
 	for _, root := range allowedRoots {
 		root = strings.TrimSpace(root)
@@ -60,67 +66,88 @@ func NewManager(allowedRoots []string) (*Manager, error) {
 
 	return &Manager{
 		allowedRoots: normalized,
-		workspaces:   make(map[string]Workspace),
+		store:        store,
+		git:          git,
 	}, nil
 }
 
-func (m *Manager) Create(rootPath string) (Workspace, error) {
+func (m *Manager) Create(ctx context.Context, rootPath string) (Workspace, error) {
 	root, err := m.normalizeRoot(rootPath)
 	if err != nil {
 		return Workspace{}, err
 	}
-	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+	repositoryRoot, err := m.git.RepositoryRoot(ctx, root)
+	if err != nil {
+		return Workspace{}, ErrNotGitRepo
+	}
+	if repositoryRoot != root {
 		return Workspace{}, ErrNotGitRepo
 	}
 
+	existing, err := m.store.FindWorkspaceByRoot(ctx, root)
+	if err == nil {
+		touched, err := m.store.TouchWorkspace(ctx, existing.ID, time.Now().UTC())
+		if err != nil {
+			return Workspace{}, err
+		}
+		return fromRecord(touched), nil
+	}
+	if !errors.Is(err, database.ErrNotFound) {
+		return Workspace{}, err
+	}
+
 	now := time.Now().UTC()
-	id := fmt.Sprintf("ws_%d", m.nextID.Add(1))
-	ws := Workspace{
+	id, err := newWorkspaceID()
+	if err != nil {
+		return Workspace{}, err
+	}
+	record, err := m.store.CreateWorkspace(ctx, database.WorkspaceRecord{
 		ID:        id,
 		Name:      filepath.Base(root),
 		RootPath:  root,
 		Status:    "ready",
 		CreatedAt: now,
 		UpdatedAt: now,
+	})
+	if err != nil {
+		return Workspace{}, err
 	}
 
-	m.mu.Lock()
-	m.workspaces[id] = ws
-	m.mu.Unlock()
-
-	return ws, nil
+	return fromRecord(record), nil
 }
 
-func (m *Manager) Get(id string) (Workspace, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	ws, ok := m.workspaces[id]
-	if !ok {
+func (m *Manager) Get(ctx context.Context, id string) (Workspace, error) {
+	record, err := m.store.GetWorkspace(ctx, id)
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			return Workspace{}, ErrNotFound
+		}
+		return Workspace{}, err
+	}
+	if !m.isAllowed(record.RootPath) {
 		return Workspace{}, ErrNotFound
 	}
-	return ws, nil
+	return fromRecord(record), nil
 }
 
-func (m *Manager) List() []Workspace {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	workspaces := make([]Workspace, 0, len(m.workspaces))
-	for _, ws := range m.workspaces {
-		workspaces = append(workspaces, ws)
+func (m *Manager) List(ctx context.Context) ([]Workspace, error) {
+	records, err := m.store.ListWorkspaces(ctx)
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(workspaces, func(i, j int) bool {
-		if workspaces[i].CreatedAt.Equal(workspaces[j].CreatedAt) {
-			return workspaces[i].ID > workspaces[j].ID
+	workspaces := make([]Workspace, 0, len(records))
+	for _, record := range records {
+		if !m.isAllowed(record.RootPath) {
+			continue
 		}
-		return workspaces[i].CreatedAt.After(workspaces[j].CreatedAt)
-	})
-	return workspaces
+		workspaces = append(workspaces, fromRecord(record))
+	}
+	return workspaces, nil
 }
 
 func (m *Manager) normalizeRoot(rootPath string) (string, error) {
-	if strings.TrimSpace(rootPath) == "" || !filepath.IsAbs(rootPath) {
+	rootPath = strings.TrimSpace(rootPath)
+	if rootPath == "" || !filepath.IsAbs(rootPath) {
 		return "", ErrInvalidRoot
 	}
 	clean, err := filepath.EvalSymlinks(filepath.Clean(rootPath))
@@ -144,4 +171,23 @@ func (m *Manager) isAllowed(root string) bool {
 		}
 	}
 	return false
+}
+
+func fromRecord(record database.WorkspaceRecord) Workspace {
+	return Workspace{
+		ID:        record.ID,
+		Name:      record.Name,
+		RootPath:  record.RootPath,
+		Status:    record.Status,
+		CreatedAt: record.CreatedAt,
+		UpdatedAt: record.UpdatedAt,
+	}
+}
+
+func newWorkspaceID() (string, error) {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	return "ws_" + hex.EncodeToString(random[:]), nil
 }

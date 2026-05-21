@@ -12,8 +12,8 @@ import (
 	"github.com/phamtanminhtien/patchpilot/internal/api"
 	"github.com/phamtanminhtien/patchpilot/internal/config"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
-	fileapi "github.com/phamtanminhtien/patchpilot/internal/files"
-	gitapi "github.com/phamtanminhtien/patchpilot/internal/git"
+	"github.com/phamtanminhtien/patchpilot/internal/filestore"
+	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 	"github.com/phamtanminhtien/patchpilot/internal/logging"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
 	"github.com/phamtanminhtien/patchpilot/internal/workspace"
@@ -49,12 +49,13 @@ func run(cfg config.Config, logger *zap.Logger) error {
 		}
 	}()
 
-	workspaces, err := workspace.NewManager(cfg.AllowedRoots)
+	gitClient := gitrepo.NewClient()
+	workspaces, err := workspace.NewManager(cfg.AllowedRoots, store, gitClient)
 	if err != nil {
 		return err
 	}
 
-	server := api.NewServer(workspaces, fileapi.NewService(), gitapi.NewClient(), runner.NewRunner(), store)
+	server := api.NewServer(workspaces, filestore.NewService(), gitClient, runner.NewRunner(), store)
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           server.RoutesWithStatic(cfg.StaticDir),

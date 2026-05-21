@@ -1,4 +1,4 @@
-package git
+package gitrepo
 
 import (
 	"context"
@@ -23,6 +23,36 @@ func TestStatusReturnsPorcelain(t *testing.T) {
 	}
 	if !strings.Contains(status.Porcelain, "?? new.txt") {
 		t.Fatalf("expected untracked file in status, got %q", status.Porcelain)
+	}
+}
+
+func TestRepositoryRootReturnsGitTopLevel(t *testing.T) {
+	root := initGitRepo(t)
+	nested := filepath.Join(root, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	client := NewClient()
+
+	repositoryRoot, err := client.RepositoryRoot(context.Background(), nested)
+	if err != nil {
+		t.Fatalf("RepositoryRoot returned error: %v", err)
+	}
+	expectedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatalf("EvalSymlinks returned error: %v", err)
+	}
+	if repositoryRoot != expectedRoot {
+		t.Fatalf("expected %q, got %q", expectedRoot, repositoryRoot)
+	}
+}
+
+func TestRepositoryRootRejectsNonGitDirectory(t *testing.T) {
+	client := NewClient()
+
+	_, err := client.RepositoryRoot(context.Background(), t.TempDir())
+	if !errors.Is(err, ErrNotRepository) {
+		t.Fatalf("expected ErrNotRepository, got %v", err)
 	}
 }
 
