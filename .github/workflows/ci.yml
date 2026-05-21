@@ -7,7 +7,8 @@ on:
       - main
 
 jobs:
-  lint-test-build:
+  backend:
+    name: Backend (Go)
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -18,19 +19,31 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Test backend
+        run: go test ./...
+
+      - name: Build backend
+        run: go build ./...
+
+  frontend:
+    name: Frontend (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
       - name: Set up Node
         uses: actions/setup-node@v5
         with:
           node-version: 24
 
       - name: Enable pnpm
-        run: corepack enable
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.0.0 --activate
 
       - name: Install frontend dependencies
         run: pnpm --dir web install --frozen-lockfile
-
-      - name: Test backend
-        run: go test ./...
 
       - name: Lint frontend
         run: pnpm --dir web lint
@@ -40,6 +53,3 @@ jobs:
 
       - name: Build frontend
         run: pnpm --dir web build
-
-      - name: Build backend
-        run: go build ./...
