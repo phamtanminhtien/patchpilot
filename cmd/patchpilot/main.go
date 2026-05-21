@@ -55,7 +55,7 @@ func run(cfg config.Config, logger *zap.Logger) error {
 		return err
 	}
 
-	server := api.NewServer(workspaces, filestore.NewService(), gitClient, runner.NewRunner(), store)
+	server := api.NewServer(workspaces, filestore.NewService(), gitClient, runner.NewRunner(), store, store)
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           server.RoutesWithStatic(cfg.StaticDir),

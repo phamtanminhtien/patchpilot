@@ -61,7 +61,10 @@ enter/select command -> start process at workspace root
 -> stream stdout/stderr -> show exit code/duration
 ```
 
-Refresh replays latest 1 MiB. Dangerous agent commands need approval.
+Refresh replays latest 1 MiB. Direct user commands are classified before
+execution: common project commands run immediately, risky commands require
+explicit confirmation, and obvious destructive commands are blocked. Dangerous
+agent commands need approval.
 
 Preview:
 
@@ -164,7 +167,7 @@ File API response notes:
 
 Git API response notes:
 
-- `GET /api/workspaces/:workspaceId/git/status` returns `{"porcelain":"..."}` from Git porcelain status, including untracked and ignored paths.
+- `GET /api/workspaces/:workspaceId/git/status` returns `{"porcelain":"..."}` from Git porcelain status, including ignored paths and recursively expanded untracked files.
 - `GET /api/workspaces/:workspaceId/git/diff?path=` returns `{"path":"...","diff":"..."}` for the full workspace or a workspace-relative path. Untracked file diffs are shown without staging the file.
 - `POST /api/workspaces/:workspaceId/git/stage` accepts `{"paths":["..."]}` with explicit non-empty workspace-relative paths and returns the updated Git status.
 - `POST /api/workspaces/:workspaceId/git/unstage` accepts `{"paths":["..."]}` with explicit non-empty workspace-relative paths, unstages only those paths, and returns the updated Git status.
@@ -184,6 +187,19 @@ SSE envelope:
 ```
 
 Events: `workspace.ready`, `workspace.indexing`, `agent.delta`, `agent.tool.started`, `agent.tool.finished`, `agent.approval_required`, `agent.task.status_changed`, `patch.created`, `patch.applied`, `patch.rejected`, `command.output`, `process.started`, `process.exited`, `port.opened`, `port.exposed`, `git.changed`.
+
+Command API response notes:
+
+- `POST /api/workspaces/:workspaceId/commands` accepts `{"command":"...","confirmed":false}`.
+- Safe common project commands return `202` with a `Command` and start from the workspace root.
+- Risky commands return `409` with `confirmation_required` and details describing why confirmation is required; resubmitting with `confirmed:true` starts the command.
+- Blocked commands return `400` with `blocked_command` and never execute.
+- `GET /api/workspaces/:workspaceId/processes` returns `{"processes":[]}` newest-first.
+- `GET /api/workspaces/:workspaceId/processes/:processId` returns `{"command":{...},"output":[]}` with latest output replay.
+- `POST /api/workspaces/:workspaceId/processes/:processId/stop` stops running commands; already finished commands return their current state.
+- `Command` fields: `id`, `workspaceId`, `command`, `cwd`, `status`, `exitCode?`, `startedAt?`, `finishedAt?`, `createdAt`, `durationMs?`.
+- Command output fields: `id`, `commandId`, `stream(stdout|stderr)`, `chunk`, `createdAt`.
+- Process and output events use the SSE envelope with `process.started`, `command.output`, and `process.exited`.
 
 ## Agent Tools
 
@@ -213,6 +229,12 @@ Agent auto-run requires exact allowlist match and no shell control operators:
 
 Everything else requires explicit approval.
 
+Direct user commands use the same safety baseline with a broader common-command
+allowlist for project workflows. The backend executes without a shell, blocks
+shell control operators/redirection/substitution, blocks workspace escape
+attempts, and blocks destructive patterns such as `rm -rf`, `git reset --hard`,
+`git clean`, `sudo`, `chmod -R`, and `chown -R`.
+
 ## Data Model
 
 SQLite app state; source files on disk; Git owns repo history.
@@ -228,7 +250,7 @@ Runtime config loads from OS environment variables, falling back to a local `.en
 - `agent_tasks`: `id`, `workspace_id`, `session_id`, `prompt`, `status`, `plan?`, `summary?`, `error?`, timestamps.
 - `task_events`: `id`, `task_id`, `type`, `payload_json`, `created_at`.
 - `patches`: `id`, `workspace_id`, `task_id`, `base_commit?`, `diff`, `summary`, `status`, `applied_at?`, `created_at`.
-- `commands`: `id`, `workspace_id`, `task_id?`, `command`, `cwd`, `status`, `exit_code?`, `started_at?`, `finished_at?`.
+- `commands`: `id`, `workspace_id`, `task_id?`, `command`, `cwd`, `status`, `exit_code?`, `started_at?`, `finished_at?`, `created_at`.
 - `command_output`: `id`, `command_id`, `stream(stdout|stderr)`, `chunk`, `created_at`.
 - `ports`: `id`, `workspace_id`, `process_id?`, `port`, `status(detected|exposed|closed)`, `exposed_path?`, timestamps.
 - `git_snapshots`: `id`, `workspace_id`, `patch_id?`, `commit_sha?`, `status_json`, `created_at`.

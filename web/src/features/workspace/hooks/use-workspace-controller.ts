@@ -1,20 +1,33 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useMemo } from "react";
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
+  apiErrorCode,
   apiErrorMessage,
+  type Command,
+  type CommandDetail,
+  type CommandEvent,
+  type CommandListResponse,
   commitGitChanges,
   createWorkspace,
   discardGitChanges,
   getGitDiff,
   getGitStatus,
+  getProcess,
   getWorkspace,
   listFileIndex,
+  listProcesses,
   listWorkspaces,
   queueCommand,
   readFile,
   refreshFileIndex,
   stageGitFiles,
+  stopProcess,
   unstageGitFiles,
 } from "@/shared/api";
 
@@ -50,6 +63,14 @@ export function useWorkspaceController({
   );
   const commandText = useWorkspaceUiStore((state) => state.commandText);
   const setCommandText = useWorkspaceUiStore((state) => state.setCommandText);
+  const [selectedCommand, setSelectedCommand] = useState({
+    commandId: "",
+    workspaceId: "",
+  });
+  const [commandConfirmation, setCommandConfirmation] = useState({
+    command: "",
+    workspaceId: "",
+  });
   const commitMessage = useWorkspaceUiStore((state) => state.commitMessage);
   const setCommitMessage = useWorkspaceUiStore(
     (state) => state.setCommitMessage,
@@ -128,10 +149,62 @@ export function useWorkspaceController({
     queryKey: ["workspace-git-diff", workspaceId, selectedPath],
   });
 
+  const processesQuery = useQuery({
+    enabled: workspaceId.length > 0 && panel === "commands",
+    queryFn: () => listProcesses(workspaceId),
+    queryKey: ["workspace-processes", workspaceId],
+  });
+
+  const selectedCommandId =
+    selectedCommand.workspaceId === workspaceId
+      ? selectedCommand.commandId
+      : "";
+  const confirmationCommand =
+    commandConfirmation.workspaceId === workspaceId
+      ? commandConfirmation.command
+      : "";
+  const activeCommandId =
+    selectedCommandId || processesQuery.data?.processes[0]?.id || "";
+
+  const processQuery = useQuery({
+    enabled:
+      workspaceId.length > 0 &&
+      panel === "commands" &&
+      activeCommandId.length > 0,
+    queryFn: () => getProcess(workspaceId, activeCommandId),
+    queryKey: ["workspace-process", workspaceId, activeCommandId],
+  });
+
   const commandMutation = useMutation({
-    mutationFn: (command: string) => queueCommand(workspaceId, command),
-    onSuccess: () => {
+    mutationFn: ({
+      command,
+      confirmed,
+    }: {
+      command: string;
+      confirmed: boolean;
+    }) => queueCommand(workspaceId, command, confirmed),
+    onError: (error, variables) => {
+      if (apiErrorCode(error) === "confirmation_required") {
+        setCommandConfirmation({ command: variables.command, workspaceId });
+      }
+    },
+    onSuccess: (command) => {
+      setCommandConfirmation({ command: "", workspaceId });
+      setSelectedCommand({ commandId: command.id, workspaceId });
       setCommandText("");
+      queryClient.setQueryData<CommandListResponse>(
+        ["workspace-processes", workspaceId],
+        (current) => ({
+          processes: [command, ...(current?.processes ?? [])],
+        }),
+      );
+    },
+  });
+
+  const stopCommandMutation = useMutation({
+    mutationFn: (processId: string) => stopProcess(workspaceId, processId),
+    onSuccess: (command) => {
+      updateCommandCache(queryClient, workspaceId, command);
     },
   });
 
@@ -203,6 +276,37 @@ export function useWorkspaceController({
     workspaceId,
   ]);
 
+  useEffect(() => {
+    if (workspaceId.length === 0 || typeof EventSource === "undefined") {
+      return;
+    }
+    const source = new EventSource(`/api/workspaces/${workspaceId}/events`, {
+      withCredentials: true,
+    });
+    const handleEvent = (message: MessageEvent<string>) => {
+      const event = JSON.parse(message.data) as CommandEvent;
+      if (event.type === "command.output") {
+        const output = event.payload as CommandDetail["output"][number];
+        queryClient.setQueryData<CommandDetail>(
+          ["workspace-process", workspaceId, output.commandId],
+          (current) =>
+            current
+              ? { ...current, output: [...current.output, output] }
+              : current,
+        );
+        return;
+      }
+      const command = event.payload as Command;
+      updateCommandCache(queryClient, workspaceId, command);
+    };
+    source.addEventListener("process.started", handleEvent);
+    source.addEventListener("process.exited", handleEvent);
+    source.addEventListener("command.output", handleEvent);
+    return () => {
+      source.close();
+    };
+  }, [queryClient, workspaceId]);
+
   function handlePanelChange(nextPanel: WorkspacePanel) {
     void setPanel(nextPanel);
   }
@@ -265,18 +369,61 @@ export function useWorkspaceController({
     if (command.length === 0 || commandMutation.isPending) {
       return;
     }
-    commandMutation.mutate(command);
+    commandMutation.mutate({ command, confirmed: false });
+  }
+
+  function handleCommandConfirm() {
+    if (confirmationCommand.length === 0 || commandMutation.isPending) {
+      return;
+    }
+    commandMutation.mutate({ command: confirmationCommand, confirmed: true });
+  }
+
+  function handleCommandStop() {
+    if (activeCommandId.length === 0 || stopCommandMutation.isPending) {
+      return;
+    }
+    stopCommandMutation.mutate(activeCommandId);
+  }
+
+  function handleCommandShortcut(command: string) {
+    setCommandText(command);
+  }
+
+  function handleCommandSelection(commandId: string) {
+    setSelectedCommand({ commandId, workspaceId });
+  }
+
+  function handleCommandConfirmationCancel() {
+    setCommandConfirmation({ command: "", workspaceId });
   }
 
   return {
     command: {
-      error: commandMutation.error
-        ? apiErrorMessage(commandMutation.error)
-        : undefined,
+      activeCommand: processQuery.data?.command ?? null,
+      activeCommandId,
+      confirmationCommand,
+      error:
+        commandMutation.error &&
+        apiErrorCode(commandMutation.error) !== "confirmation_required"
+          ? apiErrorMessage(commandMutation.error)
+          : undefined,
+      isLoadingProcesses: processesQuery.isPending || processQuery.isPending,
       isPending: commandMutation.isPending,
+      isStopping: stopCommandMutation.isPending,
+      onCancelConfirmation: handleCommandConfirmationCancel,
       onCommandChange: setCommandText,
+      onCommandConfirm: handleCommandConfirm,
+      onCommandSelect: handleCommandSelection,
+      onCommandShortcut: handleCommandShortcut,
+      onCommandStop: handleCommandStop,
       onSubmit: handleCommandSubmit,
+      output: processQuery.data?.output ?? [],
+      processes: processesQuery.data?.processes ?? [],
       queuedCommand: commandMutation.data ?? null,
+      stopError: stopCommandMutation.error
+        ? apiErrorMessage(stopCommandMutation.error)
+        : undefined,
       text: commandText,
     },
     files: {
@@ -344,4 +491,30 @@ export function useWorkspaceController({
       onPathSelect: handlePathSelect,
     },
   };
+}
+
+function updateCommandCache(
+  queryClient: QueryClient,
+  workspaceId: string,
+  command: Command,
+) {
+  queryClient.setQueryData<CommandListResponse>(
+    ["workspace-processes", workspaceId],
+    (current) => ({
+      processes: [
+        command,
+        ...(current?.processes.filter((item) => item.id !== command.id) ?? []),
+      ],
+    }),
+  );
+  queryClient.setQueryData<CommandDetail>(
+    ["workspace-process", workspaceId, command.id],
+    (current) =>
+      current
+        ? {
+            ...current,
+            command,
+          }
+        : current,
+  );
 }

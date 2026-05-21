@@ -26,6 +26,29 @@ func TestStatusReturnsPorcelain(t *testing.T) {
 	}
 }
 
+func TestStatusExpandsUntrackedDirectories(t *testing.T) {
+	root := initGitRepo(t)
+	nested := filepath.Join(root, "internal", "runner", "testdata")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "event.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("write nested file: %v", err)
+	}
+	client := NewClient()
+
+	status, err := client.Status(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+	if !strings.Contains(status.Porcelain, "?? internal/runner/testdata/event.json") {
+		t.Fatalf("expected nested untracked file in status, got %q", status.Porcelain)
+	}
+	if strings.Contains(status.Porcelain, "?? internal/\n") {
+		t.Fatalf("expected untracked directory to be expanded, got %q", status.Porcelain)
+	}
+}
+
 func TestStatusReturnsIgnoredPaths(t *testing.T) {
 	root := initGitRepo(t)
 	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored.txt\n"), 0o644); err != nil {

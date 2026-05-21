@@ -51,10 +51,11 @@ export function WorkspacePage() {
         }
         bottomPanel={
           <WorkspaceBottomPanel
+            activeCommand={controller.command.activeCommand}
             activePanel={panel}
+            commandOutput={controller.command.output}
             gitRawStatus={controller.git.rawStatus}
             isGitLoading={controller.git.isLoading}
-            queuedCommand={controller.command.queuedCommand}
             selectedPath={selectedPath}
           />
         }
@@ -73,9 +74,14 @@ export function WorkspacePage() {
             files={controller.files.entries}
             filesError={controller.files.error}
             gitChanges={controller.git.changes}
+            gitCommitError={controller.git.commitError}
+            gitCommitMessage={controller.git.commitMessage}
             gitError={controller.git.error}
+            gitLastCommitHash={controller.git.lastCommitHash}
+            gitStageError={controller.git.stageError}
             isDiscardingChanges={controller.git.isDiscardingChanges}
             isFilesLoading={controller.files.isLoading}
+            isGitCommitPending={controller.git.isCommitPending}
             isGitLoading={controller.git.isLoading}
             isRefreshingFiles={controller.files.isRefreshing}
             isStagingChanges={controller.git.isStagingChanges}
@@ -83,6 +89,8 @@ export function WorkspacePage() {
             onChangesDiscard={controller.git.onChangesDiscard}
             onChangesStage={controller.git.onChangesStage}
             onFileIndexRefresh={controller.files.onRefresh}
+            onGitCommitMessageChange={controller.git.onCommitMessageChange}
+            onGitCommitSubmit={controller.git.onCommitSubmit}
             onPathSelect={controller.workspace.onPathSelect}
             onStagedChangesUnstage={controller.git.onStagedChangesUnstage}
             selectedPath={selectedPath}

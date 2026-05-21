@@ -5,13 +5,23 @@ import { cn } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const buttonVariant = createVariant({
-  base: "inline-flex items-center justify-center gap-2 rounded-md font-medium transition disabled:cursor-not-allowed disabled:opacity-55",
+  base: "inline-flex cursor-pointer items-center justify-center gap-2 rounded-md font-medium transition disabled:cursor-not-allowed disabled:opacity-55",
+  compoundVariants: [
+    {
+      size: "icon",
+      variant: "action",
+      className: "[&_[data-slot=button-icon]>svg]:!size-3",
+    },
+  ],
   variants: {
     size: {
-      icon: "size-6 p-0 text-xs",
-      small: "min-h-9 px-2.5 py-1.5 text-xs",
-      compact: "min-h-10 px-3 py-2 text-sm",
-      default: "min-h-11 px-4 py-2 text-base",
+      icon: "size-6 p-0 text-xs [&_[data-slot=button-icon]>svg]:size-4",
+      small:
+        "min-h-9 px-2.5 py-1.5 text-xs [&_[data-slot=button-icon]>svg]:size-3.5",
+      compact:
+        "min-h-10 px-3 py-2 text-sm [&_[data-slot=button-icon]>svg]:size-4",
+      default:
+        "min-h-11 px-4 py-2 text-base [&_[data-slot=button-icon]>svg]:size-5",
     },
     variant: {
       action: "bg-transparent text-muted hover:bg-hover hover:text-ink",
@@ -60,9 +70,10 @@ export function Button({
         <span
           aria-hidden="true"
           className={cn(
-            "grid shrink-0 cursor-pointer place-items-center",
+            "grid shrink-0 cursor-pointer place-items-center [&>svg]:shrink-0",
             size === "icon" ? "size-4" : "size-5",
           )}
+          data-slot="button-icon"
         >
           {icon}
         </span>

@@ -95,7 +95,38 @@ export interface GitCommitResponse {
 
 export interface Command {
   command: string;
+  cwd: string;
+  createdAt: string;
+  durationMs?: number | null;
+  exitCode?: number | null;
+  finishedAt?: string | null;
+  id: string;
+  startedAt?: string | null;
+  status: "queued" | "running" | "exited" | "stopped" | "failed";
+  workspaceId: string;
+}
+
+export interface CommandOutput {
+  chunk: string;
+  commandId: string;
   createdAt: string;
   id: string;
-  status: "queued" | "running" | "exited" | "stopped" | "failed";
+  stream: "stdout" | "stderr";
+}
+
+export interface CommandDetail {
+  command: Command;
+  output: CommandOutput[];
+}
+
+export interface CommandListResponse {
+  processes: Command[];
+}
+
+export interface CommandEvent {
+  createdAt: string;
+  id: string;
+  payload: Command | CommandOutput;
+  type: "process.started" | "command.output" | "process.exited";
+  workspaceId: string;
 }

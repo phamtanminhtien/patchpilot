@@ -171,14 +171,42 @@ func TestFileAndCommandHandlers(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", fileResponse.Code, fileResponse.Body.String())
 	}
 
-	commandResponse := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"go test ./..."}`)
-	if commandResponse.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", commandResponse.Code, commandResponse.Body.String())
+	commandRecorder := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"go test ./..."}`)
+	if commandRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", commandRecorder.Code, commandRecorder.Body.String())
 	}
-	var command runner.Command
-	mustDecode(t, commandResponse, &command)
-	if command.Status != "queued" || !strings.HasPrefix(command.ID, "cmd_") {
+	var command commandResponse
+	mustDecode(t, commandRecorder, &command)
+	if command.Status != "queued" || !strings.HasPrefix(command.ID, "cmd_") || command.WorkspaceID != ws.ID {
 		t.Fatalf("unexpected command: %+v", command)
+	}
+}
+
+func TestCommandHandlersConfirmAndBlockBySafety(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	confirmation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"node scripts/check.js"}`)
+	if confirmation.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", confirmation.Code, confirmation.Body.String())
+	}
+	var confirmationBody map[string]map[string]any
+	mustDecode(t, confirmation, &confirmationBody)
+	if confirmationBody["error"]["code"] != "confirmation_required" {
+		t.Fatalf("unexpected confirmation body: %+v", confirmationBody)
+	}
+
+	blocked := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"rm -rf dist"}`)
+	if blocked.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", blocked.Code, blocked.Body.String())
+	}
+	var blockedBody map[string]map[string]any
+	mustDecode(t, blocked, &blockedBody)
+	if blockedBody["error"]["code"] != "blocked_command" {
+		t.Fatalf("unexpected blocked body: %+v", blockedBody)
 	}
 }
 
@@ -454,7 +482,7 @@ func newTestServerWithDBPath(t *testing.T, allowedRoot string, dbPath string, he
 	if health == nil {
 		health = store
 	}
-	return NewServer(manager, filestore.NewService(), gitrepo.NewClient(), runner.NewRunner(), health).Routes()
+	return NewServer(manager, filestore.NewService(), gitrepo.NewClient(), runner.NewRunner(), store, health).Routes()
 }
 
 func request(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {

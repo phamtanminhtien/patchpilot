@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { Command } from "@/shared/api";
+import type { Command, CommandOutput } from "@/shared/api";
 import { cn } from "@/shared/ui";
 
 import { LoadingState } from "../components/loading-state";
@@ -9,14 +9,16 @@ import type { WorkspacePanel } from "../workspace-panels";
 export function WorkspaceBottomPanel({
   activePanel,
   gitRawStatus,
+  activeCommand,
+  commandOutput,
   isGitLoading,
-  queuedCommand,
   selectedPath,
 }: {
+  activeCommand: Command | null;
   activePanel: WorkspacePanel;
+  commandOutput: CommandOutput[];
   gitRawStatus?: string;
   isGitLoading: boolean;
-  queuedCommand: Command | null;
   selectedPath: string;
 }) {
   return (
@@ -42,19 +44,19 @@ export function WorkspaceBottomPanel({
             <LoadingState label="Loading raw Git status" />
           ) : (
             <pre className="text-ink text-xs leading-5 break-words whitespace-pre-wrap">
-              {gitRawStatus || "Working tree clean."}
+              {gitStatusPreview(gitRawStatus)}
             </pre>
           )
         ) : null}
 
         {activePanel === "commands" ? (
-          queuedCommand ? (
+          activeCommand ? (
             <pre className="text-ink text-xs leading-5 break-words whitespace-pre-wrap">
-              {`${queuedCommand.status} ${queuedCommand.id}\n${queuedCommand.command}`}
+              {`${activeCommand.status} ${activeCommand.id}\n${activeCommand.command}\n${latestOutput(commandOutput)}`}
             </pre>
           ) : (
             <p className="text-muted text-xs">
-              Queued command metadata will appear here after submission.
+              Run a command to see its latest output here.
             </p>
           )
         ) : null}
@@ -67,6 +69,28 @@ export function WorkspaceBottomPanel({
       </div>
     </section>
   );
+}
+
+function latestOutput(output: CommandOutput[]) {
+  const text = output
+    .slice(-2)
+    .map((chunk) => chunk.chunk)
+    .join("");
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "No output yet.";
+  }
+  return trimmed.length > 220 ? `${trimmed.slice(-220)}` : trimmed;
+}
+
+function gitStatusPreview(status?: string) {
+  if (!status) {
+    return "Working tree clean.";
+  }
+  const lines = status.trim().split("\n");
+  const preview = lines.slice(0, 5).join("\n");
+  const remainder = lines.length - 5;
+  return remainder > 0 ? `${preview}\n... ${remainder} more paths` : preview;
 }
 
 function BottomTab({

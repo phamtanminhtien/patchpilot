@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/phamtanminhtien/patchpilot/internal/database"
+	"github.com/phamtanminhtien/patchpilot/internal/events"
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
 	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
@@ -19,6 +23,8 @@ type Server struct {
 	files      *filestore.Service
 	git        *gitrepo.Client
 	runner     *runner.Runner
+	store      *database.Store
+	events     *events.Hub
 	health     HealthChecker
 }
 
@@ -26,8 +32,8 @@ type HealthChecker interface {
 	Ping(context.Context) error
 }
 
-func NewServer(workspaces *workspace.Manager, files *filestore.Service, git *gitrepo.Client, runner *runner.Runner, health HealthChecker) *Server {
-	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, health: health}
+func NewServer(workspaces *workspace.Manager, files *filestore.Service, git *gitrepo.Client, runner *runner.Runner, store *database.Store, health HealthChecker) *Server {
+	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, store: store, events: events.NewHub(), health: health}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -52,6 +58,10 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/discard", s.gitDiscard)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/commit", s.gitCommit)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes", s.listProcesses)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes/{processId}", s.getProcess)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/processes/{processId}/stop", s.stopProcess)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/events", s.workspaceEvents)
 	if staticDir != "" {
 		mux.HandleFunc("GET /", serveStatic(staticDir))
 		mux.HandleFunc("HEAD /", serveStatic(staticDir))
@@ -90,7 +100,8 @@ type createWorkspaceRequest struct {
 }
 
 type createCommandRequest struct {
-	Command string `json:"command"`
+	Command   string `json:"command"`
+	Confirmed bool   `json:"confirmed"`
 }
 
 type gitStageRequest struct {
@@ -329,7 +340,8 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.workspaceFromRequest(w, r); !ok {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
 		return
 	}
 	var req createCommandRequest
@@ -337,12 +349,228 @@ func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
 		return
 	}
-	command, err := s.runner.Queue(req.Command)
+	decision, err := runner.Classify(req.Command)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_command", "Command is required", nil)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, command)
+	if decision.Level == runner.SafetyBlocked {
+		writeError(w, http.StatusBadRequest, "blocked_command", decision.Reason, map[string]any{"decision": decision})
+		return
+	}
+	if decision.Level == runner.SafetyNeedsConfirmation && !req.Confirmed {
+		writeError(w, http.StatusConflict, "confirmation_required", "Command requires confirmation", map[string]any{"decision": decision})
+		return
+	}
+	created, err := s.store.CreateCommand(r.Context(), database.CommandRecord{
+		WorkspaceID: ws.ID,
+		Command:     req.Command,
+		Cwd:         ws.RootPath,
+		Status:      "queued",
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "command_create_failed", "Command could not be created", nil)
+		return
+	}
+	if err := s.runner.Start(runner.RunSpec{
+		ID:          created.ID,
+		WorkspaceID: ws.ID,
+		Command:     created.Command,
+		Cwd:         created.Cwd,
+	}, s.commandHooks(ws.ID, created.ID)); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_command", "Command is invalid", nil)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, commandResponseFromRecord(created))
+}
+
+func (s *Server) listProcesses(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	commands, err := s.store.ListCommands(r.Context(), ws.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "process_list_failed", "Processes could not be listed", nil)
+		return
+	}
+	response := make([]commandResponse, 0, len(commands))
+	for _, command := range commands {
+		response = append(response, commandResponseFromRecord(command))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"processes": response})
+}
+
+func (s *Server) getProcess(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	command, err := s.store.GetCommand(r.Context(), ws.ID, r.PathValue("processId"))
+	if err != nil {
+		writeProcessError(w, err)
+		return
+	}
+	output, err := s.store.ListCommandOutput(r.Context(), command.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "process_output_failed", "Process output could not be loaded", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"command": commandResponseFromRecord(command),
+		"output":  outputResponsesFromRecords(output),
+	})
+}
+
+func (s *Server) stopProcess(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	command, err := s.store.GetCommand(r.Context(), ws.ID, r.PathValue("processId"))
+	if err != nil {
+		writeProcessError(w, err)
+		return
+	}
+	if command.Status == "running" || command.Status == "queued" {
+		if stopped := s.runner.Stop(command.ID); !stopped {
+			now := time.Now().UTC()
+			command, err = s.store.FinishCommand(r.Context(), ws.ID, command.ID, "stopped", nil, now)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "process_stop_failed", "Process could not be stopped", nil)
+				return
+			}
+			s.publishProcessExited(command)
+		}
+	}
+	command, err = s.store.GetCommand(r.Context(), ws.ID, command.ID)
+	if err != nil {
+		writeProcessError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, commandResponseFromRecord(command))
+}
+
+func (s *Server) workspaceEvents(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "sse_unsupported", "Streaming is unavailable", nil)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	s.replayCommandEvents(r.Context(), w, ws.ID)
+	flusher.Flush()
+	events, unsubscribe := s.events.Subscribe()
+	defer unsubscribe()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event := <-events:
+			if event.WorkspaceID != ws.ID {
+				continue
+			}
+			writeSSE(w, event)
+			flusher.Flush()
+		}
+	}
+}
+
+func (s *Server) commandHooks(workspaceID, commandID string) runner.Hooks {
+	return runner.Hooks{
+		OnStarted: func() {
+			startedAt := time.Now().UTC()
+			command, err := s.store.MarkCommandRunning(context.Background(), workspaceID, commandID, startedAt)
+			if err == nil {
+				s.publishProcessStarted(command)
+			}
+		},
+		OnOutput: func(stream, chunk string) {
+			output, err := s.store.AppendCommandOutput(context.Background(), database.CommandOutputRecord{
+				CommandID: commandID,
+				Stream:    stream,
+				Chunk:     chunk,
+			}, 1024*1024)
+			if err == nil {
+				s.events.Publish(events.Event{
+					WorkspaceID: workspaceID,
+					Type:        "command.output",
+					Payload:     outputResponseFromRecord(output),
+				})
+			}
+		},
+		OnFinished: func(result runner.FinishResult) {
+			finishedAt := time.Now().UTC()
+			command, err := s.store.FinishCommand(context.Background(), workspaceID, commandID, result.Status, result.ExitCode, finishedAt)
+			if err == nil {
+				s.publishProcessExited(command)
+			}
+		},
+	}
+}
+
+func (s *Server) replayCommandEvents(ctx context.Context, w http.ResponseWriter, workspaceID string) {
+	commands, err := s.store.ListCommands(ctx, workspaceID)
+	if err != nil {
+		return
+	}
+	for i := len(commands) - 1; i >= 0; i-- {
+		command := commands[i]
+		if command.StartedAt != nil {
+			writeSSE(w, events.Event{
+				ID:          "evt_replay_started_" + command.ID,
+				WorkspaceID: workspaceID,
+				Type:        "process.started",
+				CreatedAt:   *command.StartedAt,
+				Payload:     commandResponseFromRecord(command),
+			})
+		}
+		output, err := s.store.ListCommandOutput(ctx, command.ID)
+		if err != nil {
+			continue
+		}
+		for _, chunk := range output {
+			writeSSE(w, events.Event{
+				ID:          "evt_replay_output_" + chunk.ID,
+				WorkspaceID: workspaceID,
+				Type:        "command.output",
+				CreatedAt:   chunk.CreatedAt,
+				Payload:     outputResponseFromRecord(chunk),
+			})
+		}
+		if command.FinishedAt != nil {
+			writeSSE(w, events.Event{
+				ID:          "evt_replay_exited_" + command.ID,
+				WorkspaceID: workspaceID,
+				Type:        "process.exited",
+				CreatedAt:   *command.FinishedAt,
+				Payload:     commandResponseFromRecord(command),
+			})
+		}
+	}
+}
+
+func (s *Server) publishProcessStarted(command database.CommandRecord) {
+	s.events.Publish(events.Event{
+		WorkspaceID: command.WorkspaceID,
+		Type:        "process.started",
+		Payload:     commandResponseFromRecord(command),
+	})
+}
+
+func (s *Server) publishProcessExited(command database.CommandRecord) {
+	s.events.Publish(events.Event{
+		WorkspaceID: command.WorkspaceID,
+		Type:        "process.exited",
+		Payload:     commandResponseFromRecord(command),
+	})
 }
 
 func (s *Server) workspaceFromRequest(w http.ResponseWriter, r *http.Request) (workspace.Workspace, bool) {
@@ -352,6 +580,65 @@ func (s *Server) workspaceFromRequest(w http.ResponseWriter, r *http.Request) (w
 		return workspace.Workspace{}, false
 	}
 	return ws, true
+}
+
+type commandResponse struct {
+	ID          string     `json:"id"`
+	WorkspaceID string     `json:"workspaceId"`
+	Command     string     `json:"command"`
+	Cwd         string     `json:"cwd"`
+	Status      string     `json:"status"`
+	ExitCode    *int       `json:"exitCode"`
+	StartedAt   *time.Time `json:"startedAt"`
+	FinishedAt  *time.Time `json:"finishedAt"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	DurationMs  *int64     `json:"durationMs"`
+}
+
+type commandOutputResponse struct {
+	ID        string    `json:"id"`
+	CommandID string    `json:"commandId"`
+	Stream    string    `json:"stream"`
+	Chunk     string    `json:"chunk"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func commandResponseFromRecord(record database.CommandRecord) commandResponse {
+	var durationMs *int64
+	if record.StartedAt != nil && record.FinishedAt != nil {
+		duration := record.FinishedAt.Sub(*record.StartedAt).Milliseconds()
+		durationMs = &duration
+	}
+	return commandResponse{
+		ID:          record.ID,
+		WorkspaceID: record.WorkspaceID,
+		Command:     record.Command,
+		Cwd:         record.Cwd,
+		Status:      record.Status,
+		ExitCode:    record.ExitCode,
+		StartedAt:   record.StartedAt,
+		FinishedAt:  record.FinishedAt,
+		CreatedAt:   record.CreatedAt,
+		DurationMs:  durationMs,
+	}
+}
+
+func outputResponseFromRecord(record database.CommandOutputRecord) commandOutputResponse {
+	return commandOutputResponse{
+		ID:        record.ID,
+		CommandID: record.CommandID,
+		Stream:    record.Stream,
+		Chunk:     record.Chunk,
+		CreatedAt: record.CreatedAt,
+	}
+}
+
+func outputResponsesFromRecords(records []database.CommandOutputRecord) []commandOutputResponse {
+	output := make([]commandOutputResponse, 0, len(records))
+	for _, record := range records {
+		output = append(output, outputResponseFromRecord(record))
+	}
+	return output
 }
 
 func writeWorkspaceError(w http.ResponseWriter, err error) {
@@ -401,6 +688,15 @@ func writeFileError(w http.ResponseWriter, err error) {
 	}
 }
 
+func writeProcessError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, database.ErrNotFound):
+		writeError(w, http.StatusNotFound, "process_not_found", "Process not found", nil)
+	default:
+		writeError(w, http.StatusInternalServerError, "process_failed", "Process request failed", nil)
+	}
+}
+
 func writeIndexRefreshError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, filestore.ErrInvalidPath),
@@ -435,4 +731,26 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeSSE(w http.ResponseWriter, event events.Event) {
+	if event.ID == "" {
+		event = events.Event{
+			ID:          "evt_inline",
+			WorkspaceID: event.WorkspaceID,
+			Type:        event.Type,
+			CreatedAt:   event.CreatedAt,
+			Payload:     event.Payload,
+		}
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "id: %s\n", event.ID)
+	_, _ = fmt.Fprintf(w, "event: %s\n", event.Type)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 }

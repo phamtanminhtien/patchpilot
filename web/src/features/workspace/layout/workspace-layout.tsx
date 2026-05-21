@@ -18,7 +18,7 @@ export function WorkspaceLayout({
       <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:contents">
         {sidebar}
 
-        <main className="grid min-h-0 grid-rows-[minmax(0,1fr)_10rem] overflow-hidden">
+        <main className="grid min-h-0 grid-rows-[minmax(0,1fr)_7rem] overflow-hidden">
           {mainPanels}
           {bottomPanel}
         </main>

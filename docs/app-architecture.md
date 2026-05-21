@@ -78,6 +78,13 @@ Backend modules:
 - `internal/filestore`: safe workspace file access.
 - `internal/gitrepo`: Git status, diff, and commit operations.
 - `internal/runner`: workspace-root command execution.
+- `internal/events`: SSE fan-out for realtime command lifecycle and output.
+
+The command runner creates durable command records before process start, runs
+commands without a shell from the workspace root, appends stdout/stderr chunks
+to SQLite, and publishes `process.started`, `command.output`, and
+`process.exited` events. SSE clients receive live events plus durable command
+replay for the latest output.
 
 ## Frontend
 

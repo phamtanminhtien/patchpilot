@@ -7,9 +7,9 @@ interface StatusPillProps {
 
 export function StatusPill({ className, status }: StatusPillProps) {
   const tone =
-    status === "ready"
+    status === "ready" || status === "exited"
       ? "bg-accent-soft text-accent"
-      : status === "error"
+      : status === "error" || status === "failed" || status === "stopped"
         ? "bg-panel text-warning"
         : "bg-hover text-muted";
 

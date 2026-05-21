@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 
-import type { Command } from "@/shared/api";
+import type { Command, CommandOutput } from "@/shared/api";
 import { cn } from "@/shared/ui";
 
 import type { GitChange } from "../git/workspace-git";
@@ -14,10 +14,23 @@ interface WorkspaceMainPanelsProps {
   activePanel: WorkspacePanel;
   command: {
     error?: string;
+    activeCommand: Command | null;
+    activeCommandId: string;
+    confirmationCommand: string;
     isPending: boolean;
+    isLoadingProcesses: boolean;
+    isStopping: boolean;
+    onCancelConfirmation: () => void;
     onCommandChange: (value: string) => void;
+    onCommandConfirm: () => void;
+    onCommandSelect: (commandId: string) => void;
+    onCommandShortcut: (command: string) => void;
+    onCommandStop: () => void;
     onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    output: CommandOutput[];
+    processes: Command[];
     queuedCommand: Command | null;
+    stopError?: string;
     text: string;
   };
   files: {
@@ -27,22 +40,11 @@ interface WorkspaceMainPanelsProps {
   };
   git: {
     changes: GitChange[];
-    commitError?: string;
-    commitMessage: string;
     diff?: string;
     diffError?: string;
     error?: string;
-    isCommitPending: boolean;
     isDiffLoading: boolean;
     isLoading: boolean;
-    isStagingChanges: boolean;
-    lastCommitHash?: string;
-    onCommitMessageChange: (value: string) => void;
-    onCommitSubmit: (event: FormEvent<HTMLFormElement>) => void;
-    onStageChanges: () => void;
-    stagedPathCount: number;
-    stageError?: string;
-    unstagedPathCount: number;
   };
   selectedPath: string;
 }
@@ -67,34 +69,36 @@ export function WorkspaceMainPanels({
 
       <WorkspaceMainPanelFrame activePanel={activePanel} panel="git">
         <GitPanel
-          commitError={git.commitError}
-          commitMessage={git.commitMessage}
           diff={git.diff}
           diffError={git.diffError}
           gitError={git.error}
           hasChanges={git.changes.length > 0}
-          isCommitPending={git.isCommitPending}
           isLoading={git.isDiffLoading || git.isLoading}
-          isStagePending={git.isStagingChanges}
-          lastCommitHash={git.lastCommitHash}
-          onCommitMessageChange={git.onCommitMessageChange}
-          onCommitSubmit={git.onCommitSubmit}
-          onStageChanges={git.onStageChanges}
           selectedPath={selectedPath}
-          stagedGitPathCount={git.stagedPathCount}
-          stageError={git.stageError}
-          unstagedGitPathCount={git.unstagedPathCount}
         />
       </WorkspaceMainPanelFrame>
 
       <WorkspaceMainPanelFrame activePanel={activePanel} panel="commands">
         <CommandsPanel
+          activeCommand={command.activeCommand}
+          activeCommandId={command.activeCommandId}
           commandText={command.text}
+          confirmationCommand={command.confirmationCommand}
           error={command.error}
+          isLoadingProcesses={command.isLoadingProcesses}
           isPending={command.isPending}
+          isStopping={command.isStopping}
+          onCancelConfirmation={command.onCancelConfirmation}
           onCommandChange={command.onCommandChange}
+          onCommandConfirm={command.onCommandConfirm}
+          onCommandSelect={command.onCommandSelect}
+          onCommandShortcut={command.onCommandShortcut}
+          onCommandStop={command.onCommandStop}
           onSubmit={command.onSubmit}
+          output={command.output}
+          processes={command.processes}
           queuedCommand={command.queuedCommand}
+          stopError={command.stopError}
         />
       </WorkspaceMainPanelFrame>
 

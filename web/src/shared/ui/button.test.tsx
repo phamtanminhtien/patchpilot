@@ -28,10 +28,12 @@ describe("Button", () => {
       "px-2.5",
       "py-1.5",
       "text-xs",
+      "[&_[data-slot=button-icon]>svg]:size-3.5",
     );
     expect(screen.getByRole("button", { name: "Run command" })).toHaveClass(
       "min-h-10",
       "text-sm",
+      "[&_[data-slot=button-icon]>svg]:size-4",
     );
   });
 
@@ -41,7 +43,16 @@ describe("Button", () => {
     const iconFrame = screen.getByTestId("button-icon").parentElement;
 
     expect(iconFrame).toHaveAttribute("aria-hidden", "true");
-    expect(iconFrame).toHaveClass("size-5", "shrink-0", "cursor-pointer");
+    expect(iconFrame).toHaveAttribute("data-slot", "button-icon");
+    expect(iconFrame).toHaveClass(
+      "size-5",
+      "shrink-0",
+      "cursor-pointer",
+      "[&>svg]:shrink-0",
+    );
+    expect(screen.getByRole("button", { name: "Open repo" })).toHaveClass(
+      "[&_[data-slot=button-icon]>svg]:size-5",
+    );
   });
 
   it("supports compact icon action buttons", () => {
@@ -59,6 +70,7 @@ describe("Button", () => {
       "p-0",
       "text-muted",
       "hover:bg-hover",
+      "[&_[data-slot=button-icon]>svg]:!size-3",
     );
   });
 

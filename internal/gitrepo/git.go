@@ -43,7 +43,7 @@ func (c *Client) Status(ctx context.Context, root string) (Status, error) {
 	if err := validateRepositoryRoot(ctx, root); err != nil {
 		return Status{}, err
 	}
-	output, err := runGit(ctx, root, "status", "--porcelain=v1", "--ignored")
+	output, err := runGit(ctx, root, "status", "--porcelain=v1", "--ignored", "--untracked-files=all")
 	if err != nil {
 		return Status{}, err
 	}

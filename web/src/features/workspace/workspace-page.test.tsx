@@ -14,13 +14,16 @@ import {
   getGitDiff,
   getGitStatus,
   getHealth,
+  getProcess,
   getWorkspace,
   listFileIndex,
+  listProcesses,
   listWorkspaces,
   queueCommand,
   readFile,
   refreshFileIndex,
   stageGitFiles,
+  stopProcess,
   unstageGitFiles,
 } from "@/shared/api";
 
@@ -29,21 +32,27 @@ import { WorkspacePage } from "./workspace-page";
 const queryState = vi.hoisted(() => new Map<string, string>());
 
 vi.mock("@/shared/api", () => ({
+  apiErrorCode: (error: unknown) =>
+    (error as { response?: { data?: { error?: { code?: string } } } }).response
+      ?.data?.error?.code,
   apiErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : "Request failed",
   commitGitChanges: vi.fn(),
   createWorkspace: vi.fn(),
   discardGitChanges: vi.fn(),
   getHealth: vi.fn(),
+  getProcess: vi.fn(),
   getGitDiff: vi.fn(),
   getGitStatus: vi.fn(),
   getWorkspace: vi.fn(),
   listFileIndex: vi.fn(),
+  listProcesses: vi.fn(),
   listWorkspaces: vi.fn(),
   queueCommand: vi.fn(),
   readFile: vi.fn(),
   refreshFileIndex: vi.fn(),
   stageGitFiles: vi.fn(),
+  stopProcess: vi.fn(),
   unstageGitFiles: vi.fn(),
 }));
 
@@ -145,11 +154,68 @@ describe("WorkspacePage", () => {
     vi.mocked(commitGitChanges).mockResolvedValue({
       hash: "1234567890abcdef",
     });
+    vi.mocked(listProcesses).mockResolvedValue({
+      processes: [
+        {
+          command: "pnpm --dir web test",
+          createdAt: "2026-05-20T00:00:00Z",
+          cwd: "/workspace/patchpilot",
+          durationMs: 1200,
+          exitCode: 0,
+          finishedAt: "2026-05-20T00:00:02Z",
+          id: "cmd_1",
+          startedAt: "2026-05-20T00:00:00Z",
+          status: "exited",
+          workspaceId: "ws_1",
+        },
+      ],
+    });
+    vi.mocked(getProcess).mockResolvedValue({
+      command: {
+        command: "pnpm --dir web test",
+        createdAt: "2026-05-20T00:00:00Z",
+        cwd: "/workspace/patchpilot",
+        durationMs: 1200,
+        exitCode: 0,
+        finishedAt: "2026-05-20T00:00:02Z",
+        id: "cmd_1",
+        startedAt: "2026-05-20T00:00:00Z",
+        status: "exited",
+        workspaceId: "ws_1",
+      },
+      output: [
+        {
+          chunk: "tests passed\n",
+          commandId: "cmd_1",
+          createdAt: "2026-05-20T00:00:01Z",
+          id: "out_1",
+          stream: "stdout",
+        },
+      ],
+    });
+    vi.mocked(stopProcess).mockResolvedValue({
+      command: "pnpm --dir web dev",
+      createdAt: "2026-05-20T00:00:00Z",
+      cwd: "/workspace/patchpilot",
+      durationMs: 500,
+      exitCode: null,
+      finishedAt: "2026-05-20T00:00:01Z",
+      id: "cmd_2",
+      startedAt: "2026-05-20T00:00:00Z",
+      status: "stopped",
+      workspaceId: "ws_1",
+    });
     vi.mocked(queueCommand).mockResolvedValue({
       command: "pnpm --dir web test",
       createdAt: "2026-05-20T00:00:00Z",
+      cwd: "/workspace/patchpilot",
+      durationMs: null,
+      exitCode: null,
+      finishedAt: null,
       id: "cmd_1",
       status: "queued",
+      startedAt: null,
+      workspaceId: "ws_1",
     });
   });
 
@@ -265,7 +331,7 @@ describe("WorkspacePage", () => {
     renderWorkspace("/workspace?workspaceId=ws_1&panel=git");
 
     const stageButton = await screen.findByRole("button", {
-      name: "Stage changes",
+      name: "Stage all changes",
     });
     expect(stageButton).toBeEnabled();
     expect(await screen.findByText("Staged Changes")).toBeInTheDocument();
@@ -414,21 +480,69 @@ describe("WorkspacePage", () => {
     ).toBeInTheDocument();
   });
 
-  it("queues a submitted command without faking command output", async () => {
+  it("runs a submitted command and shows output replay", async () => {
     const user = userEvent.setup();
     renderWorkspace("/workspace?workspaceId=ws_1&panel=commands");
 
     await user.type(screen.getByLabelText("Command"), "pnpm --dir web test");
-    await user.click(screen.getByRole("button", { name: "Queue command" }));
+    await user.click(screen.getByRole("button", { name: "Run" }));
 
     await waitFor(() => {
-      expect(queueCommand).toHaveBeenCalledWith("ws_1", "pnpm --dir web test");
+      expect(queueCommand).toHaveBeenCalledWith(
+        "ws_1",
+        "pnpm --dir web test",
+        false,
+      );
     });
-    expect(await screen.findByText("Command accepted")).toBeInTheDocument();
+    expect(await screen.findByText("tests passed")).toBeInTheDocument();
     expect(screen.getAllByText(/cmd_1/).length).toBeGreaterThan(0);
+  });
+
+  it("confirms risky commands before running", async () => {
+    const user = userEvent.setup();
+    vi.mocked(queueCommand)
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Command requires confirmation"), {
+          response: {
+            data: {
+              error: {
+                code: "confirmation_required",
+                details: {},
+                message: "Command requires confirmation",
+              },
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce({
+        command: "node scripts/check.js",
+        createdAt: "2026-05-20T00:00:00Z",
+        cwd: "/workspace/patchpilot",
+        durationMs: null,
+        exitCode: null,
+        finishedAt: null,
+        id: "cmd_3",
+        startedAt: null,
+        status: "queued",
+        workspaceId: "ws_1",
+      });
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=commands");
+
+    await user.type(screen.getByLabelText("Command"), "node scripts/check.js");
+    await user.click(screen.getByRole("button", { name: "Run" }));
+
     expect(
-      screen.getByText(/output replay is waiting on process endpoints/i),
+      await screen.findByText("Confirm risky command"),
     ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Run anyway" }));
+
+    await waitFor(() => {
+      expect(queueCommand).toHaveBeenLastCalledWith(
+        "ws_1",
+        "node scripts/check.js",
+        true,
+      );
+    });
   });
 });
 

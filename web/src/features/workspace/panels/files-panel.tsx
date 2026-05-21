@@ -25,17 +25,30 @@ export function FilesPanel({
     );
   }
 
-  if (fileError) {
-    return <ErrorState className="p-3" message={fileError} />;
-  }
-
-  if (isLoading) {
-    return <LoadingState className="p-3" label="Loading file" />;
-  }
-
   return (
-    <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
-      {file ?? "File content will appear here."}
-    </pre>
+    <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+      <div className="bg-hover flex min-h-9 min-w-0 items-center justify-between gap-2 px-3">
+        <span className="text-ink min-w-0 truncate text-xs font-semibold">
+          {selectedPath}
+        </span>
+        <span className="text-muted shrink-0 text-xs">
+          {file ? `${lineCount(file)} lines` : "Text file"}
+        </span>
+      </div>
+
+      {fileError ? (
+        <ErrorState className="p-3" message={fileError} />
+      ) : isLoading ? (
+        <LoadingState className="p-3" label="Loading file" />
+      ) : (
+        <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
+          {file ?? "File content will appear here."}
+        </pre>
+      )}
+    </div>
   );
+}
+
+function lineCount(content: string) {
+  return content.split("\n").length;
 }

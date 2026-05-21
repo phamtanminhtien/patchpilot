@@ -39,6 +39,123 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if !store.db.Migrator().HasTable(&FileIndexRecord{}) {
 		t.Fatal("expected file_index table to be migrated")
 	}
+	if !store.db.Migrator().HasTable(&CommandRecord{}) {
+		t.Fatal("expected commands table to be migrated")
+	}
+	if !store.db.Migrator().HasTable(&CommandOutputRecord{}) {
+		t.Fatal("expected command_output table to be migrated")
+	}
+}
+
+func TestCommandRepositoryPersistsLifecycleAndOutput(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	}()
+
+	createdAt := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	command, err := store.CreateCommand(ctx, CommandRecord{
+		WorkspaceID: "ws_1",
+		Command:     "go test ./...",
+		Cwd:         "/repo",
+		Status:      "queued",
+		CreatedAt:   createdAt,
+	})
+	if err != nil {
+		t.Fatalf("CreateCommand returned error: %v", err)
+	}
+	if command.ID == "" || command.Status != "queued" {
+		t.Fatalf("unexpected command: %+v", command)
+	}
+
+	startedAt := createdAt.Add(time.Second)
+	command, err = store.MarkCommandRunning(ctx, "ws_1", command.ID, startedAt)
+	if err != nil {
+		t.Fatalf("MarkCommandRunning returned error: %v", err)
+	}
+	if command.Status != "running" || command.StartedAt == nil || !command.StartedAt.Equal(startedAt) {
+		t.Fatalf("unexpected running command: %+v", command)
+	}
+
+	if _, err := store.AppendCommandOutput(ctx, CommandOutputRecord{
+		CommandID: command.ID,
+		Stream:    "stdout",
+		Chunk:     "hello\n",
+		CreatedAt: startedAt.Add(time.Millisecond),
+	}, 1024); err != nil {
+		t.Fatalf("AppendCommandOutput stdout returned error: %v", err)
+	}
+	if _, err := store.AppendCommandOutput(ctx, CommandOutputRecord{
+		CommandID: command.ID,
+		Stream:    "stderr",
+		Chunk:     "warning\n",
+		CreatedAt: startedAt.Add(2 * time.Millisecond),
+	}, 1024); err != nil {
+		t.Fatalf("AppendCommandOutput stderr returned error: %v", err)
+	}
+	output, err := store.ListCommandOutput(ctx, command.ID)
+	if err != nil {
+		t.Fatalf("ListCommandOutput returned error: %v", err)
+	}
+	if len(output) != 2 || output[0].Stream != "stdout" || output[1].Stream != "stderr" {
+		t.Fatalf("unexpected output: %+v", output)
+	}
+
+	exitCode := 0
+	finishedAt := startedAt.Add(time.Second)
+	command, err = store.FinishCommand(ctx, "ws_1", command.ID, "exited", &exitCode, finishedAt)
+	if err != nil {
+		t.Fatalf("FinishCommand returned error: %v", err)
+	}
+	if command.Status != "exited" || command.ExitCode == nil || *command.ExitCode != 0 || command.FinishedAt == nil {
+		t.Fatalf("unexpected finished command: %+v", command)
+	}
+}
+
+func TestCommandOutputRepositoryKeepsLatestBytes(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	}()
+
+	command, err := store.CreateCommand(ctx, CommandRecord{
+		WorkspaceID: "ws_1",
+		Command:     "test",
+		Cwd:         "/repo",
+		Status:      "running",
+	})
+	if err != nil {
+		t.Fatalf("CreateCommand returned error: %v", err)
+	}
+	for i, chunk := range []string{"aaaa", "bbbb", "cccc"} {
+		if _, err := store.AppendCommandOutput(ctx, CommandOutputRecord{
+			CommandID: command.ID,
+			Stream:    "stdout",
+			Chunk:     chunk,
+			CreatedAt: time.Date(2026, 5, 20, 10, 0, i, 0, time.UTC),
+		}, 8); err != nil {
+			t.Fatalf("AppendCommandOutput %d returned error: %v", i, err)
+		}
+	}
+	output, err := store.ListCommandOutput(ctx, command.ID)
+	if err != nil {
+		t.Fatalf("ListCommandOutput returned error: %v", err)
+	}
+	if len(output) != 2 || output[0].Chunk != "bbbb" || output[1].Chunk != "cccc" {
+		t.Fatalf("expected latest chunks within cap, got %+v", output)
+	}
 }
 
 func TestWorkspaceRepositoryPersistsAndListsNewestFirst(t *testing.T) {

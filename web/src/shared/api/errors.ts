@@ -14,3 +14,12 @@ export function apiErrorMessage(error: unknown): string {
 
   return "Request failed";
 }
+
+export function apiErrorCode(error: unknown): string | undefined {
+  if (error instanceof AxiosError) {
+    const data = error.response?.data as Partial<RestErrorResponse> | undefined;
+    return data?.error?.code;
+  }
+
+  return undefined;
+}
