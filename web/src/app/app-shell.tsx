@@ -5,7 +5,7 @@ import { Link } from "react-router";
 
 import { useThemePreference } from "@/app/theme";
 import { getHealth, type Workspace } from "@/shared/api";
-import { classNames, StatusPill, ThemeSwitcher } from "@/shared/ui";
+import { cn, StatusPill, ThemeSwitcher } from "@/shared/ui";
 
 interface AppShellProps {
   children: ReactNode;
@@ -100,7 +100,7 @@ function ModeLink({
   return (
     <Link
       aria-current={active ? "page" : undefined}
-      className={classNames(
+      className={cn(
         "text-muted hover:bg-hover hover:text-ink inline-flex min-h-7 min-w-0 items-center justify-center gap-1 rounded-sm px-1.5 text-xs font-medium transition",
         active ? "bg-panel text-accent shadow-sm" : undefined,
       )}

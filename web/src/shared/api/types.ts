@@ -30,10 +30,21 @@ export interface FileEntry {
   name: string;
   path: string;
   size: number;
+  modifiedAt: string;
 }
 
 export interface FileListResponse {
   entries: FileEntry[];
+}
+
+export interface FileIndexEntry {
+  modifiedAt: string;
+  path: string;
+  size: number;
+}
+
+export interface FileIndexResponse {
+  entries: FileIndexEntry[];
 }
 
 export interface FileContent {

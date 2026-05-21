@@ -50,7 +50,7 @@ dev:
 	pnpm --dir $(WEB_DIR) dev
 
 dev-api:
-	go run ./cmd/patchpilot
+	air
 
 dev-web:
 	pnpm --dir $(WEB_DIR) dev

@@ -1,14 +1,13 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   CheckCircle2,
-  FileCode2,
   Files,
-  Folder,
   GitBranch,
   Loader2,
   MonitorUp,
   Play,
+  RefreshCw,
   Send,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
@@ -21,18 +20,19 @@ import {
   apiErrorMessage,
   type Command,
   createWorkspace,
-  type FileEntry,
+  type FileIndexEntry,
   getGitDiff,
   getGitStatus,
   getWorkspace,
-  listFiles,
+  listFileIndex,
   listWorkspaces,
   queueCommand,
   readFile,
+  refreshFileIndex,
 } from "@/shared/api";
 import {
   Button,
-  classNames,
+  cn,
   StarterScreen,
   StatusPill,
   TextField,
@@ -40,6 +40,7 @@ import {
 } from "@/shared/ui";
 import { panelParser, pathParser, workspaceIdParser } from "@/shared/url";
 
+import { WorkspaceFileTree } from "./workspace-file-tree";
 import { type GitChange, parseGitPorcelain } from "./workspace-git";
 
 const panels = [
@@ -82,6 +83,7 @@ export function WorkspacePage() {
   const [commandText, setCommandText] = useState("");
   const [queuedCommand, setQueuedCommand] = useState<Command | null>(null);
   const { preference, setPreference } = useThemePreference();
+  const queryClient = useQueryClient();
 
   const workspaceQuery = useQuery({
     enabled: workspaceId.length > 0,
@@ -104,8 +106,8 @@ export function WorkspacePage() {
 
   const filesQuery = useQuery({
     enabled: workspaceId.length > 0 && panel === "files",
-    queryFn: () => listFiles(workspaceId),
-    queryKey: ["workspace-files", workspaceId],
+    queryFn: () => listFileIndex(workspaceId),
+    queryKey: ["workspace-file-index", workspaceId],
   });
 
   const selectedFileEntry = filesQuery.data?.entries.find(
@@ -117,13 +119,13 @@ export function WorkspacePage() {
       workspaceId.length > 0 &&
       panel === "files" &&
       selectedPath.length > 0 &&
-      selectedFileEntry?.isDir !== true,
+      selectedFileEntry !== undefined,
     queryFn: () => readFile(workspaceId, selectedPath),
     queryKey: ["workspace-file", workspaceId, selectedPath],
   });
 
   const gitQuery = useQuery({
-    enabled: workspaceId.length > 0 && panel === "git",
+    enabled: workspaceId.length > 0 && (panel === "files" || panel === "git"),
     queryFn: () => getGitStatus(workspaceId),
     queryKey: ["workspace-git-status", workspaceId],
   });
@@ -144,6 +146,13 @@ export function WorkspacePage() {
     onSuccess: (command) => {
       setQueuedCommand(command);
       setCommandText("");
+    },
+  });
+
+  const refreshFilesMutation = useMutation({
+    mutationFn: () => refreshFileIndex(workspaceId),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["workspace-file-index", workspaceId], data);
     },
   });
 
@@ -217,6 +226,8 @@ export function WorkspacePage() {
             }
             isFilesLoading={filesQuery.isPending}
             isGitLoading={gitQuery.isPending}
+            isRefreshingFiles={refreshFilesMutation.isPending}
+            onFileIndexRefresh={() => refreshFilesMutation.mutate()}
             onPathSelect={handlePathSelect}
             selectedPath={selectedPath}
             workspace={workspace}
@@ -237,7 +248,6 @@ export function WorkspacePage() {
                       ? apiErrorMessage(fileQuery.error)
                       : undefined
                   }
-                  isDirectorySelected={selectedFileEntry?.isDir === true}
                   isLoading={fileQuery.isPending}
                   selectedPath={selectedPath}
                 />
@@ -310,7 +320,7 @@ function ActivityRail({
         <button
           aria-label={item.label}
           aria-pressed={activePanel === item.value}
-          className={classNames(
+          className={cn(
             "text-muted hover:bg-hover hover:text-ink grid aspect-square min-w-14 cursor-pointer place-items-center gap-0.5 rounded-md px-2 text-xs font-medium transition lg:size-10 lg:min-w-0",
             activePanel === item.value
               ? "bg-accent-soft text-accent shadow-sm"
@@ -353,18 +363,22 @@ function WorkspaceSidebar({
   gitError,
   isFilesLoading,
   isGitLoading,
+  isRefreshingFiles,
+  onFileIndexRefresh,
   onPathSelect,
   selectedPath,
   workspace,
   workspaceError,
 }: {
   activePanel: WorkspacePanel;
-  files: FileEntry[];
+  files: FileIndexEntry[];
   filesError?: string;
   gitChanges: GitChange[];
   gitError?: string;
   isFilesLoading: boolean;
   isGitLoading: boolean;
+  isRefreshingFiles: boolean;
+  onFileIndexRefresh: () => void;
   onPathSelect: (path: string) => void;
   selectedPath: string;
   workspace?: {
@@ -373,18 +387,39 @@ function WorkspaceSidebar({
   workspaceError?: string;
 }) {
   return (
-    <aside className="bg-canvas grid min-h-0 gap-2 shadow-sm lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden">
-      <div className="bg-panel grid gap-1.5 p-2 px-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <ToolIcon panel={activePanel} />
-          <div className="min-w-0">
-            <p className="text-ink truncate text-xs font-semibold">
-              {panelLabel(activePanel)}
-            </p>
-            <p className="text-muted truncate text-xs">
-              {workspace?.name ?? panelShortDescription(activePanel)}
-            </p>
+    <aside className="bg-canvas grid min-h-0 gap-1 shadow-sm lg:grid-rows-[auto_minmax(0,1fr)_auto] lg:overflow-hidden">
+      <div className="bg-panel grid gap-1 px-1.5 py-1">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0">
+              <p className="text-muted truncate text-xs font-bold uppercase">
+                {workspace?.name ?? panelShortDescription(activePanel)}
+              </p>
+            </div>
           </div>
+
+          {activePanel === "files" ? (
+            <Button
+              aria-label="Refresh index"
+              className="aspect-square px-0"
+              disabled={isRefreshingFiles}
+              icon={
+                <RefreshCw
+                  className={cn(
+                    isRefreshingFiles ? "animate-spin" : "",
+                    "size-4",
+                  )}
+                />
+              }
+              onClick={onFileIndexRefresh}
+              size="small"
+              title="Refresh index"
+              type="button"
+              variant="ghost"
+            >
+              <span className="sr-only">Refresh index</span>
+            </Button>
+          ) : null}
         </div>
         {!workspace && workspaceError ? (
           <ErrorState message={workspaceError} />
@@ -393,9 +428,10 @@ function WorkspaceSidebar({
 
       <div className="min-h-0 overflow-auto">
         {activePanel === "files" ? (
-          <FileList
+          <WorkspaceFileTree
             entries={files}
             error={filesError}
+            gitChanges={gitChanges}
             isLoading={isFilesLoading}
             onSelect={onPathSelect}
             selectedPath={selectedPath}
@@ -432,62 +468,6 @@ function WorkspaceSidebar({
   );
 }
 
-function FileList({
-  entries,
-  error,
-  isLoading,
-  onSelect,
-  selectedPath,
-}: {
-  entries: FileEntry[];
-  error?: string;
-  isLoading: boolean;
-  onSelect: (path: string) => void;
-  selectedPath: string;
-}) {
-  if (error) {
-    return <ErrorState message={error} />;
-  }
-
-  if (isLoading) {
-    return <LoadingState label="Loading files" />;
-  }
-
-  if (entries.length === 0) {
-    return <EmptyState message="No files found at the workspace root." />;
-  }
-
-  return (
-    <div className="grid">
-      {entries.map((entry) => (
-        <button
-          aria-current={selectedPath === entry.path ? "true" : undefined}
-          className={classNames(
-            "text-muted hover:bg-hover hover:text-ink flex min-h-6 min-w-0 cursor-pointer items-center gap-1 px-2 text-left text-xs transition",
-            selectedPath === entry.path ? "bg-hover text-ink" : undefined,
-          )}
-          key={entry.path}
-          onClick={() => onSelect(entry.path)}
-          type="button"
-        >
-          {entry.isDir ? (
-            <Folder
-              aria-hidden="true"
-              className="text-accent size-3 shrink-0"
-            />
-          ) : (
-            <FileCode2 aria-hidden="true" className="size-3 shrink-0" />
-          )}
-          <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-          {entry.isDir ? (
-            <span className="text-muted shrink-0 text-xs">dir</span>
-          ) : null}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function GitChangeList({
   changes,
   error,
@@ -518,7 +498,7 @@ function GitChangeList({
       {changes.map((change) => (
         <button
           aria-current={selectedPath === change.path ? "true" : undefined}
-          className={classNames(
+          className={cn(
             "text-muted hover:bg-hover hover:text-ink grid min-h-9 min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)] gap-x-1.5 rounded-sm px-1.5 py-1 text-left text-xs transition",
             selectedPath === change.path ? "bg-hover text-ink" : undefined,
           )}
@@ -527,7 +507,7 @@ function GitChangeList({
           type="button"
         >
           <span
-            className={classNames(
+            className={cn(
               "mt-0.5 flex aspect-square min-w-7 items-center justify-center rounded-sm px-1 py-0.5 text-xs font-semibold shadow-sm",
               changeTone(change.status),
             )}
@@ -549,13 +529,11 @@ function GitChangeList({
 function FilesPanel({
   file,
   fileError,
-  isDirectorySelected,
   isLoading,
   selectedPath,
 }: {
   file?: string;
   fileError?: string;
-  isDirectorySelected: boolean;
   isLoading: boolean;
   selectedPath: string;
 }) {
@@ -565,16 +543,6 @@ function FilesPanel({
         icon={<Files aria-hidden="true" className="size-6" />}
         message="Select a file from the workspace list to inspect its text content."
         title="No file selected"
-      />
-    );
-  }
-
-  if (isDirectorySelected) {
-    return (
-      <MainEmptyState
-        icon={<Folder aria-hidden="true" className="size-6" />}
-        message="Directory drill-down is outside this UI slice. Select a text file to preview."
-        title="Directory selected"
       />
     );
   }
@@ -798,7 +766,7 @@ function BottomTab({
 }) {
   return (
     <span
-      className={classNames(
+      className={cn(
         "text-muted inline-flex min-h-6 shrink-0 items-center rounded-sm px-1.5 text-xs font-medium",
         active ? "bg-panel text-ink shadow-sm" : undefined,
       )}
@@ -866,7 +834,7 @@ function ErrorState({
   message: string;
 }) {
   return (
-    <p className={classNames("text-warning text-xs font-medium", className)}>
+    <p className={cn("text-warning text-xs font-medium", className)}>
       {message}
     </p>
   );
@@ -882,7 +850,7 @@ function LoadingState({
   return (
     <div
       aria-label={label}
-      className={classNames(
+      className={cn(
         "text-muted flex min-h-9 items-center gap-1.5 text-xs",
         className,
       )}
@@ -910,7 +878,7 @@ function panelLabel(panel: WorkspacePanel) {
 function panelShortDescription(panel: WorkspacePanel) {
   switch (panel) {
     case "files":
-      return "Root files";
+      return "File tree";
     case "git":
       return "Working tree";
     case "commands":

@@ -13,10 +13,11 @@ import {
   getGitStatus,
   getHealth,
   getWorkspace,
-  listFiles,
+  listFileIndex,
   listWorkspaces,
   queueCommand,
   readFile,
+  refreshFileIndex,
 } from "@/shared/api";
 
 import { WorkspacePage } from "./workspace-page";
@@ -31,10 +32,11 @@ vi.mock("@/shared/api", () => ({
   getGitDiff: vi.fn(),
   getGitStatus: vi.fn(),
   getWorkspace: vi.fn(),
-  listFiles: vi.fn(),
+  listFileIndex: vi.fn(),
   listWorkspaces: vi.fn(),
   queueCommand: vi.fn(),
   readFile: vi.fn(),
+  refreshFileIndex: vi.fn(),
 }));
 
 vi.mock("nuqs", async () => {
@@ -82,19 +84,31 @@ describe("WorkspacePage", () => {
     vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
     vi.mocked(getWorkspace).mockResolvedValue(workspace);
     vi.mocked(listWorkspaces).mockResolvedValue({ workspaces: [] });
-    vi.mocked(listFiles).mockResolvedValue({
+    vi.mocked(listFileIndex).mockResolvedValue({
       entries: [
         {
-          isDir: false,
-          name: "app.tsx",
+          modifiedAt: "2026-05-20T00:00:00Z",
           path: "web/src/app.tsx",
           size: 128,
         },
         {
-          isDir: true,
-          name: "features",
-          path: "web/src/features",
-          size: 0,
+          modifiedAt: "2026-05-20T00:00:00Z",
+          path: "web/src/features/workspace-page.tsx",
+          size: 256,
+        },
+        {
+          modifiedAt: "2026-05-20T00:00:00Z",
+          path: "dist/app.js",
+          size: 512,
+        },
+      ],
+    });
+    vi.mocked(refreshFileIndex).mockResolvedValue({
+      entries: [
+        {
+          modifiedAt: "2026-05-20T00:00:00Z",
+          path: "README.md",
+          size: 64,
         },
       ],
     });
@@ -103,7 +117,7 @@ describe("WorkspacePage", () => {
       path: "web/src/app.tsx",
     });
     vi.mocked(getGitStatus).mockResolvedValue({
-      porcelain: " M web/src/app.tsx\n?? scratch.md",
+      porcelain: " M web/src/app.tsx\n?? scratch.md\n!! dist/",
     });
     vi.mocked(getGitDiff).mockImplementation((_workspaceId, path) =>
       Promise.resolve({
@@ -123,7 +137,11 @@ describe("WorkspacePage", () => {
     const user = userEvent.setup();
     renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
 
-    await user.click(await screen.findByRole("button", { name: /app\.tsx/i }));
+    await user.click(await screen.findByRole("treeitem", { name: "web" }));
+    await user.click(await screen.findByRole("treeitem", { name: "src" }));
+    await user.click(
+      await screen.findByRole("treeitem", { name: /app\.tsx/i }),
+    );
 
     expect(readFile).toHaveBeenCalledWith("ws_1", "web/src/app.tsx");
     expect(
@@ -132,6 +150,60 @@ describe("WorkspacePage", () => {
     expect(
       screen.getByText(/export function App\(\)/).closest("pre"),
     ).toHaveClass("h-full", "min-h-0", "overflow-auto");
+  });
+
+  it("refreshes the recursive file index manually", async () => {
+    const user = userEvent.setup();
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Refresh index" }),
+    );
+
+    await waitFor(() => {
+      expect(refreshFileIndex).toHaveBeenCalledWith("ws_1");
+    });
+    expect(
+      await screen.findByRole("treeitem", { name: /README\.md/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows interactive file details that can copy paths", async () => {
+    const user = userEvent.setup();
+    const clipboardWriteText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    await user.click(await screen.findByRole("treeitem", { name: "web" }));
+    await user.click(await screen.findByRole("treeitem", { name: "src" }));
+    const fileRow = await screen.findByRole("treeitem", { name: /app\.tsx/i });
+    await user.hover(fileRow);
+    expect(await screen.findByText("web/src/app.tsx")).toBeInTheDocument();
+    const copyPathButtons = screen.getAllByRole("button", {
+      name: "Copy path",
+    });
+    const copyPathButton = copyPathButtons.at(-1);
+    expect(copyPathButton).toBeDefined();
+
+    await user.click(copyPathButton as HTMLElement);
+
+    expect(clipboardWriteText).toHaveBeenCalledWith("web/src/app.tsx");
+  });
+
+  it("dims files and folders ignored by Git", async () => {
+    const user = userEvent.setup();
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    const ignoredFolder = await screen.findByRole("treeitem", {
+      name: /dist/i,
+    });
+    expect(ignoredFolder).toHaveClass("opacity-55");
+
+    await user.click(ignoredFolder);
+    expect(
+      await screen.findByRole("treeitem", { name: /app\.js/i }),
+    ).toHaveClass("opacity-55");
   });
 
   it("loads a selected Git diff from the change list", async () => {

@@ -1,4 +1,4 @@
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 
 interface StatusPillProps {
   className?: string;
@@ -15,7 +15,7 @@ export function StatusPill({ className, status }: StatusPillProps) {
 
   return (
     <span
-      className={classNames(
+      className={cn(
         "inline-flex min-h-7 max-w-full items-center rounded-md px-2 text-xs font-medium shadow-sm",
         tone,
         className,

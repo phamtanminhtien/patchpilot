@@ -1,6 +1,6 @@
 import type { ElementType, HTMLAttributes } from "react";
 
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const surfaceVariant = createVariant({
@@ -46,10 +46,7 @@ export function Surface({
 }: SurfaceProps) {
   return (
     <Component
-      className={classNames(
-        surfaceVariant({ layout, padding, radius }),
-        className,
-      )}
+      className={cn(surfaceVariant({ layout, padding, radius }), className)}
       {...props}
     />
   );

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const sectionVariant = createVariant({
@@ -34,7 +34,7 @@ export function Section({
   tone,
 }: SectionProps) {
   return (
-    <section className={classNames(sectionVariant({ tone }), className)}>
+    <section className={cn(sectionVariant({ tone }), className)}>
       <div className="mx-auto grid w-full max-w-6xl gap-4 px-4 py-5 sm:px-6">
         <div className="grid gap-1">
           {eyebrow ? (

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 
-describe("classNames", () => {
+describe("cn", () => {
   it("joins truthy class names", () => {
-    expect(classNames("base", false, "active", undefined, null)).toBe(
-      "base active",
-    );
+    expect(cn("base", false, "active", undefined, null)).toBe("base active");
+  });
+
+  it("merges conflicting Tailwind classes", () => {
+    expect(cn("px-2", "px-4")).toBe("px-4");
   });
 });

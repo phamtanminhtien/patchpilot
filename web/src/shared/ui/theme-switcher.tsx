@@ -1,6 +1,6 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 
 type ThemePreference = "system" | "light" | "dark";
 
@@ -24,7 +24,7 @@ export function ThemeSwitcher({
   return (
     <div
       aria-label="Theme"
-      className={classNames(
+      className={cn(
         "bg-panel inline-grid grid-cols-3 rounded-md p-0.5 shadow-sm",
         className,
       )}
@@ -33,7 +33,7 @@ export function ThemeSwitcher({
       {options.map((option) => (
         <button
           aria-pressed={value === option.value}
-          className={classNames(
+          className={cn(
             "text-muted hover:bg-hover hover:text-ink inline-flex min-h-7 min-w-7 cursor-pointer items-center justify-center rounded-sm px-1.5 transition",
             value === option.value
               ? "bg-accent-soft text-accent shadow-sm"

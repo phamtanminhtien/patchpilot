@@ -41,6 +41,8 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}", s.getWorkspace)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files", s.listFiles)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files/index", s.listFileIndex)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/files/index/refresh", s.refreshFileIndex)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/file", s.readFile)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/search", s.searchFiles)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/status", s.gitStatus)
@@ -98,6 +100,10 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeWorkspaceError(w, err)
 		return
 	}
+	if err := s.refreshWorkspaceIndex(r.Context(), ws); err != nil {
+		writeIndexRefreshError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, ws)
 }
 
@@ -113,6 +119,10 @@ func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
+		return
+	}
+	if err := s.refreshWorkspaceIndex(r.Context(), ws); err != nil {
+		writeIndexRefreshError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, ws)
@@ -148,6 +158,36 @@ func (s *Server) readFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, file)
 }
 
+func (s *Server) listFileIndex(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	entries, err := s.workspaces.FileIndex(r.Context(), ws.ID)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
+func (s *Server) refreshFileIndex(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := s.refreshWorkspaceIndex(r.Context(), ws); err != nil {
+		writeIndexRefreshError(w, err)
+		return
+	}
+	entries, err := s.workspaces.FileIndex(r.Context(), ws.ID)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
 func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
@@ -159,6 +199,22 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+func (s *Server) refreshWorkspaceIndex(ctx context.Context, ws workspace.Workspace) error {
+	fileEntries, err := s.files.Index(ws.RootPath)
+	if err != nil {
+		return err
+	}
+	entries := make([]workspace.FileIndexEntry, 0, len(fileEntries))
+	for _, entry := range fileEntries {
+		entries = append(entries, workspace.FileIndexEntry{
+			Path:       entry.Path,
+			Size:       entry.Size,
+			ModifiedAt: entry.ModifiedAt,
+		})
+	}
+	return s.workspaces.ReplaceFileIndex(ctx, ws.ID, entries)
 }
 
 func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +300,19 @@ func writeFileError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "file_too_large", "File exceeds the max readable size", nil)
 	default:
 		writeError(w, http.StatusNotFound, "path_not_found", "Path not found", nil)
+	}
+}
+
+func writeIndexRefreshError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, filestore.ErrInvalidPath),
+		errors.Is(err, filestore.ErrOutsideRoot),
+		errors.Is(err, filestore.ErrIgnoredPath),
+		errors.Is(err, filestore.ErrNotTextFile),
+		errors.Is(err, filestore.ErrFileTooLarge):
+		writeFileError(w, err)
+	default:
+		writeError(w, http.StatusInternalServerError, "file_index_refresh_failed", "File index could not be refreshed", nil)
 	}
 }
 

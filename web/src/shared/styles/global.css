@@ -120,19 +120,29 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
-.workspace-main-scroll {
-  overscroll-behavior: none;
-  -webkit-overflow-scrolling: auto;
+#root {
+  min-height: 100%;
+  overflow: hidden;
 }
 
 .pp-pattern-bg {

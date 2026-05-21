@@ -1,7 +1,7 @@
 import { Slot } from "@radix-ui/react-slot";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const buttonVariant = createVariant({
@@ -57,7 +57,7 @@ export function Button({
       {icon ? (
         <span
           aria-hidden="true"
-          className="grid size-5 shrink-0 place-items-center [&>svg]:size-5"
+          className="grid size-5 shrink-0 cursor-pointer place-items-center"
         >
           {icon}
         </span>
@@ -68,7 +68,7 @@ export function Button({
 
   return (
     <Component
-      className={classNames(buttonVariant({ size, variant, width }), className)}
+      className={cn(buttonVariant({ size, variant, width }), className)}
       {...props}
     >
       {content}

@@ -43,4 +43,13 @@ describe("parseGitPorcelain", () => {
       },
     );
   });
+
+  it("maps ignored paths", () => {
+    expect(parseGitPorcelain("!! dist/")[0]).toMatchObject({
+      code: "!!",
+      displayPath: "dist/",
+      path: "dist/",
+      status: "Ignored",
+    });
+  });
 });

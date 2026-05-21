@@ -1,4 +1,4 @@
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 
 type VariantSchema = Record<string, Record<string, string>>;
 type VariantKey<T> = Extract<keyof T, string>;
@@ -66,12 +66,7 @@ export function createVariant<const Variants extends VariantSchema>({
       return matches ? className : undefined;
     });
 
-    return classNames(
-      base,
-      ...variantClasses,
-      ...compoundClasses,
-      selection.className,
-    );
+    return cn(base, ...variantClasses, ...compoundClasses, selection.className);
   };
 }
 

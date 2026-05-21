@@ -26,6 +26,25 @@ func TestStatusReturnsPorcelain(t *testing.T) {
 	}
 }
 
+func TestStatusReturnsIgnoredPaths(t *testing.T) {
+	root := initGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored.txt\n"), 0o644); err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ignored.txt"), []byte("ignored"), 0o644); err != nil {
+		t.Fatalf("write ignored file: %v", err)
+	}
+	client := NewClient()
+
+	status, err := client.Status(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+	if !strings.Contains(status.Porcelain, "!! ignored.txt") {
+		t.Fatalf("expected ignored file in status, got %q", status.Porcelain)
+	}
+}
+
 func TestRepositoryRootReturnsGitTopLevel(t *testing.T) {
 	root := initGitRepo(t)
 	nested := filepath.Join(root, "nested")

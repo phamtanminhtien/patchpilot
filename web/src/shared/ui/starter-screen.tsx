@@ -2,7 +2,7 @@ import { ArrowRight, Bot, FolderOpen, History, Loader2 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 
 import { Button } from "./button";
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 import { StatusPill } from "./status-pill";
 import { Surface } from "./surface";
 import { TextField } from "./text-field";
@@ -115,7 +115,7 @@ export function StarterScreen({
             <div className="grid gap-2">
               {recentWorkspaces.map((workspace) => (
                 <button
-                  className={classNames(
+                  className={cn(
                     "bg-panel hover:bg-hover grid min-h-12 min-w-0 gap-1 rounded-md px-3 py-2 text-left shadow-sm transition",
                   )}
                   key={workspace.id}

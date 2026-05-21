@@ -1,6 +1,6 @@
 import type { InputHTMLAttributes } from "react";
 
-import { classNames } from "./class-name";
+import { cn } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const inputVariant = createVariant({
@@ -62,7 +62,7 @@ export function TextField({
     <label className={labelVariant({ size })} htmlFor={inputId}>
       {label}
       <input
-        className={classNames(inputVariant({ size, state }), className)}
+        className={cn(inputVariant({ size, state }), className)}
         id={inputId}
         {...props}
       />

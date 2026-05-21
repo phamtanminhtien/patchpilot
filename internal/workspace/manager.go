@@ -31,6 +31,12 @@ type Workspace struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type FileIndexEntry struct {
+	Path       string    `json:"path"`
+	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modifiedAt"`
+}
+
 type Manager struct {
 	allowedRoots []string
 	store        *database.Store
@@ -143,6 +149,43 @@ func (m *Manager) List(ctx context.Context) ([]Workspace, error) {
 		workspaces = append(workspaces, fromRecord(record))
 	}
 	return workspaces, nil
+}
+
+func (m *Manager) ReplaceFileIndex(ctx context.Context, workspaceID string, entries []FileIndexEntry) error {
+	if _, err := m.Get(ctx, workspaceID); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	records := make([]database.FileIndexRecord, 0, len(entries))
+	for _, entry := range entries {
+		records = append(records, database.FileIndexRecord{
+			WorkspaceID: workspaceID,
+			Path:        entry.Path,
+			Size:        entry.Size,
+			ModifiedAt:  entry.ModifiedAt,
+			IndexedAt:   now,
+		})
+	}
+	return m.store.ReplaceFileIndex(ctx, workspaceID, records)
+}
+
+func (m *Manager) FileIndex(ctx context.Context, workspaceID string) ([]FileIndexEntry, error) {
+	if _, err := m.Get(ctx, workspaceID); err != nil {
+		return nil, err
+	}
+	records, err := m.store.ListFileIndex(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]FileIndexEntry, 0, len(records))
+	for _, record := range records {
+		entries = append(entries, FileIndexEntry{
+			Path:       record.Path,
+			Size:       record.Size,
+			ModifiedAt: record.ModifiedAt,
+		})
+	}
+	return entries, nil
 }
 
 func (m *Manager) normalizeRoot(rootPath string) (string, error) {

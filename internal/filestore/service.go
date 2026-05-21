@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 var (
@@ -21,10 +22,11 @@ var (
 const MaxReadableFileSize int64 = 1 << 20
 
 type Entry struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
-	IsDir bool   `json:"isDir"`
-	Size  int64  `json:"size"`
+	Name       string    `json:"name"`
+	Path       string    `json:"path"`
+	IsDir      bool      `json:"isDir"`
+	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modifiedAt"`
 }
 
 type File struct {
@@ -37,6 +39,12 @@ type SearchResult struct {
 	Kind    string `json:"kind"`
 	Line    int    `json:"line,omitempty"`
 	Preview string `json:"preview,omitempty"`
+}
+
+type IndexEntry struct {
+	Path       string    `json:"path"`
+	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modifiedAt"`
 }
 
 type Service struct{}
@@ -76,12 +84,64 @@ func (s *Service) List(root, relPath string) ([]Entry, error) {
 			entryPath = info.Name()
 		}
 		entries = append(entries, Entry{
-			Name:  info.Name(),
-			Path:  entryPath,
-			IsDir: info.IsDir(),
-			Size:  fileInfo.Size(),
+			Name:       info.Name(),
+			Path:       entryPath,
+			IsDir:      info.IsDir(),
+			Size:       fileInfo.Size(),
+			ModifiedAt: fileInfo.ModTime().UTC(),
 		})
 	}
+	return entries, nil
+}
+
+func (s *Service) Index(root string) ([]IndexEntry, error) {
+	abs, _, err := safePath(root, ".")
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]IndexEntry, 0)
+	err = filepath.WalkDir(abs, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == abs {
+			return nil
+		}
+		rel, err := filepath.Rel(abs, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if shouldSkipEntry(entry) || isIgnoredPath(rel) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() > MaxReadableFileSize {
+			return nil
+		}
+		entries = append(entries, IndexEntry{
+			Path:       rel,
+			Size:       info.Size(),
+			ModifiedAt: info.ModTime().UTC(),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Path < entries[j].Path
+	})
 	return entries, nil
 }
 

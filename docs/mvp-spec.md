@@ -32,7 +32,7 @@ Open workspace:
 
 ```txt
 choose local repo -> validate allowed Git repo -> create/restore metadata
--> index basic file metadata -> restore/create session -> open Vibe Mode
+-> refresh recursive file index -> restore/create session -> open Vibe Mode
 ```
 
 Show readiness while indexing and Git status after load.
@@ -96,6 +96,8 @@ GET    /api/workspaces/:workspaceId
 DELETE /api/workspaces/:workspaceId
 
 GET /api/workspaces/:workspaceId/files?path=
+GET /api/workspaces/:workspaceId/files/index
+POST /api/workspaces/:workspaceId/files/index/refresh
 GET /api/workspaces/:workspaceId/file?path=
 PUT /api/workspaces/:workspaceId/file
 GET /api/workspaces/:workspaceId/search?q=
@@ -148,6 +150,8 @@ Health returns `503` with the standard REST error envelope when the app database
 File API response notes:
 
 - `GET /api/workspaces/:workspaceId/files?path=` returns `{"entries":[]}` for a workspace-relative directory.
+- `GET /api/workspaces/:workspaceId/files/index` returns `{"entries":[]}` for the current recursive file index, with workspace-relative `path`, `size`, and `modifiedAt` metadata.
+- `POST /api/workspaces/:workspaceId/files/index/refresh` rebuilds the recursive file index and returns the same response shape.
 - `GET /api/workspaces/:workspaceId/file?path=` returns `{"path":"...","content":"..."}` for readable text files up to 1 MiB.
 - `GET /api/workspaces/:workspaceId/search?q=` returns `{"results":[]}` for basic filename/content matches under the workspace root.
 - File APIs ignore `.git`, `node_modules`, and `build` directories, skip symlinks while walking, and skip files larger than 1 MiB. Direct reads of ignored paths or files over 1 MiB return the standard REST error envelope.
@@ -204,6 +208,7 @@ Runtime config loads from OS environment variables, falling back to a local `.en
 
 - `auth_sessions`: `id`, `session_hash`, `created_at`, `last_seen_at`, `expires_at`.
 - `workspaces`: `id`, `name`, `root_path`, `git_remote?`, `default_branch?`, `status(indexing|ready|error)`, timestamps.
+- `file_index`: `workspace_id`, `path`, `size`, `modified_at`, `indexed_at`.
 - `sessions`: `id`, `workspace_id`, `title`, `mode(vibe|workspace)`, timestamps.
 - `agent_tasks`: `id`, `workspace_id`, `session_id`, `prompt`, `status`, `plan?`, `summary?`, `error?`, timestamps.
 - `task_events`: `id`, `task_id`, `type`, `payload_json`, `created_at`.

@@ -41,7 +41,7 @@ describe("Button", () => {
     const iconFrame = screen.getByTestId("button-icon").parentElement;
 
     expect(iconFrame).toHaveAttribute("aria-hidden", "true");
-    expect(iconFrame).toHaveClass("size-5", "shrink-0", "[&>svg]:size-5");
+    expect(iconFrame).toHaveClass("size-5", "shrink-0", "cursor-pointer");
   });
 
   it("keeps secondary buttons borderless and elevated", () => {

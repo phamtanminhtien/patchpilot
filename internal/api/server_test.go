@@ -182,6 +182,90 @@ func TestFileAndCommandHandlers(t *testing.T) {
 	}
 }
 
+func TestCreateWorkspaceRefreshesFileIndex(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	mustMkdirAll(t, filepath.Join(root, "src"))
+	if err := os.WriteFile(filepath.Join(root, "src", "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	server := newTestServer(t, root)
+
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", create.Code, create.Body.String())
+	}
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	response := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/files/index", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Entries []workspace.FileIndexEntry `json:"entries"`
+	}
+	mustDecode(t, response, &body)
+	if len(body.Entries) != 1 || body.Entries[0].Path != "src/note.txt" || body.Entries[0].Size != 5 || body.Entries[0].ModifiedAt.IsZero() {
+		t.Fatalf("unexpected index body: %+v", body)
+	}
+}
+
+func TestRefreshFileIndexRebuildsEntries(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "old.txt"), []byte("old"), 0o644); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+	if err := os.Remove(filepath.Join(root, "old.txt")); err != nil {
+		t.Fatalf("remove old file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "new.txt"), []byte("new file"), 0o644); err != nil {
+		t.Fatalf("write new file: %v", err)
+	}
+
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/files/index/refresh", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Entries []workspace.FileIndexEntry `json:"entries"`
+	}
+	mustDecode(t, response, &body)
+	if len(body.Entries) != 1 || body.Entries[0].Path != "new.txt" || body.Entries[0].Size != 8 {
+		t.Fatalf("unexpected refreshed index body: %+v", body)
+	}
+}
+
+func TestGetWorkspaceRefreshesFileIndex(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "first.txt"), []byte("first"), 0o644); err != nil {
+		t.Fatalf("write first file: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+	if err := os.WriteFile(filepath.Join(root, "second.txt"), []byte("second"), 0o644); err != nil {
+		t.Fatalf("write second file: %v", err)
+	}
+
+	get := request(server, http.MethodGet, "/api/workspaces/"+ws.ID, "")
+	if get.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", get.Code, get.Body.String())
+	}
+	response := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/files/index", "")
+	var body struct {
+		Entries []workspace.FileIndexEntry `json:"entries"`
+	}
+	mustDecode(t, response, &body)
+	if len(body.Entries) != 2 || body.Entries[1].Path != "second.txt" {
+		t.Fatalf("expected get workspace to refresh index, got %+v", body)
+	}
+}
+
 func TestSearchFilesReturnsMatches(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	mustMkdirAll(t, filepath.Join(root, "src"))

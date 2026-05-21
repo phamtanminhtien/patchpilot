@@ -92,6 +92,9 @@ func TestListReturnsEntries(t *testing.T) {
 	if len(entries) != 1 || entries[0].Path != "note.txt" {
 		t.Fatalf("unexpected entries: %+v", entries)
 	}
+	if entries[0].ModifiedAt.IsZero() {
+		t.Fatalf("expected modified time, got %+v", entries[0])
+	}
 }
 
 func TestListSkipsIgnoredDirsSymlinksAndLargeFiles(t *testing.T) {
@@ -164,6 +167,59 @@ func TestSearchSkipsIgnoredDirsSymlinksAndLargeFiles(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Fatalf("expected no results, got %+v", results)
+	}
+}
+
+func TestIndexReturnsRecursiveFileMetadata(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "src"))
+	if err := os.WriteFile(filepath.Join(root, "src", "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("readme"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	service := NewService()
+
+	entries, err := service.Index(root)
+	if err != nil {
+		t.Fatalf("Index returned error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 indexed files, got %+v", entries)
+	}
+	if entries[0].Path != "README.md" || entries[0].Size != 6 || entries[0].ModifiedAt.IsZero() {
+		t.Fatalf("unexpected first entry: %+v", entries[0])
+	}
+	if entries[1].Path != "src/note.txt" || entries[1].Size != 5 || entries[1].ModifiedAt.IsZero() {
+		t.Fatalf("unexpected second entry: %+v", entries[1])
+	}
+}
+
+func TestIndexSkipsIgnoredDirsSymlinksAndLargeFiles(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, ".git"))
+	mustMkdirAll(t, filepath.Join(root, "node_modules"))
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write ignored file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "node_modules", "package.txt"), []byte("ignored"), 0o644); err != nil {
+		t.Fatalf("write ignored file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), make([]byte, MaxReadableFileSize+1), 0o644); err != nil {
+		t.Fatalf("write large file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, ".git", "config"), filepath.Join(root, "link.txt")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	service := NewService()
+
+	entries, err := service.Index(root)
+	if err != nil {
+		t.Fatalf("Index returned error: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no indexed files, got %+v", entries)
 	}
 }
 

@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 import type {
   FileContent,
+  FileIndexResponse,
   FileListResponse,
   FileSearchResponse,
 } from "./types";
@@ -27,6 +28,24 @@ export async function readFile(
     {
       params: { path },
     },
+  );
+  return response.data;
+}
+
+export async function listFileIndex(
+  workspaceId: string,
+): Promise<FileIndexResponse> {
+  const response = await apiClient.get<FileIndexResponse>(
+    `/workspaces/${workspaceId}/files/index`,
+  );
+  return response.data;
+}
+
+export async function refreshFileIndex(
+  workspaceId: string,
+): Promise<FileIndexResponse> {
+  const response = await apiClient.post<FileIndexResponse>(
+    `/workspaces/${workspaceId}/files/index/refresh`,
   );
   return response.data;
 }

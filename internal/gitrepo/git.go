@@ -29,7 +29,7 @@ func NewClient() *Client {
 }
 
 func (c *Client) Status(ctx context.Context, root string) (Status, error) {
-	output, err := runGit(ctx, root, "status", "--porcelain=v1")
+	output, err := runGit(ctx, root, "status", "--porcelain=v1", "--ignored")
 	if err != nil {
 		return Status{}, err
 	}
