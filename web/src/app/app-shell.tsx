@@ -1,9 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { Bot, PanelLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { useThemePreference } from "@/app/theme";
-import type { Workspace } from "@/shared/api";
+import { getHealth, type Workspace } from "@/shared/api";
 import { classNames, StatusPill, ThemeSwitcher } from "@/shared/ui";
 
 interface AppShellProps {
@@ -20,9 +21,15 @@ export function AppShell({
   workspaceId,
 }: AppShellProps) {
   const { preference, setPreference } = useThemePreference();
+  const healthQuery = useQuery({
+    queryFn: getHealth,
+    queryKey: ["health"],
+    refetchInterval: 30_000,
+  });
   const query = workspaceId
     ? `?workspaceId=${encodeURIComponent(workspaceId)}`
     : "";
+  const healthStatus = healthQuery.isError ? "api down" : "api ok";
 
   return (
     <main className="bg-canvas min-h-screen">
@@ -47,6 +54,10 @@ export function AppShell({
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5">
+            <StatusPill
+              className="hidden sm:inline-flex"
+              status={healthQuery.isPending ? "api" : healthStatus}
+            />
             <nav
               aria-label="Mode"
               className="bg-hover grid grid-cols-2 rounded-md p-0.5"

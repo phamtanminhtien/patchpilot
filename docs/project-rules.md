@@ -23,6 +23,7 @@ Backend:
 
 - Go 1.26.x, `net/http`, `http.ServeMux`, REST mutations, SSE realtime.
 - SQLite via GORM 1.x with `github.com/glebarez/sqlite` (pure-Go `modernc.org/sqlite` driver); embedded versioned SQL migrations.
+- Logging via `go.uber.org/zap`; default console logs colorize level, time, and caller for local dev, and `PATCHPILOT_LOG_FORMAT=json` enables JSON logs.
 - Git only via `internal/git`; process execution only via `internal/runner`.
 - One Go binary serves API and embedded frontend.
 - No Go web framework, GraphQL, gRPC, WebSocket for MVP, ORM other than GORM, or CGO-only default dependency.
@@ -37,6 +38,8 @@ Frontend:
 Runtime:
 
 - Runs as host OS user on local/private/self-hosted VPS.
+- Default app space is `~/.patchpilot`; app-owned state may live there.
+- Local `.env` is supported for PatchPilot config; OS environment variables override `.env` values.
 - Logical isolation under configured workspace roots.
 - Same-host preview proxy only.
 - Docker isolation, public tunnels, multi-user cloud are post-MVP.
@@ -98,6 +101,7 @@ SSE:
 ## Data
 
 - SQLite is only MVP app DB; source files stay on disk; Git is repo history source.
+- App-owned runtime/state files may live under `~/.patchpilot`; workspace source files must not be copied there.
 - Migrations are append-only, numbered/descriptive, run before API traffic, enable foreign keys.
 - Multi-table writes use transactions.
 - JSON columns only for event payloads, snapshots, unindexed metadata; query-critical fields are columns.

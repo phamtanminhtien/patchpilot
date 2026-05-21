@@ -11,6 +11,7 @@ import {
   createWorkspace,
   getGitDiff,
   getGitStatus,
+  getHealth,
   getWorkspace,
   listFiles,
   listWorkspaces,
@@ -26,6 +27,7 @@ vi.mock("@/shared/api", () => ({
   apiErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : "Request failed",
   createWorkspace: vi.fn(),
+  getHealth: vi.fn(),
   getGitDiff: vi.fn(),
   getGitStatus: vi.fn(),
   getWorkspace: vi.fn(),
@@ -77,6 +79,7 @@ describe("WorkspacePage", () => {
     vi.clearAllMocks();
 
     vi.mocked(createWorkspace).mockResolvedValue(workspace);
+    vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
     vi.mocked(getWorkspace).mockResolvedValue(workspace);
     vi.mocked(listWorkspaces).mockResolvedValue({ workspaces: [] });
     vi.mocked(listFiles).mockResolvedValue({

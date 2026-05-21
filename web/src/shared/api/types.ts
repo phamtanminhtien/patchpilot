@@ -8,6 +8,10 @@ export interface RestErrorResponse {
   error: RestErrorBody;
 }
 
+export interface HealthResponse {
+  status: "ok";
+}
+
 export interface Workspace {
   createdAt: string;
   id: string;

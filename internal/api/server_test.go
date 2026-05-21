@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +17,42 @@ import (
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
 	"github.com/phamtanminhtien/patchpilot/internal/workspace"
 )
+
+type fakeHealthChecker struct {
+	err error
+}
+
+func (f fakeHealthChecker) Ping(context.Context) error {
+	return f.err
+}
+
+func TestHealthCheckReturnsOK(t *testing.T) {
+	server := newTestServer(t, t.TempDir())
+
+	response := request(server, http.MethodGet, "/api/health", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var body map[string]string
+	mustDecode(t, response, &body)
+	if body["status"] != "ok" {
+		t.Fatalf("unexpected health body: %+v", body)
+	}
+}
+
+func TestHealthCheckReturnsUnavailableWhenDatabaseFails(t *testing.T) {
+	server := newTestServerWithHealth(t, t.TempDir(), fakeHealthChecker{err: errors.New("down")})
+
+	response := request(server, http.MethodGet, "/api/health", "")
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", response.Code, response.Body.String())
+	}
+	var body map[string]map[string]any
+	mustDecode(t, response, &body)
+	if body["error"]["code"] != "database_unavailable" {
+		t.Fatalf("unexpected error body: %+v", body)
+	}
+}
 
 func TestCreateWorkspaceReturnsWorkspace(t *testing.T) {
 	root := t.TempDir()
@@ -111,11 +149,16 @@ func TestFileAndCommandHandlers(t *testing.T) {
 
 func newTestServer(t *testing.T, allowedRoot string) http.Handler {
 	t.Helper()
+	return newTestServerWithHealth(t, allowedRoot, fakeHealthChecker{})
+}
+
+func newTestServerWithHealth(t *testing.T, allowedRoot string, health HealthChecker) http.Handler {
+	t.Helper()
 	manager, err := workspace.NewManager([]string{allowedRoot})
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
-	return NewServer(manager, fileapi.NewService(), gitapi.NewClient(), runner.NewRunner()).Routes()
+	return NewServer(manager, fileapi.NewService(), gitapi.NewClient(), runner.NewRunner(), health).Routes()
 }
 
 func request(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {

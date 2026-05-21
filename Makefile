@@ -42,7 +42,12 @@ build-go:
 build-web:
 	pnpm --dir $(WEB_DIR) build
 
-dev: dev-api
+dev:
+	@set -eu; \
+	$(MAKE) dev-api & \
+	api_pid=$$!; \
+	trap 'kill $$api_pid 2>/dev/null || true' INT TERM EXIT; \
+	pnpm --dir $(WEB_DIR) dev
 
 dev-api:
 	go run ./cmd/patchpilot

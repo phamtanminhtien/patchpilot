@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	fileapi "github.com/phamtanminhtien/patchpilot/internal/files"
 	gitapi "github.com/phamtanminhtien/patchpilot/internal/git"
@@ -16,14 +19,24 @@ type Server struct {
 	files      *fileapi.Service
 	git        *gitapi.Client
 	runner     *runner.Runner
+	health     HealthChecker
 }
 
-func NewServer(workspaces *workspace.Manager, files *fileapi.Service, git *gitapi.Client, runner *runner.Runner) *Server {
-	return &Server{workspaces: workspaces, files: files, git: git, runner: runner}
+type HealthChecker interface {
+	Ping(context.Context) error
+}
+
+func NewServer(workspaces *workspace.Manager, files *fileapi.Service, git *gitapi.Client, runner *runner.Runner, health HealthChecker) *Server {
+	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, health: health}
 }
 
 func (s *Server) Routes() http.Handler {
+	return s.RoutesWithStatic("")
+}
+
+func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/health", s.healthCheck)
 	mux.HandleFunc("POST /api/workspaces", s.createWorkspace)
 	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}", s.getWorkspace)
@@ -32,7 +45,37 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/status", s.gitStatus)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/diff", s.gitDiff)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
+	if staticDir != "" {
+		mux.HandleFunc("GET /", serveStatic(staticDir))
+		mux.HandleFunc("HEAD /", serveStatic(staticDir))
+	}
 	return mux
+}
+
+func serveStatic(staticDir string) http.HandlerFunc {
+	fileServer := http.FileServer(http.Dir(staticDir))
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := filepath.Clean("/" + r.URL.Path)
+		if path == string(filepath.Separator) {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		if _, err := os.Stat(filepath.Join(staticDir, path[1:])); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+	}
+}
+
+func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
+	if s.health != nil {
+		if err := s.health.Ping(r.Context()); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "database_unavailable", "Database is unavailable", nil)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 type createWorkspaceRequest struct {

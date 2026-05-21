@@ -1,72 +1,96 @@
 package main
 
 import (
-	"log"
+	"context"
+	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/phamtanminhtien/patchpilot/internal/api"
+	"github.com/phamtanminhtien/patchpilot/internal/config"
+	"github.com/phamtanminhtien/patchpilot/internal/database"
 	fileapi "github.com/phamtanminhtien/patchpilot/internal/files"
 	gitapi "github.com/phamtanminhtien/patchpilot/internal/git"
+	"github.com/phamtanminhtien/patchpilot/internal/logging"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
 	"github.com/phamtanminhtien/patchpilot/internal/workspace"
+	"go.uber.org/zap"
 )
 
 func main() {
-	allowedRoots, err := configuredAllowedRoots()
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("configure allowed roots: %v", err)
+		panic(err)
 	}
-	workspaces, err := workspace.NewManager(allowedRoots)
+	logger, err := logging.New(cfg.LogFormat)
 	if err != nil {
-		log.Fatalf("create workspace manager: %v", err)
+		panic(err)
+	}
+	defer func() {
+		_ = logger.Sync()
+	}()
+	if err := run(cfg, logger); err != nil {
+		logger.Error("patchpilot stopped", zap.Error(err))
+		os.Exit(1)
+	}
+}
+
+func run(cfg config.Config, logger *zap.Logger) error {
+	store, err := database.Open(cfg.DBPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			logger.Error("close database", zap.Error(err))
+		}
+	}()
+
+	workspaces, err := workspace.NewManager(cfg.AllowedRoots)
+	if err != nil {
+		return err
 	}
 
-	server := api.NewServer(workspaces, fileapi.NewService(), gitapi.NewClient(), runner.NewRunner())
+	server := api.NewServer(workspaces, fileapi.NewService(), gitapi.NewClient(), runner.NewRunner(), store)
 	httpServer := &http.Server{
-		Addr:              addr(),
-		Handler:           server.Routes(),
+		Addr:              cfg.Addr,
+		Handler:           server.RoutesWithStatic(cfg.StaticDir),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Printf("patchpilot listening on %s", httpServer.Addr)
-	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
-}
-
-func addr() string {
-	if value := strings.TrimSpace(os.Getenv("PATCHPILOT_ADDR")); value != "" {
-		return value
-	}
-	return "127.0.0.1:8080"
-}
-
-func configuredAllowedRoots() ([]string, error) {
-	value := strings.TrimSpace(os.Getenv("PATCHPILOT_ALLOWED_ROOTS"))
-	if value == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return nil, err
+	serverErrors := make(chan error, 1)
+	go func() {
+		logger.Info("patchpilot listening", zap.String("addr", httpServer.Addr), zap.String("db_path", cfg.DBPath))
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErrors <- err
+			return
 		}
-		return []string{cwd}, nil
+		serverErrors <- nil
+	}()
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	select {
+	case err := <-serverErrors:
+		return err
+	case signal := <-signals:
+		logger.Info("shutdown signal received", zap.String("signal", signal.String()))
 	}
 
-	parts := strings.Split(value, string(os.PathListSeparator))
-	roots := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		abs, err := filepath.Abs(part)
-		if err != nil {
-			return nil, err
-		}
-		roots = append(roots, abs)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(ctx); err != nil {
+		return err
 	}
-	return roots, nil
+
+	if err := <-serverErrors; err != nil {
+		return err
+	}
+	logger.Info("patchpilot shutdown complete")
+	return nil
 }

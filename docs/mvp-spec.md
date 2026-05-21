@@ -15,6 +15,7 @@ open repo -> ask AI -> agent inspects approved files -> proposes patch
 ## Decisions
 
 - Single-user, self-hosted, local filesystem + SQLite.
+- Default app space is `~/.patchpilot`; it may store PatchPilot-owned state.
 - REST mutations, SSE realtime, no WebSocket.
 - Admin-token auth with HTTP-only session cookie.
 - Commands run as server OS user at workspace root.
@@ -80,9 +81,11 @@ Paths required. No push. Push/pull/branch management are post-MVP.
 
 ## API
 
-All endpoints except `POST /api/auth/login` require session cookie. Workspace APIs are scoped by `workspaceId`. JSON except SSE/proxy.
+All endpoints except `GET /api/health` and `POST /api/auth/login` require session cookie. Workspace APIs are scoped by `workspaceId`. JSON except SSE/proxy.
 
 ```txt
+GET  /api/health
+
 POST /api/auth/login
 GET  /api/auth/session
 POST /api/auth/logout
@@ -132,6 +135,16 @@ Workspace list response:
 
 The list is newest-first.
 
+Health response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+Health returns `503` with the standard REST error envelope when the app database is unavailable.
+
 SSE envelope:
 
 ```json
@@ -177,6 +190,10 @@ Everything else requires explicit approval.
 ## Data Model
 
 SQLite app state; source files on disk; Git owns repo history.
+PatchPilot-owned state may live in the default app space at `~/.patchpilot`.
+Workspace source files stay in their original repositories and are not copied into app space.
+
+Runtime config loads from OS environment variables, falling back to a local `.env` file in the process working directory. OS environment variables override `.env` values. `PATCHPILOT_ADDR` controls the backend listen address, `PATCHPILOT_ALLOWED_ROOTS` controls the OS path-list of allowed workspace roots, `PATCHPILOT_STATIC_DIR` optionally serves the built frontend, `PATCHPILOT_LOG_FORMAT` selects colorized `console` logs or `json` logs, and `PATCHPILOT_DB_PATH` overrides the SQLite database path. When `PATCHPILOT_DB_PATH` is unset, `PATCHPILOT_DATA_DIR` controls the directory for `patchpilot.db`; otherwise `~/.patchpilot/patchpilot.db` is used.
 
 - `auth_sessions`: `id`, `session_hash`, `created_at`, `last_seen_at`, `expires_at`.
 - `workspaces`: `id`, `name`, `root_path`, `git_remote?`, `default_branch?`, `status(indexing|ready|error)`, timestamps.

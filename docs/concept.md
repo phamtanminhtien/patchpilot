@@ -454,6 +454,7 @@ Supported runtimes:
 MVP:
 - Local filesystem
 - SQLite embedded DB
+- Default app space: `~/.patchpilot`
 
 Stored data:
 - Workspace metadata
