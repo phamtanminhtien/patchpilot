@@ -44,6 +44,24 @@ describe("Button", () => {
     expect(iconFrame).toHaveClass("size-5", "shrink-0", "cursor-pointer");
   });
 
+  it("supports compact icon action buttons", () => {
+    render(
+      <Button
+        aria-label="Stage change"
+        icon={<svg />}
+        size="icon"
+        variant="action"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Stage change" })).toHaveClass(
+      "size-6",
+      "p-0",
+      "text-muted",
+      "hover:bg-hover",
+    );
+  });
+
   it("keeps secondary buttons borderless and elevated", () => {
     render(<Button variant="secondary">Open workspace</Button>);
 

@@ -74,10 +74,13 @@ Agents never expose ports. Proxy: `/workspaces/:workspaceId/ports/:port/proxy/*`
 Commit:
 
 ```txt
-review status/diff -> message -> select paths -> commit -> return hash
+review status/diff grouped by staged and unstaged paths
+-> stage unstaged paths when needed
+-> message -> commit staged paths -> return hash
 ```
 
-Paths required. No push. Push/pull/branch management are post-MVP.
+Commit and stage requests still send explicit paths derived from the visible Git
+sections. No push. Push/pull/branch management are post-MVP.
 
 ## API
 
@@ -119,6 +122,9 @@ POST /api/workspaces/:workspaceId/processes/:processId/stop
 
 GET  /api/workspaces/:workspaceId/git/status
 GET  /api/workspaces/:workspaceId/git/diff?path=
+POST /api/workspaces/:workspaceId/git/stage
+POST /api/workspaces/:workspaceId/git/unstage
+POST /api/workspaces/:workspaceId/git/discard
 POST /api/workspaces/:workspaceId/git/commit
 
 GET  /api/workspaces/:workspaceId/ports
@@ -155,6 +161,15 @@ File API response notes:
 - `GET /api/workspaces/:workspaceId/file?path=` returns `{"path":"...","content":"..."}` for readable text files up to 1 MiB.
 - `GET /api/workspaces/:workspaceId/search?q=` returns `{"results":[]}` for basic filename/content matches under the workspace root.
 - File APIs ignore `.git`, `node_modules`, and `build` directories, skip symlinks while walking, and skip files larger than 1 MiB. Direct reads of ignored paths or files over 1 MiB return the standard REST error envelope.
+
+Git API response notes:
+
+- `GET /api/workspaces/:workspaceId/git/status` returns `{"porcelain":"..."}` from Git porcelain status, including untracked and ignored paths.
+- `GET /api/workspaces/:workspaceId/git/diff?path=` returns `{"path":"...","diff":"..."}` for the full workspace or a workspace-relative path. Untracked file diffs are shown without staging the file.
+- `POST /api/workspaces/:workspaceId/git/stage` accepts `{"paths":["..."]}` with explicit non-empty workspace-relative paths and returns the updated Git status.
+- `POST /api/workspaces/:workspaceId/git/unstage` accepts `{"paths":["..."]}` with explicit non-empty workspace-relative paths, unstages only those paths, and returns the updated Git status.
+- `POST /api/workspaces/:workspaceId/git/discard` accepts `{"paths":["..."]}` with explicit non-empty workspace-relative paths, discards only unstaged changes for those paths, removes untracked paths, and returns the updated Git status.
+- `POST /api/workspaces/:workspaceId/git/commit` accepts `{"message":"...","paths":["..."]}` with the exact user message and explicit non-empty workspace-relative paths, stages only those paths, commits them, and returns `{"hash":"..."}`. The API never pushes.
 
 SSE envelope:
 

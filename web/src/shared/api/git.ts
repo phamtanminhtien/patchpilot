@@ -1,5 +1,24 @@
 import { apiClient } from "./client";
-import type { GitDiff, GitStatus } from "./types";
+import type {
+  GitCommitRequest,
+  GitCommitResponse,
+  GitDiff,
+  GitDiscardRequest,
+  GitStageRequest,
+  GitStatus,
+  GitUnstageRequest,
+} from "./types";
+
+export async function commitGitChanges(
+  workspaceId: string,
+  request: GitCommitRequest,
+): Promise<GitCommitResponse> {
+  const response = await apiClient.post<GitCommitResponse>(
+    `/workspaces/${workspaceId}/git/commit`,
+    request,
+  );
+  return response.data;
+}
 
 export async function getGitDiff(
   workspaceId: string,
@@ -17,6 +36,39 @@ export async function getGitDiff(
 export async function getGitStatus(workspaceId: string): Promise<GitStatus> {
   const response = await apiClient.get<GitStatus>(
     `/workspaces/${workspaceId}/git/status`,
+  );
+  return response.data;
+}
+
+export async function discardGitChanges(
+  workspaceId: string,
+  request: GitDiscardRequest,
+): Promise<GitStatus> {
+  const response = await apiClient.post<GitStatus>(
+    `/workspaces/${workspaceId}/git/discard`,
+    request,
+  );
+  return response.data;
+}
+
+export async function stageGitFiles(
+  workspaceId: string,
+  request: GitStageRequest,
+): Promise<GitStatus> {
+  const response = await apiClient.post<GitStatus>(
+    `/workspaces/${workspaceId}/git/stage`,
+    request,
+  );
+  return response.data;
+}
+
+export async function unstageGitFiles(
+  workspaceId: string,
+  request: GitUnstageRequest,
+): Promise<GitStatus> {
+  const response = await apiClient.post<GitStatus>(
+    `/workspaces/${workspaceId}/git/unstage`,
+    request,
   );
   return response.data;
 }

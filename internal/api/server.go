@@ -47,6 +47,10 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/search", s.searchFiles)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/status", s.gitStatus)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/diff", s.gitDiff)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/stage", s.gitStage)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/unstage", s.gitUnstage)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/discard", s.gitDiscard)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/commit", s.gitCommit)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
 	if staticDir != "" {
 		mux.HandleFunc("GET /", serveStatic(staticDir))
@@ -87,6 +91,15 @@ type createWorkspaceRequest struct {
 
 type createCommandRequest struct {
 	Command string `json:"command"`
+}
+
+type gitStageRequest struct {
+	Paths []string `json:"paths"`
+}
+
+type gitCommitRequest struct {
+	Message string   `json:"message"`
+	Paths   []string `json:"paths"`
 }
 
 func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -224,7 +237,7 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	status, err := s.git.Status(r.Context(), ws.RootPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "git_status_failed", "Git status failed", nil)
+		writeGitError(w, err, "git_status_failed", "Git status failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -237,14 +250,82 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	diff, err := s.git.Diff(r.Context(), ws.RootPath, r.URL.Query().Get("path"))
 	if err != nil {
-		if errors.Is(err, gitrepo.ErrInvalidPath) {
-			writeError(w, http.StatusBadRequest, "invalid_path", "Path must be workspace-relative", nil)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "git_diff_failed", "Git diff failed", nil)
+		writeGitError(w, err, "git_diff_failed", "Git diff failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, diff)
+}
+
+func (s *Server) gitStage(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req gitStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	status, err := s.git.Stage(r.Context(), ws.RootPath, req.Paths)
+	if err != nil {
+		writeGitError(w, err, "git_stage_failed", "Git stage failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) gitUnstage(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req gitStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	status, err := s.git.Unstage(r.Context(), ws.RootPath, req.Paths)
+	if err != nil {
+		writeGitError(w, err, "git_unstage_failed", "Git unstage failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) gitDiscard(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req gitStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	status, err := s.git.Discard(r.Context(), ws.RootPath, req.Paths)
+	if err != nil {
+		writeGitError(w, err, "git_discard_failed", "Git discard failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req gitCommitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	commit, err := s.git.Commit(r.Context(), ws.RootPath, req.Message, req.Paths)
+	if err != nil {
+		writeGitError(w, err, "git_commit_failed", "Git commit failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, commit)
 }
 
 func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +364,23 @@ func writeWorkspaceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "not_git_repository", "Workspace root must be a Git repository", nil)
 	default:
 		writeError(w, http.StatusInternalServerError, "workspace_create_failed", "Workspace could not be created", nil)
+	}
+}
+
+func writeGitError(w http.ResponseWriter, err error, fallbackCode, fallbackMessage string) {
+	switch {
+	case errors.Is(err, gitrepo.ErrInvalidPath):
+		writeError(w, http.StatusBadRequest, "invalid_path", "Path must be workspace-relative", nil)
+	case errors.Is(err, gitrepo.ErrEmptyPathList):
+		writeError(w, http.StatusBadRequest, "empty_path_list", "At least one path is required", nil)
+	case errors.Is(err, gitrepo.ErrEmptyCommitMessage):
+		writeError(w, http.StatusBadRequest, "empty_commit_message", "Commit message is required", nil)
+	case errors.Is(err, gitrepo.ErrInvalidRoot):
+		writeError(w, http.StatusBadRequest, "invalid_workspace_root", "Workspace root must be an absolute path", nil)
+	case errors.Is(err, gitrepo.ErrNotRepository):
+		writeError(w, http.StatusBadRequest, "not_git_repository", "Workspace root must be a Git repository", nil)
+	default:
+		writeError(w, http.StatusInternalServerError, fallbackCode, fallbackMessage, nil)
 	}
 }
 

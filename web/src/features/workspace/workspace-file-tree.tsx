@@ -1,18 +1,15 @@
-import {
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  FileCode2,
-  Folder,
-  FolderOpen,
-  RefreshCw,
-} from "lucide-react";
+import { Copy, FileCode2, Folder, FolderOpen, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { FileIndexEntry } from "@/shared/api";
 import { cn, HoverCard } from "@/shared/ui";
 
+import {
+  WorkspaceFileTreeItem,
+  type WorkspaceFileTreeStatus,
+} from "./workspace-file-tree-item";
 import type { GitChange } from "./workspace-git";
+import { gitStatusBadgeCode, gitStatusTextTone } from "./workspace-git-status";
 
 type FileTreeNode = {
   children: FileTreeNode[];
@@ -22,10 +19,7 @@ type FileTreeNode = {
   type: "directory" | "file";
 };
 
-type NodeGitStatus = {
-  code: string;
-  label: string;
-};
+type NodeGitStatus = WorkspaceFileTreeStatus;
 
 interface WorkspaceFileTreeProps {
   entries: FileIndexEntry[];
@@ -133,41 +127,14 @@ function FileTreeItem({
         content={<FileNodeDetails gitStatus={gitStatus} node={node} />}
         openDelay={450}
       >
-        <button
-          aria-current={isSelected ? "true" : undefined}
+        <WorkspaceFileTreeItem
           aria-expanded={isDirectory ? isExpanded : undefined}
-          className={cn(
-            "hover:bg-hover grid min-h-7 w-full min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-1 py-0.5 pr-1.5 text-left text-xs transition",
-            isSelected ? "bg-hover text-ink" : undefined,
-            isIgnored ? "opacity-55 hover:opacity-75" : undefined,
-          )}
-          onClick={() => {
-            if (isDirectory) {
-              onToggle(node.path);
-            } else {
-              onSelect(node.path);
-            }
-          }}
-          role="treeitem"
-          style={{ paddingLeft: `${depth * 0.875 + 0.375}rem` }}
-          type="button"
-        >
-          <span className="flex min-w-0 items-center gap-1">
-            <span
-              className={cn(
-                "grid size-3 shrink-0 place-items-center",
-                isIgnored ? "text-muted" : "text-ink",
-              )}
-            >
-              {isDirectory ? (
-                isExpanded ? (
-                  <ChevronDown aria-hidden="true" className="size-3" />
-                ) : (
-                  <ChevronRight aria-hidden="true" className="size-3" />
-                )
-              ) : null}
-            </span>
-            {isDirectory ? (
+          depth={depth}
+          disclosure={
+            isDirectory ? (isExpanded ? "expanded" : "collapsed") : "none"
+          }
+          icon={
+            isDirectory ? (
               isExpanded ? (
                 <FolderOpen
                   aria-hidden="true"
@@ -193,18 +160,25 @@ function FileTreeItem({
                   nodeColorClass(gitStatus, false),
                 )}
               />
-            )}
-            <span
-              className={cn(
-                "min-w-0 truncate",
-                nodeColorClass(gitStatus, isDirectory),
-              )}
-            >
+            )
+          }
+          isDimmed={isIgnored}
+          isSelected={isSelected}
+          label={
+            <span className={cn(nodeColorClass(gitStatus, isDirectory))}>
               {node.name}
             </span>
-          </span>
-          <GitStatusBadge status={gitStatus} />
-        </button>
+          }
+          onClick={() => {
+            if (isDirectory) {
+              onToggle(node.path);
+            } else {
+              onSelect(node.path);
+            }
+          }}
+          role="treeitem"
+          status={gitStatus}
+        />
       </HoverCard>
 
       {isExpanded ? (
@@ -289,64 +263,11 @@ function CopyButton({ label, value }: { label: string; value: string }) {
   );
 }
 
-function GitStatusBadge({ status }: { status: NodeGitStatus | null }) {
-  if (!status) {
-    return null;
-  }
-
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "min-w-4 shrink-0 rounded-sm px-1 text-center text-[10px] leading-4 font-semibold",
-        statusBadgeTone(status.label),
-      )}
-      title={status.label}
-    >
-      {status.code}
-    </span>
-  );
-}
-
 function nodeColorClass(status: NodeGitStatus | null, isDirectory = false) {
   if (!status) {
     return isDirectory ? "text-ink" : "text-ink";
   }
-  switch (status.label) {
-    case "Ignored":
-      return "text-muted";
-    case "Deleted":
-    case "Conflict":
-      return "text-warning";
-    case "Added":
-    case "Renamed":
-    case "Copied":
-    case "Untracked":
-    case "Changed":
-    case "Modified":
-      return "text-accent";
-    default:
-      return "text-ink";
-  }
-}
-
-function statusBadgeTone(status: string) {
-  switch (status) {
-    case "Deleted":
-    case "Conflict":
-      return "bg-panel text-warning";
-    case "Ignored":
-      return "bg-hover text-muted";
-    case "Added":
-    case "Renamed":
-    case "Copied":
-    case "Untracked":
-    case "Changed":
-    case "Modified":
-      return "bg-accent-soft text-accent";
-    default:
-      return "bg-hover text-muted";
-  }
+  return gitStatusTextTone(status.label);
 }
 
 function gitStatusForNode(
@@ -361,23 +282,37 @@ function gitStatusForNode(
       return null;
     }
     return {
-      code: change.code.trim() || "--",
+      code: gitStatusBadgeCode({
+        code: change.code,
+        label: change.status,
+      }),
       label: change.status,
+    };
+  }
+
+  const exactIgnoredFolder = changes.find((change) => {
+    const changePath = normalizeGitPath(change.path);
+    return change.status === "Ignored" && changePath === node.path;
+  });
+  if (exactIgnoredFolder) {
+    return {
+      code: gitStatusBadgeCode({
+        code: exactIgnoredFolder.code,
+        label: exactIgnoredFolder.status,
+      }),
+      label: exactIgnoredFolder.status,
     };
   }
 
   const changedChildren = changes.filter((change) => {
     const changePath = normalizeGitPath(change.path);
-    return changePath === node.path || changePath.startsWith(`${node.path}/`);
+    return (
+      change.status !== "Ignored" &&
+      (changePath === node.path || changePath.startsWith(`${node.path}/`))
+    );
   });
   if (changedChildren.length === 0) {
     return null;
-  }
-  if (changedChildren.every((change) => change.status === "Ignored")) {
-    return {
-      code: String(changedChildren.length),
-      label: "Ignored",
-    };
   }
   return {
     code: String(changedChildren.length),

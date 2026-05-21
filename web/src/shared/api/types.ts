@@ -72,6 +72,27 @@ export interface GitDiff {
   path?: string;
 }
 
+export interface GitStageRequest {
+  paths: string[];
+}
+
+export interface GitDiscardRequest {
+  paths: string[];
+}
+
+export interface GitUnstageRequest {
+  paths: string[];
+}
+
+export interface GitCommitRequest {
+  message: string;
+  paths: string[];
+}
+
+export interface GitCommitResponse {
+  hash: string;
+}
+
 export interface Command {
   command: string;
   createdAt: string;

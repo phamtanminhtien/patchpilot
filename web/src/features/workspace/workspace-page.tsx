@@ -2,13 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   CheckCircle2,
+  ChevronDown,
   Files,
   GitBranch,
+  GitCommit,
   Loader2,
   MonitorUp,
   Play,
   RefreshCw,
   Send,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { type FormEvent, type ReactNode, useMemo, useState } from "react";
@@ -19,16 +23,21 @@ import { useThemePreference } from "@/app/theme";
 import {
   apiErrorMessage,
   type Command,
+  commitGitChanges,
   createWorkspace,
+  discardGitChanges,
   type FileIndexEntry,
   getGitDiff,
   getGitStatus,
   getWorkspace,
+  type GitCommitResponse,
   listFileIndex,
   listWorkspaces,
   queueCommand,
   readFile,
   refreshFileIndex,
+  stageGitFiles,
+  unstageGitFiles,
 } from "@/shared/api";
 import {
   Button,
@@ -42,6 +51,10 @@ import { panelParser, pathParser, workspaceIdParser } from "@/shared/url";
 
 import { WorkspaceFileTree } from "./workspace-file-tree";
 import { type GitChange, parseGitPorcelain } from "./workspace-git";
+import {
+  GitChangeActionButton,
+  WorkspaceGitChangeItem,
+} from "./workspace-git-change-item";
 
 const panels = [
   {
@@ -81,6 +94,8 @@ export function WorkspacePage() {
   const [selectedPath, setSelectedPath] = useQueryState("path", pathParser);
   const [rootPath, setRootPath] = useState("");
   const [commandText, setCommandText] = useState("");
+  const [commitMessage, setCommitMessage] = useState("");
+  const [lastCommit, setLastCommit] = useState<GitCommitResponse | null>(null);
   const [queuedCommand, setQueuedCommand] = useState<Command | null>(null);
   const { preference, setPreference } = useThemePreference();
   const queryClient = useQueryClient();
@@ -135,6 +150,25 @@ export function WorkspacePage() {
     [gitQuery.data?.porcelain],
   );
 
+  const stagedGitPaths = useMemo(
+    () =>
+      gitChanges
+        .filter((change) => isStagedGitChange(change))
+        .map((change) => change.path),
+    [gitChanges],
+  );
+
+  const unstagedGitPaths = useMemo(
+    () =>
+      gitChanges
+        .filter(
+          (change) =>
+            isUnstagedGitChange(change) && isGitChangeStageable(change),
+        )
+        .map((change) => change.path),
+    [gitChanges],
+  );
+
   const gitDiffQuery = useQuery({
     enabled: workspaceId.length > 0 && panel === "git",
     queryFn: () => getGitDiff(workspaceId, selectedPath || undefined),
@@ -146,6 +180,54 @@ export function WorkspacePage() {
     onSuccess: (command) => {
       setQueuedCommand(command);
       setCommandText("");
+    },
+  });
+
+  const stageMutation = useMutation({
+    mutationFn: (paths: string[]) => stageGitFiles(workspaceId, { paths }),
+    onSuccess: (status) => {
+      queryClient.setQueryData(["workspace-git-status", workspaceId], status);
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-diff", workspaceId],
+      });
+      setLastCommit(null);
+    },
+  });
+
+  const unstageMutation = useMutation({
+    mutationFn: (paths: string[]) => unstageGitFiles(workspaceId, { paths }),
+    onSuccess: (status) => {
+      queryClient.setQueryData(["workspace-git-status", workspaceId], status);
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-diff", workspaceId],
+      });
+      setLastCommit(null);
+    },
+  });
+
+  const discardMutation = useMutation({
+    mutationFn: (paths: string[]) => discardGitChanges(workspaceId, { paths }),
+    onSuccess: (status) => {
+      queryClient.setQueryData(["workspace-git-status", workspaceId], status);
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-diff", workspaceId],
+      });
+      setLastCommit(null);
+    },
+  });
+
+  const commitMutation = useMutation({
+    mutationFn: (paths: string[]) =>
+      commitGitChanges(workspaceId, { message: commitMessage, paths }),
+    onSuccess: (commit) => {
+      setLastCommit(commit);
+      setCommitMessage("");
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-status", workspaceId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-diff", workspaceId],
+      });
     },
   });
 
@@ -164,6 +246,46 @@ export function WorkspacePage() {
 
   function handlePathSelect(path: string) {
     void setSelectedPath(path);
+  }
+
+  function handleStageChanges() {
+    if (unstagedGitPaths.length === 0 || stageMutation.isPending) {
+      return;
+    }
+    stageMutation.mutate(unstagedGitPaths);
+  }
+
+  function handleStageSelectedChanges(paths: string[]) {
+    if (paths.length === 0 || stageMutation.isPending) {
+      return;
+    }
+    stageMutation.mutate(paths);
+  }
+
+  function handleUnstageChanges(paths: string[]) {
+    if (paths.length === 0 || unstageMutation.isPending) {
+      return;
+    }
+    unstageMutation.mutate(paths);
+  }
+
+  function handleDiscardChanges(paths: string[]) {
+    if (paths.length === 0 || discardMutation.isPending) {
+      return;
+    }
+    discardMutation.mutate(paths);
+  }
+
+  function handleCommitSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (
+      stagedGitPaths.length === 0 ||
+      commitMessage.trim().length === 0 ||
+      commitMutation.isPending
+    ) {
+      return;
+    }
+    commitMutation.mutate(stagedGitPaths);
   }
 
   function handleCommandSubmit(event: FormEvent<HTMLFormElement>) {
@@ -224,11 +346,17 @@ export function WorkspacePage() {
             gitError={
               gitQuery.error ? apiErrorMessage(gitQuery.error) : undefined
             }
+            isDiscardingChanges={discardMutation.isPending}
             isFilesLoading={filesQuery.isPending}
             isGitLoading={gitQuery.isPending}
             isRefreshingFiles={refreshFilesMutation.isPending}
+            isStagingChanges={stageMutation.isPending}
+            isUnstagingChanges={unstageMutation.isPending}
+            onChangesDiscard={handleDiscardChanges}
+            onChangesStage={handleStageSelectedChanges}
             onFileIndexRefresh={() => refreshFilesMutation.mutate()}
             onPathSelect={handlePathSelect}
+            onStagedChangesUnstage={handleUnstageChanges}
             selectedPath={selectedPath}
             workspace={workspace}
             workspaceError={
@@ -255,6 +383,12 @@ export function WorkspacePage() {
 
               {panel === "git" ? (
                 <GitPanel
+                  commitError={
+                    commitMutation.error
+                      ? apiErrorMessage(commitMutation.error)
+                      : undefined
+                  }
+                  commitMessage={commitMessage}
                   diff={gitDiffQuery.data?.diff}
                   diffError={
                     gitDiffQuery.error
@@ -266,7 +400,20 @@ export function WorkspacePage() {
                   }
                   hasChanges={gitChanges.length > 0}
                   isLoading={gitDiffQuery.isPending || gitQuery.isPending}
+                  isCommitPending={commitMutation.isPending}
+                  isStagePending={stageMutation.isPending}
+                  lastCommitHash={lastCommit?.hash}
+                  onCommitMessageChange={setCommitMessage}
+                  onCommitSubmit={handleCommitSubmit}
+                  onStageChanges={handleStageChanges}
                   selectedPath={selectedPath}
+                  stagedGitPathCount={stagedGitPaths.length}
+                  stageError={
+                    stageMutation.error
+                      ? apiErrorMessage(stageMutation.error)
+                      : undefined
+                  }
+                  unstagedGitPathCount={unstagedGitPaths.length}
                 />
               ) : null}
 
@@ -361,11 +508,17 @@ function WorkspaceSidebar({
   filesError,
   gitChanges,
   gitError,
+  isDiscardingChanges,
   isFilesLoading,
   isGitLoading,
   isRefreshingFiles,
+  isStagingChanges,
+  isUnstagingChanges,
+  onChangesDiscard,
+  onChangesStage,
   onFileIndexRefresh,
   onPathSelect,
+  onStagedChangesUnstage,
   selectedPath,
   workspace,
   workspaceError,
@@ -375,11 +528,17 @@ function WorkspaceSidebar({
   filesError?: string;
   gitChanges: GitChange[];
   gitError?: string;
+  isDiscardingChanges: boolean;
   isFilesLoading: boolean;
   isGitLoading: boolean;
   isRefreshingFiles: boolean;
+  isStagingChanges: boolean;
+  isUnstagingChanges: boolean;
+  onChangesDiscard: (paths: string[]) => void;
+  onChangesStage: (paths: string[]) => void;
   onFileIndexRefresh: () => void;
   onPathSelect: (path: string) => void;
+  onStagedChangesUnstage: (paths: string[]) => void;
   selectedPath: string;
   workspace?: {
     name: string;
@@ -388,43 +547,13 @@ function WorkspaceSidebar({
 }) {
   return (
     <aside className="bg-canvas grid min-h-0 gap-1 shadow-sm lg:grid-rows-[auto_minmax(0,1fr)_auto] lg:overflow-hidden">
-      <div className="bg-panel grid gap-1 px-1.5 py-1">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <div className="min-w-0">
-              <p className="text-muted truncate text-xs font-bold uppercase">
-                {workspace?.name ?? panelShortDescription(activePanel)}
-              </p>
-            </div>
-          </div>
-
-          {activePanel === "files" ? (
-            <Button
-              aria-label="Refresh index"
-              className="aspect-square px-0"
-              disabled={isRefreshingFiles}
-              icon={
-                <RefreshCw
-                  className={cn(
-                    isRefreshingFiles ? "animate-spin" : "",
-                    "size-4",
-                  )}
-                />
-              }
-              onClick={onFileIndexRefresh}
-              size="small"
-              title="Refresh index"
-              type="button"
-              variant="ghost"
-            >
-              <span className="sr-only">Refresh index</span>
-            </Button>
-          ) : null}
-        </div>
-        {!workspace && workspaceError ? (
-          <ErrorState message={workspaceError} />
-        ) : null}
-      </div>
+      <WorkspaceSidebarHeader
+        activePanel={activePanel}
+        isRefreshingFiles={isRefreshingFiles}
+        onFileIndexRefresh={onFileIndexRefresh}
+        workspace={workspace}
+        workspaceError={workspaceError}
+      />
 
       <div className="min-h-0 overflow-auto">
         {activePanel === "files" ? (
@@ -442,8 +571,14 @@ function WorkspaceSidebar({
           <GitChangeList
             changes={gitChanges}
             error={gitError}
+            isDiscardingChanges={isDiscardingChanges}
             isLoading={isGitLoading}
+            isStagingChanges={isStagingChanges}
+            isUnstagingChanges={isUnstagingChanges}
+            onChangesDiscard={onChangesDiscard}
+            onChangesStage={onChangesStage}
             onSelect={onPathSelect}
+            onStagedChangesUnstage={onStagedChangesUnstage}
             selectedPath={selectedPath}
           />
         ) : null}
@@ -468,19 +603,97 @@ function WorkspaceSidebar({
   );
 }
 
+function WorkspaceSidebarHeader({
+  activePanel,
+  isRefreshingFiles,
+  onFileIndexRefresh,
+  workspace,
+  workspaceError,
+}: {
+  activePanel: WorkspacePanel;
+  isRefreshingFiles: boolean;
+  onFileIndexRefresh: () => void;
+  workspace?: {
+    name: string;
+  };
+  workspaceError?: string;
+}) {
+  return (
+    <div className="grid gap-1 p-2">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <div className="min-w-0">
+            <p className="text-muted truncate text-xs font-bold uppercase">
+              {workspace?.name ?? panelShortDescription(activePanel)}
+            </p>
+          </div>
+        </div>
+
+        {activePanel === "files" ? (
+          <Button
+            aria-label="Refresh index"
+            className="aspect-square px-0"
+            disabled={isRefreshingFiles}
+            icon={
+              <RefreshCw
+                className={cn(
+                  isRefreshingFiles ? "animate-spin" : "",
+                  "size-4",
+                )}
+              />
+            }
+            onClick={onFileIndexRefresh}
+            size="small"
+            title="Refresh index"
+            type="button"
+            variant="ghost"
+          >
+            <span className="sr-only">Refresh index</span>
+          </Button>
+        ) : null}
+      </div>
+      {!workspace && workspaceError ? (
+        <ErrorState message={workspaceError} />
+      ) : null}
+    </div>
+  );
+}
+
 function GitChangeList({
   changes,
   error,
+  isDiscardingChanges,
   isLoading,
+  isStagingChanges,
+  isUnstagingChanges,
+  onChangesDiscard,
+  onChangesStage,
   onSelect,
+  onStagedChangesUnstage,
   selectedPath,
 }: {
   changes: GitChange[];
   error?: string;
+  isDiscardingChanges: boolean;
   isLoading: boolean;
+  isStagingChanges: boolean;
+  isUnstagingChanges: boolean;
+  onChangesDiscard: (paths: string[]) => void;
+  onChangesStage: (paths: string[]) => void;
   onSelect: (path: string) => void;
+  onStagedChangesUnstage: (paths: string[]) => void;
   selectedPath: string;
 }) {
+  const visibleChanges = changes.filter(
+    (change) => !isIgnoredGitChange(change),
+  );
+  const stagedChanges = visibleChanges.filter((change) =>
+    isStagedGitChange(change),
+  );
+  const unstagedChanges = visibleChanges.filter((change) =>
+    isUnstagedGitChange(change),
+  );
+
   if (error) {
     return <ErrorState message={error} />;
   }
@@ -489,39 +702,165 @@ function GitChangeList({
     return <LoadingState label="Loading Git status" />;
   }
 
-  if (changes.length === 0) {
+  if (visibleChanges.length === 0) {
     return <EmptyState message="Working tree is clean." />;
   }
 
   return (
-    <div className="grid gap-0.5">
-      {changes.map((change) => (
-        <button
-          aria-current={selectedPath === change.path ? "true" : undefined}
-          className={cn(
-            "text-muted hover:bg-hover hover:text-ink grid min-h-9 min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)] gap-x-1.5 rounded-sm px-1.5 py-1 text-left text-xs transition",
-            selectedPath === change.path ? "bg-hover text-ink" : undefined,
-          )}
-          key={change.id}
-          onClick={() => onSelect(change.path)}
-          type="button"
+    <div className="grid gap-1">
+      <GitChangeSection
+        actionKind="staged"
+        changes={stagedChanges}
+        isDiscardingChanges={isDiscardingChanges}
+        isStagingChanges={isStagingChanges}
+        isUnstagingChanges={isUnstagingChanges}
+        label="Staged Changes"
+        onChangesDiscard={onChangesDiscard}
+        onChangesStage={onChangesStage}
+        onSelect={onSelect}
+        onStagedChangesUnstage={onStagedChangesUnstage}
+        selectedPath={selectedPath}
+      />
+      <GitChangeSection
+        actionKind="changes"
+        changes={unstagedChanges}
+        isDiscardingChanges={isDiscardingChanges}
+        isStagingChanges={isStagingChanges}
+        isUnstagingChanges={isUnstagingChanges}
+        label="Changes"
+        onChangesDiscard={onChangesDiscard}
+        onChangesStage={onChangesStage}
+        onSelect={onSelect}
+        onStagedChangesUnstage={onStagedChangesUnstage}
+        selectedPath={selectedPath}
+      />
+    </div>
+  );
+}
+
+function GitChangeSection({
+  actionKind,
+  changes,
+  isDiscardingChanges,
+  isStagingChanges,
+  isUnstagingChanges,
+  label,
+  onChangesDiscard,
+  onChangesStage,
+  onSelect,
+  onStagedChangesUnstage,
+  selectedPath,
+}: {
+  actionKind: "changes" | "staged";
+  changes: GitChange[];
+  isDiscardingChanges: boolean;
+  isStagingChanges: boolean;
+  isUnstagingChanges: boolean;
+  label: string;
+  onChangesDiscard: (paths: string[]) => void;
+  onChangesStage: (paths: string[]) => void;
+  onSelect: (path: string) => void;
+  onStagedChangesUnstage: (paths: string[]) => void;
+  selectedPath: string;
+}) {
+  const actionablePaths = changes
+    .filter((change) => isGitChangeStageable(change))
+    .map((change) => change.path);
+
+  return (
+    <section className="grid gap-px">
+      <div className="text-ink grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1 px-1 text-xs font-semibold">
+        <ChevronDown aria-hidden="true" className="text-muted size-4" />
+        <span className="truncate">{label}</span>
+        <span
+          aria-label={`${changes.length} ${label.toLowerCase()} paths`}
+          className="bg-hover text-muted grid min-w-6 place-items-center rounded-full px-1.5 py-0.5 text-xs font-semibold"
         >
-          <span
-            className={cn(
-              "mt-0.5 flex aspect-square min-w-7 items-center justify-center rounded-sm px-1 py-0.5 text-xs font-semibold shadow-sm",
-              changeTone(change.status),
-            )}
-          >
-            {change.code.trim() || "--"}
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate">{change.displayPath}</span>
-            <span className="text-muted block truncate text-xs">
-              {change.status}
-            </span>
-          </span>
-        </button>
-      ))}
+          {changes.length}
+        </span>
+        <GitChangeSectionActions
+          actionKind={actionKind}
+          isDiscardingChanges={isDiscardingChanges}
+          isStagingChanges={isStagingChanges}
+          isUnstagingChanges={isUnstagingChanges}
+          onDiscard={() => onChangesDiscard(actionablePaths)}
+          onStage={() => onChangesStage(actionablePaths)}
+          onUnstage={() => onStagedChangesUnstage(actionablePaths)}
+          pathCount={actionablePaths.length}
+        />
+      </div>
+
+      {changes.length === 0 ? (
+        <p className="text-muted px-6 py-1 text-xs">No paths.</p>
+      ) : (
+        changes.map((change) => (
+          <WorkspaceGitChangeItem
+            actionKind={actionKind}
+            change={change}
+            isDiscardingChanges={isDiscardingChanges}
+            isSelected={selectedPath === change.path}
+            isStagingChanges={isStagingChanges}
+            isUnstagingChanges={isUnstagingChanges}
+            key={`${label}-${change.id}`}
+            onDiscard={() => onChangesDiscard([change.path])}
+            onSelect={onSelect}
+            onStage={() => onChangesStage([change.path])}
+            onUnstage={() => onStagedChangesUnstage([change.path])}
+          />
+        ))
+      )}
+    </section>
+  );
+}
+
+function GitChangeSectionActions({
+  actionKind,
+  isDiscardingChanges,
+  isStagingChanges,
+  isUnstagingChanges,
+  onDiscard,
+  onStage,
+  onUnstage,
+  pathCount,
+}: {
+  actionKind: "changes" | "staged";
+  isDiscardingChanges: boolean;
+  isStagingChanges: boolean;
+  isUnstagingChanges: boolean;
+  onDiscard: () => void;
+  onStage: () => void;
+  onUnstage: () => void;
+  pathCount: number;
+}) {
+  if (pathCount === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      {actionKind === "changes" ? (
+        <>
+          <GitChangeActionButton
+            disabled={isDiscardingChanges}
+            icon={<Trash2 aria-hidden="true" className="size-3.5" />}
+            label="Discard all changes"
+            onClick={onDiscard}
+          />
+          <GitChangeActionButton
+            disabled={isStagingChanges}
+            icon={<GitBranch aria-hidden="true" className="size-3.5" />}
+            label="Stage all changes"
+            onClick={onStage}
+          />
+        </>
+      ) : (
+        <GitChangeActionButton
+          disabled={isUnstagingChanges}
+          icon={<Undo2 aria-hidden="true" className="size-3.5" />}
+          label="Unstage all staged changes"
+          onClick={onUnstage}
+        />
+      )}
     </div>
   );
 }
@@ -563,19 +902,41 @@ function FilesPanel({
 }
 
 function GitPanel({
+  commitError,
+  commitMessage,
   diff,
   diffError,
   gitError,
   hasChanges,
+  isCommitPending,
   isLoading,
+  isStagePending,
+  lastCommitHash,
+  onCommitMessageChange,
+  onCommitSubmit,
   selectedPath,
+  onStageChanges,
+  stagedGitPathCount,
+  stageError,
+  unstagedGitPathCount,
 }: {
+  commitError?: string;
+  commitMessage: string;
   diff?: string;
   diffError?: string;
   gitError?: string;
   hasChanges: boolean;
+  isCommitPending: boolean;
   isLoading: boolean;
+  isStagePending: boolean;
+  lastCommitHash?: string;
+  onCommitMessageChange: (value: string) => void;
+  onCommitSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onStageChanges: () => void;
   selectedPath: string;
+  stagedGitPathCount: number;
+  stageError?: string;
+  unstagedGitPathCount: number;
 }) {
   if (gitError) {
     return <ErrorState className="p-3" message={gitError} />;
@@ -599,24 +960,87 @@ function GitPanel({
     );
   }
 
-  if (!diff) {
-    return (
-      <MainEmptyState
-        icon={<GitBranch aria-hidden="true" className="size-6" />}
-        message={
-          selectedPath
-            ? "No diff is available for the selected path. Untracked files may not have diff output yet."
-            : "Select a changed file to inspect its diff."
-        }
-        title="No diff output"
-      />
-    );
-  }
-
   return (
-    <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
-      {diff}
-    </pre>
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+      <div className="bg-canvas border-line grid gap-2 border-b p-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Button
+            disabled={unstagedGitPathCount === 0 || isStagePending}
+            icon={
+              isStagePending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <GitBranch />
+              )
+            }
+            onClick={onStageChanges}
+            size="small"
+            type="button"
+            variant="secondary"
+          >
+            Stage changes
+          </Button>
+          <span className="text-muted text-xs">
+            {unstagedGitPathCount} unstaged · {stagedGitPathCount} staged
+          </span>
+          {lastCommitHash ? (
+            <span className="text-muted min-w-0 truncate text-xs">
+              Committed {lastCommitHash.slice(0, 12)}
+            </span>
+          ) : null}
+        </div>
+
+        <form
+          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
+          onSubmit={onCommitSubmit}
+        >
+          <TextField
+            label="Commit message"
+            name="commit-message"
+            onChange={(event) => onCommitMessageChange(event.target.value)}
+            placeholder="Describe the selected changes"
+            size="compact"
+            value={commitMessage}
+          />
+          <Button
+            disabled={
+              stagedGitPathCount === 0 ||
+              commitMessage.trim().length === 0 ||
+              isCommitPending
+            }
+            icon={
+              isCommitPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <GitCommit />
+              )
+            }
+            size="compact"
+          >
+            Commit
+          </Button>
+        </form>
+
+        {stageError ? <ErrorState message={stageError} /> : null}
+        {commitError ? <ErrorState message={commitError} /> : null}
+      </div>
+
+      {diff ? (
+        <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
+          {diff}
+        </pre>
+      ) : (
+        <MainEmptyState
+          icon={<GitBranch aria-hidden="true" className="size-6" />}
+          message={
+            selectedPath
+              ? "No diff is available for the selected path."
+              : "Select a changed file to inspect its diff."
+          }
+          title="No diff output"
+        />
+      )}
+    </div>
   );
 }
 
@@ -861,20 +1285,6 @@ function LoadingState({
   );
 }
 
-function ToolIcon({ panel }: { panel: WorkspacePanel }) {
-  const item =
-    panels.find((candidate) => candidate.value === panel) ?? panels[0];
-  return (
-    <span className="text-accent grid size-7 shrink-0 place-items-center">
-      <item.icon aria-hidden="true" className="size-4" />
-    </span>
-  );
-}
-
-function panelLabel(panel: WorkspacePanel) {
-  return panels.find((item) => item.value === panel)?.label ?? "Workspace";
-}
-
 function panelShortDescription(panel: WorkspacePanel) {
   switch (panel) {
     case "files":
@@ -888,15 +1298,20 @@ function panelShortDescription(panel: WorkspacePanel) {
   }
 }
 
-function changeTone(status: string) {
-  switch (status) {
-    case "Added":
-    case "Renamed":
-      return "bg-accent-soft text-accent";
-    case "Deleted":
-    case "Conflict":
-      return "bg-panel text-warning";
-    default:
-      return "bg-hover text-muted";
-  }
+function isGitChangeStageable(change: GitChange) {
+  return change.status !== "Ignored";
+}
+
+function isIgnoredGitChange(change: GitChange) {
+  return change.status === "Ignored";
+}
+
+function isStagedGitChange(change: GitChange) {
+  const indexStatus = change.code[0] ?? " ";
+  return indexStatus !== " " && indexStatus !== "?" && indexStatus !== "!";
+}
+
+function isUnstagedGitChange(change: GitChange) {
+  const worktreeStatus = change.code[1] ?? " ";
+  return worktreeStatus !== " ";
 }
