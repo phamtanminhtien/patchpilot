@@ -77,7 +77,7 @@ func (fakeAgentProvider) Generate(ctx context.Context, request agent.ProviderReq
 	return agent.ProviderResult{
 		Plan:    "Inspect workspace and propose a patch.",
 		Summary: "Fake provider completed.",
-		Patch:   "diff --git a/example.txt b/example.txt\n",
+		Patch:   "diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-before\n+after\n",
 	}, nil
 }
 
@@ -289,6 +289,7 @@ func TestCommandHandlersConfirmAndBlockBySafety(t *testing.T) {
 
 func TestAgentTaskHandlersCreateListAndGet(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
+	seedExampleFile(t, root)
 	server := newTestServer(t, root)
 	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
 	var ws workspace.Workspace
@@ -319,6 +320,52 @@ func TestAgentTaskHandlersCreateListAndGet(t *testing.T) {
 	mustDecode(t, list, &listBody)
 	if len(listBody.Tasks) != 1 || listBody.Tasks[0].ID != task.ID {
 		t.Fatalf("unexpected task list: %+v", listBody.Tasks)
+	}
+}
+
+func TestPatchApplyRevertAndReapplyLifecycle(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	seedExampleFile(t, root)
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks", `{"prompt":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+	var task agent.Task
+	mustDecode(t, response, &task)
+	detail := waitForAgentDetail(t, server, ws.ID, task.ID, "waiting_approval")
+	detail = waitForAgentPatch(t, server, ws.ID, task.ID)
+	patchID := detail.Patches[0].ID
+
+	apply := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/patches/"+patchID+"/apply", "")
+	if apply.Code != http.StatusOK {
+		t.Fatalf("expected apply 200, got %d: %s\npatch:\n%s\nfile:%q", apply.Code, apply.Body.String(), detail.Patches[0].Diff, mustReadFile(t, filepath.Join(root, "example.txt")))
+	}
+	detail = getAgentDetail(t, server, ws.ID, task.ID)
+	if detail.Task.Status != "done" || detail.Patches[0].Status != "applied" {
+		t.Fatalf("expected done/applied, got task=%s patch=%s", detail.Task.Status, detail.Patches[0].Status)
+	}
+
+	revert := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/patches/"+patchID+"/revert", "")
+	if revert.Code != http.StatusOK {
+		t.Fatalf("expected revert 200, got %d: %s", revert.Code, revert.Body.String())
+	}
+	detail = getAgentDetail(t, server, ws.ID, task.ID)
+	if detail.Task.Status != "waiting_approval" || detail.Patches[0].Status != "proposed" {
+		t.Fatalf("expected waiting_approval/proposed, got task=%s patch=%s", detail.Task.Status, detail.Patches[0].Status)
+	}
+
+	reapply := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/patches/"+patchID+"/apply", "")
+	if reapply.Code != http.StatusOK {
+		t.Fatalf("expected reapply 200, got %d: %s", reapply.Code, reapply.Body.String())
+	}
+	detail = getAgentDetail(t, server, ws.ID, task.ID)
+	if detail.Task.Status != "done" || detail.Patches[0].Status != "applied" {
+		t.Fatalf("expected done/applied after reapply, got task=%s patch=%s", detail.Task.Status, detail.Patches[0].Status)
 	}
 }
 
@@ -692,6 +739,31 @@ func waitForAgentDetail(t *testing.T, handler http.Handler, workspaceID, taskID,
 	return agent.Detail{}
 }
 
+func waitForAgentPatch(t *testing.T, handler http.Handler, workspaceID, taskID string) agent.Detail {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		detail := getAgentDetail(t, handler, workspaceID, taskID)
+		if len(detail.Patches) > 0 {
+			return detail
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("task did not create patch")
+	return agent.Detail{}
+}
+
+func getAgentDetail(t *testing.T, handler http.Handler, workspaceID, taskID string) agent.Detail {
+	t.Helper()
+	response := request(handler, http.MethodGet, "/api/workspaces/"+workspaceID+"/agent/tasks/"+taskID, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var detail agent.Detail
+	mustDecode(t, response, &detail)
+	return detail
+}
+
 func request(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 	if body != "" {
@@ -740,6 +812,25 @@ func configureCommitter(t *testing.T, root string) {
 	t.Helper()
 	run(t, root, "git", "config", "user.email", "test@example.com")
 	run(t, root, "git", "config", "user.name", "Test")
+}
+
+func seedExampleFile(t *testing.T, root string) {
+	t.Helper()
+	configureCommitter(t, root)
+	if err := os.WriteFile(filepath.Join(root, "example.txt"), []byte("before\n"), 0o644); err != nil {
+		t.Fatalf("write example file: %v", err)
+	}
+	run(t, root, "git", "add", "example.txt")
+	run(t, root, "git", "commit", "-m", "seed example")
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	return string(content)
 }
 
 func run(t *testing.T, dir, name string, args ...string) {

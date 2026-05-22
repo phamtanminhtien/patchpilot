@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func (p testProvider) Generate(ctx context.Context, request ProviderRequest, too
 		return ProviderResult{}, p.err
 	}
 	stream.Delta(ctx, "provider streamed")
-	return ProviderResult{Plan: "plan", Summary: "summary", Patch: "diff --git a/a b/a\n"}, nil
+	return ProviderResult{Plan: "plan", Summary: "summary", Patch: "diff --git a/a.txt b/a.txt\nnew file mode 100644\nindex 0000000..7898192\n--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1 @@\n+content\n"}, nil
 }
 
 type unconfiguredProvider struct{}
@@ -65,6 +66,7 @@ func TestManagerCreatesTaskAndStoresPatch(t *testing.T) {
 	if detail.Task.Model != "gpt-5.5" || detail.Task.ReasoningEffort != "medium" {
 		t.Fatalf("unexpected task selections: %+v", detail.Task)
 	}
+	detail = waitForAgentPatch(t, manager, "ws_1", task.ID)
 	if len(detail.Patches) != 1 || detail.Patches[0].Status != "proposed" {
 		t.Fatalf("expected proposed patch, got %+v", detail.Patches)
 	}
@@ -74,6 +76,83 @@ func TestManagerCreatesTaskAndStoresPatch(t *testing.T) {
 	}
 	if len(events) == 0 {
 		t.Fatal("expected stored task events")
+	}
+}
+
+func TestManagerFailsInvalidGeneratedPatchBeforeApproval(t *testing.T) {
+	ctx := context.Background()
+	root := initAgentGitRepo(t)
+	manager, _ := newAgentTestManager(t, testProvider{
+		run: func(context.Context, ProviderRequest, *Tools, Stream) (ProviderResult, error) {
+			return ProviderResult{Plan: "plan", Summary: "summary", Patch: "not a patch"}, nil
+		},
+	})
+
+	task, err := manager.Create(ctx, "ws_1", root, CreateTaskInput{
+		Prompt:          "fix bug",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusFailed)
+	if detail.Task.Error == nil || !strings.Contains(*detail.Task.Error, "generated patch failed git apply check") {
+		t.Fatalf("expected generated patch validation error, got %+v", detail.Task.Error)
+	}
+	if len(detail.Patches) != 0 {
+		t.Fatalf("expected no proposed patches, got %+v", detail.Patches)
+	}
+}
+
+func TestManagerAcceptsNormalizedCompactGeneratedPatch(t *testing.T) {
+	ctx := context.Background()
+	root := initAgentGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("before\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runAgentGit(t, root, "config", "user.email", "test@example.com")
+	runAgentGit(t, root, "config", "user.name", "Test")
+	runAgentGit(t, root, "add", "tracked.txt")
+	runAgentGit(t, root, "commit", "-m", "initial")
+	manager, _ := newAgentTestManager(t, testProvider{
+		run: func(context.Context, ProviderRequest, *Tools, Stream) (ProviderResult, error) {
+			return ProviderResult{
+				Plan:    "plan",
+				Summary: "summary",
+				Patch: normalizeProviderPatch(`tracked.txt
+  @@ -1,1 +1,1 @@
+  -before
+  +after
+  
+  +1 -1`),
+			}, nil
+		},
+	})
+
+	task, err := manager.Create(ctx, "ws_1", root, CreateTaskInput{
+		Prompt:          "fix bug",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingApproval)
+	detail = waitForAgentPatch(t, manager, "ws_1", task.ID)
+	if len(detail.Patches) != 1 {
+		t.Fatalf("expected one proposed patch, got %+v", detail.Patches)
+	}
+}
+
+func runAgentGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
 	}
 }
 
@@ -181,7 +260,29 @@ func waitForAgentTask(t *testing.T, manager *Manager, workspaceID, taskID string
 		time.Sleep(20 * time.Millisecond)
 	}
 	detail, _ := manager.Detail(context.Background(), workspaceID, taskID)
-	t.Fatalf("task did not reach %s: %+v", status, detail.Task)
+	taskError := ""
+	if detail.Task.Error != nil {
+		taskError = *detail.Task.Error
+	}
+	t.Fatalf("task did not reach %s: %+v error=%q", status, detail.Task, taskError)
+	return Detail{}
+}
+
+func waitForAgentPatch(t *testing.T, manager *Manager, workspaceID, taskID string) Detail {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		detail, err := manager.Detail(context.Background(), workspaceID, taskID)
+		if err != nil {
+			t.Fatalf("Detail returned error: %v", err)
+		}
+		if len(detail.Patches) > 0 {
+			return detail
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	detail, _ := manager.Detail(context.Background(), workspaceID, taskID)
+	t.Fatalf("task did not create patch: %+v", detail.Task)
 	return Detail{}
 }
 

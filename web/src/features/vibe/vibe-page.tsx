@@ -10,8 +10,6 @@ import {
   FolderOpen,
   Loader2,
   MessageSquare,
-  Plus,
-  Search,
   Send,
   ShieldCheck,
   Sparkles,
@@ -257,7 +255,11 @@ export function VibePage() {
     <AppShell mode="vibe" workspace={workspace} workspaceId={workspaceId}>
       <section className="grid h-[calc(100vh-2.5rem)] min-h-0 w-full overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
         <aside className="bg-panel hidden min-h-0 px-3 py-3 shadow-sm lg:grid lg:grid-rows-[auto_minmax(0,1fr)_auto]">
-          <div className="grid gap-1.5">
+          <div className="text-bold text-center text-xs">
+            Conversation will be implemented in the future.
+          </div>
+          <div className=""></div>
+          {/* <div className="grid gap-1.5">
             <button
               className="text-ink flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55"
               disabled
@@ -295,7 +297,7 @@ export function VibePage() {
                 title="PatchPilot"
               />
             </div>
-          </div>
+          </div> */}
 
           <div className="grid gap-2">
             {workspace ? (
@@ -535,15 +537,19 @@ function AgentTaskThread({
   workspaceRoot?: string;
 }) {
   return (
-    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[16rem_minmax(0,1fr)]">
-      <div className="bg-panel min-h-0 overflow-hidden rounded-md shadow-sm">
-        <div className="border-line border-b px-3 py-2">
+    <div className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,16rem)_minmax(0,1fr)] gap-3 overflow-hidden lg:grid-cols-[16rem_minmax(0,1fr)] lg:grid-rows-1">
+      <div className="bg-panel grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md shadow-sm">
+        <div className="border-line min-w-0 border-b px-3 py-2">
           <p className="text-ink text-xs font-semibold">Tasks</p>
           {workspaceRoot ? (
             <p className="text-muted truncate text-xs">{workspaceRoot}</p>
           ) : null}
         </div>
-        <div className="min-h-0 overflow-auto">
+        <div
+          aria-label="Agent tasks"
+          className="min-h-0 min-w-0 overflow-auto"
+          role="region"
+        >
           {tasks.length === 0 ? (
             <p className="text-muted p-3 text-xs">
               {isLoading ? "Loading tasks" : "No agent tasks yet."}
@@ -559,11 +565,11 @@ function AgentTaskThread({
                 <span className="text-ink truncate text-xs font-semibold">
                   {task.prompt}
                 </span>
-                <span className="text-muted flex min-w-0 items-center justify-between gap-2 text-xs">
-                  <span className="truncate">
+                <span className="text-muted flex max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden text-xs">
+                  <span className="min-w-0 truncate">
                     {task.model} · {task.reasoningEffort}
                   </span>
-                  <span>{task.status}</span>
+                  <span className="shrink-0 truncate">{task.status}</span>
                 </span>
               </button>
             ))
@@ -571,7 +577,7 @@ function AgentTaskThread({
         </div>
       </div>
 
-      <div className="bg-panel grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md shadow-sm">
+      <div className="bg-panel grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md shadow-sm">
         <div className="border-line flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
             <Sparkles aria-hidden="true" className="text-accent size-4" />
@@ -638,9 +644,9 @@ function AgentTaskThread({
 
 function TaskBlock({ label, text }: { label: string; text: string }) {
   return (
-    <div className="bg-hover grid gap-1 rounded-sm p-3">
+    <div className="bg-hover grid min-w-0 gap-1 rounded-sm p-3">
       <p className="text-muted text-xs font-semibold">{label}</p>
-      <p className="text-ink text-sm whitespace-pre-wrap">{text}</p>
+      <p className="text-ink text-sm break-words whitespace-pre-wrap">{text}</p>
     </div>
   );
 }
@@ -737,7 +743,7 @@ function TaskEventRow({ event }: { event: AgentTaskEvent }) {
   return (
     <div className="border-line grid gap-1 border-l px-3">
       <p className="text-muted text-xs font-semibold">{event.type}</p>
-      <p className="text-ink text-sm whitespace-pre-wrap">{text}</p>
+      <p className="text-ink text-sm break-words whitespace-pre-wrap">{text}</p>
     </div>
   );
 }

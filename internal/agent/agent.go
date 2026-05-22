@@ -268,11 +268,22 @@ func (m *Manager) run(workspaceID, workspaceRoot, taskID string) {
 		m.fail(ctx, task, err)
 		return
 	}
+	if strings.TrimSpace(result.Patch) != "" {
+		if err := m.git.CheckPatch(ctx, workspaceRoot, result.Patch); err != nil {
+			_, _ = m.store.UpdateAgentTask(ctx, workspaceID, taskID, map[string]any{
+				"plan":            strings.TrimSpace(result.Plan),
+				"summary":         strings.TrimSpace(result.Summary),
+				"generated_patch": result.Patch,
+			})
+			m.fail(ctx, task, fmt.Errorf("generated patch failed git apply check: %w", err))
+			return
+		}
+	}
 
 	updates := map[string]any{
 		"plan":            strings.TrimSpace(result.Plan),
 		"summary":         strings.TrimSpace(result.Summary),
-		"generated_patch": strings.TrimSpace(result.Patch),
+		"generated_patch": result.Patch,
 	}
 	if strings.TrimSpace(result.Patch) != "" {
 		updates["status"] = string(StatusWaitingApproval)

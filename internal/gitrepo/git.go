@@ -193,6 +193,17 @@ func (c *Client) ApplyPatch(ctx context.Context, root, diff string, direction Ap
 	return err
 }
 
+func (c *Client) CheckPatch(ctx context.Context, root, diff string) error {
+	if err := validateRepositoryRoot(ctx, root); err != nil {
+		return err
+	}
+	if strings.TrimSpace(diff) == "" {
+		return ErrInvalidPath
+	}
+	_, err := runGitWithInput(ctx, root, diff, "apply", "--check")
+	return err
+}
+
 func (c *Client) discardPath(ctx context.Context, root, cleanPath string) error {
 	if isUntrackedPath(ctx, root, cleanPath) {
 		return removeWorkspacePath(root, cleanPath)

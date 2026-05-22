@@ -122,6 +122,29 @@ describe("VibePage", () => {
     });
     expect(await screen.findAllByText("Fix the failing test")).toHaveLength(2);
   });
+
+  it("keeps the task list in a bounded scroll region", async () => {
+    vi.mocked(listAgentTasks).mockResolvedValue({ tasks: [task] });
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    const taskList = await screen.findByRole("region", {
+      name: "Agent tasks",
+    });
+
+    expect(taskList).toHaveClass("min-h-0", "min-w-0", "overflow-auto");
+    expect(taskList.parentElement).toHaveClass(
+      "grid",
+      "grid-rows-[auto_minmax(0,1fr)]",
+      "min-w-0",
+      "overflow-hidden",
+    );
+    expect(taskList.parentElement?.parentElement).toHaveClass(
+      "grid-rows-[minmax(0,16rem)_minmax(0,1fr)]",
+      "min-w-0",
+      "overflow-hidden",
+      "lg:grid-rows-1",
+    );
+  });
 });
 
 function renderVibe(initialEntry: string) {

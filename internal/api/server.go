@@ -606,6 +606,7 @@ func (s *Server) applyPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	publicPatch := agent.PatchFromRecord(patch)
 	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.applied", Payload: publicPatch})
+	s.updatePatchTaskStatus(r.Context(), ws.ID, patch.TaskID, string(agent.StatusDone))
 	s.publishGitChanged(r.Context(), ws)
 	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
 }
@@ -631,6 +632,7 @@ func (s *Server) rejectPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	publicPatch := agent.PatchFromRecord(patch)
 	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.rejected", Payload: publicPatch})
+	s.updatePatchTaskStatus(r.Context(), ws.ID, patch.TaskID, string(agent.StatusDone))
 	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
 }
 
@@ -652,19 +654,32 @@ func (s *Server) revertPatch(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err, "patch_revert_failed", "Patch could not be reverted")
 		return
 	}
-	patch, err = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "reverted"})
+	patch, err = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "proposed", "applied_at": nil})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "patch_update_failed", "Patch status could not be updated", nil)
 		return
 	}
 	publicPatch := agent.PatchFromRecord(patch)
 	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.reverted", Payload: publicPatch})
+	s.updatePatchTaskStatus(r.Context(), ws.ID, patch.TaskID, string(agent.StatusWaitingApproval))
 	s.publishGitChanged(r.Context(), ws)
 	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
 }
 
 func patchIsProposed(status string) bool {
 	return status == "proposed" || status == "created"
+}
+
+func (s *Server) updatePatchTaskStatus(ctx context.Context, workspaceID, taskID, status string) {
+	task, err := s.store.UpdateAgentTask(ctx, workspaceID, taskID, map[string]any{"status": status})
+	if err != nil {
+		return
+	}
+	s.events.Publish(events.Event{
+		WorkspaceID: workspaceID,
+		Type:        "agent.task.status_changed",
+		Payload:     agent.TaskFromRecord(task),
+	})
 }
 
 func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
@@ -1313,7 +1328,7 @@ func writeGitError(w http.ResponseWriter, err error, fallbackCode, fallbackMessa
 	case errors.Is(err, gitrepo.ErrNotRepository):
 		writeError(w, http.StatusBadRequest, "not_git_repository", "Workspace root must be a Git repository", nil)
 	default:
-		writeError(w, http.StatusInternalServerError, fallbackCode, fallbackMessage, nil)
+		writeError(w, http.StatusInternalServerError, fallbackCode, fallbackMessage, map[string]any{"error": err.Error()})
 	}
 }
 

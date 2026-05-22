@@ -45,6 +45,7 @@ prompt + model + reasoning effort -> create task -> agent reads/searches approve
 ```
 
 Timeline includes deltas, tool starts/finishes, command output, patch creation, status changes.
+The OpenAI provider may call backend-controlled file search/read tools to inspect workspace files while preserving server-side path, secret, ignore, and size checks.
 Vibe Mode sends `model` and `reasoningEffort` with every task. Initial model
 choices are `gpt-5.5`, `gpt-5.4`, and `gpt-5.4-mini`; initial reasoning
 effort choices are `low`, `medium`, `high`, and `xhigh`. `gpt-5.5` and
