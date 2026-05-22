@@ -141,7 +141,7 @@ export interface CommandEvent {
   workspaceId: string;
 }
 
-export type AgentTaskStatus =
+export type AgentRunStatus =
   | "queued"
   | "running"
   | "waiting_tool_approval"
@@ -152,42 +152,71 @@ export type AgentModel = "gpt-5.5" | "gpt-5.4" | "gpt-5.4-mini";
 
 export type AgentReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
-export interface CreateAgentTaskRequest {
+export interface Conversation {
+  createdAt: string;
+  id: string;
+  lastMessageAt: string;
+  title: string;
+  updatedAt: string;
+  workspaceId: string;
+}
+
+export interface ConversationListResponse {
+  conversations: Conversation[];
+}
+
+export interface CreateConversationRequest {
+  title: string;
+}
+
+export interface CreateMessageRequest {
+  content: string;
   model: AgentModel;
-  prompt: string;
   reasoningEffort: AgentReasoningEffort;
 }
 
-export interface AgentTask {
+export interface Message {
+  content: string;
+  conversationId: string;
+  createdAt: string;
+  id: string;
+  role: "user" | "assistant";
+  runId?: string | null;
+  workspaceId: string;
+}
+
+export interface MessageRunResponse {
+  message: Message;
+  run: AgentRun;
+}
+
+export interface AgentRun {
+  conversationId: string;
   createdAt: string;
   error?: string | null;
   finishedAt?: string | null;
   id: string;
   model: AgentModel;
-  prompt: string;
   reasoningEffort: AgentReasoningEffort;
   startedAt?: string | null;
-  status: AgentTaskStatus;
+  status: AgentRunStatus;
   summary: string;
+  triggerMessageId: string;
   updatedAt: string;
   workspaceId: string;
 }
 
-export interface AgentTaskListResponse {
-  tasks: AgentTask[];
-}
-
-export interface AgentTaskEvent {
+export interface AgentRunEvent {
   createdAt: string;
   id: string;
   payload: unknown;
-  taskId: string;
+  runId: string;
   type:
     | "agent.delta"
     | "agent.tool.started"
     | "agent.tool.finished"
     | "agent.approval_required"
-    | "agent.task.status_changed";
+    | "agent.run.status_changed";
   workspaceId: string;
 }
 
@@ -212,7 +241,7 @@ export interface AgentToolCall {
     | "running"
     | "finished"
     | "failed";
-  taskId: string;
+  runId: string;
   workspaceId: string;
 }
 
@@ -241,9 +270,11 @@ export interface PortResponse {
   port: Port;
 }
 
-export interface AgentTaskDetail {
-  events: AgentTaskEvent[];
-  task: AgentTask;
+export interface ConversationDetail {
+  conversation: Conversation;
+  events: AgentRunEvent[];
+  messages: Message[];
+  runs: AgentRun[];
   toolCalls: AgentToolCall[];
 }
 
@@ -253,7 +284,7 @@ export interface WorkspaceEvent {
   payload: unknown;
   type:
     | CommandEvent["type"]
-    | AgentTaskEvent["type"]
+    | AgentRunEvent["type"]
     | "workspace.indexing"
     | "workspace.ready"
     | "git.changed"

@@ -21,14 +21,13 @@ func TestOpenAIProviderUsesCustomBaseURLResponsesPath(t *testing.T) {
 	defer server.Close()
 
 	provider := NewOpenAIProvider("sk-test", server.URL+"/v1/")
-	task := Task{
-		ID:              "task_1",
+	run := Run{
+		ID:              "run_1",
 		WorkspaceID:     "ws_1",
-		Prompt:          "fix",
 		Model:           "gpt-5.5",
 		ReasoningEffort: "medium",
 	}
-	result, err := provider.Generate(context.Background(), ProviderRequest{Task: task}, nil)
+	result, err := provider.Generate(context.Background(), ProviderRequest{Run: run, Prompt: "fix"}, nil)
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
 	}
@@ -59,6 +58,7 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 				"id":"resp_1",
 				"output":[
 					{"type":"reasoning","id":"rs_1","summary":[]},
+					{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I will inspect the workspace before patching."}]},
 					{"type":"function_call","call_id":"call_search","name":"search_files","arguments":"{\"query\":\"note\"}"},
 					{"type":"function_call","call_id":"call_patch","name":"apply_patch","arguments":"{\"summary\":\"s\",\"diff\":\"d\"}"}
 				]
@@ -88,22 +88,25 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 	defer server.Close()
 
 	provider := NewOpenAIProvider("sk-test", server.URL)
-	task := Task{
-		ID:              "task_1",
+	run := Run{
+		ID:              "run_1",
 		WorkspaceID:     "ws_1",
-		Prompt:          "update note.txt",
 		Model:           "gpt-5.5",
 		ReasoningEffort: "medium",
 	}
-	result, err := provider.Generate(context.Background(), ProviderRequest{Task: task}, nil)
+	result, err := provider.Generate(context.Background(), ProviderRequest{Run: run, Prompt: "update note.txt"}, nil)
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
+	}
+	if result.Text != "I will inspect the workspace before patching." {
+		t.Fatalf("expected output_text with tool calls, got %+v", result)
 	}
 	if len(result.ToolCalls) != 2 || result.ToolCalls[1].Name != "apply_patch" {
 		t.Fatalf("expected tool calls, got %+v", result)
 	}
 	result, err = provider.Generate(context.Background(), ProviderRequest{
-		Task: task,
+		Run:    run,
+		Prompt: "update note.txt",
 		History: []ProviderHistoryItem{
 			{Type: "tool_call", ToolCall: result.ToolCalls[0]},
 			{Type: "tool_call", ToolCall: result.ToolCalls[1]},
@@ -123,18 +126,19 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 }
 
 func TestOpenAIProviderPromptRejectsReadinessForConcreteTasks(t *testing.T) {
-	task := Task{
-		ID:              "task_1",
+	run := Run{
+		ID:              "run_1",
 		WorkspaceID:     "ws_1",
-		Prompt:          "Inspect the README and update one sentence.",
 		Model:           "gpt-5.5",
 		ReasoningEffort: "medium",
 	}
-	prompt := buildProviderPrompt(ProviderRequest{Task: task})
+	prompt := buildProviderPrompt(ProviderRequest{Run: run, Prompt: "Inspect the README and update one sentence."})
 	for _, expected := range []string{
 		"do not answer with readiness",
 		"first call at least one workspace inspection tool",
 		"Ask a clarifying question only",
+		"include concise output_text in the same response",
+		"same language as the user's prompt",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected provider prompt to contain %q, got %s", expected, prompt)
@@ -143,15 +147,15 @@ func TestOpenAIProviderPromptRejectsReadinessForConcreteTasks(t *testing.T) {
 }
 
 func TestOpenAIProviderPromptDoesNotEmbedGitStatus(t *testing.T) {
-	task := Task{
-		ID:              "task_1",
+	run := Run{
+		ID:              "run_1",
 		WorkspaceID:     "ws_1",
-		Prompt:          "Review the workspace.",
 		Model:           "gpt-5.5",
 		ReasoningEffort: "medium",
 	}
 	prompt := buildProviderPrompt(ProviderRequest{
-		Task:      task,
+		Run:       run,
+		Prompt:    "Review the workspace.",
 		GitStatus: " M internal/agent/openai.go",
 	})
 	for _, unexpected := range []string{
@@ -206,7 +210,7 @@ func TestNormalizeProviderPatchConvertsIndentedCompactDiff(t *testing.T) {
 		"  +1 -1\n" +
 		"\n" +
 		"web/src/shared/api/types.ts\n" +
-		"  @@ -142,10 +142,7 @@ export type AgentTaskStatus =\n" +
+		"  @@ -142,10 +142,7 @@ export type AgentRunStatus =\n" +
 		"  -  | \"applying\"\n" +
 		"     | \"done\"\n" +
 		"  +0 -1"

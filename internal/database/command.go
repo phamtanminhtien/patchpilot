@@ -11,7 +11,7 @@ import (
 type CommandRecord struct {
 	ID          string     `gorm:"primaryKey;column:id"`
 	WorkspaceID string     `gorm:"column:workspace_id;not null;index"`
-	TaskID      *string    `gorm:"column:task_id"`
+	RunID       *string    `gorm:"column:run_id"`
 	Command     string     `gorm:"column:command;not null"`
 	Cwd         string     `gorm:"column:cwd;not null"`
 	Status      string     `gorm:"column:status;not null;index"`

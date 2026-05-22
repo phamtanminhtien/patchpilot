@@ -45,10 +45,10 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, 
 		stream.Delta(ctx, "Calling OpenAI provider.")
 	}
 	body := openAIResponsesRequest{
-		Model: request.Task.Model,
+		Model: request.Run.Model,
 		Input: buildOpenAIInput(request),
 		Reasoning: openAIReasoning{
-			Effort: request.Task.ReasoningEffort,
+			Effort: request.Run.ReasoningEffort,
 		},
 		Tools: openAITools(),
 	}
@@ -56,6 +56,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, 
 	if err != nil {
 		return ProviderResult{}, err
 	}
+	text := strings.TrimSpace(extractResponseText(response))
 	toolCalls := extractToolCalls(response)
 	if len(toolCalls) > 0 {
 		if stream != nil {
@@ -69,9 +70,8 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, 
 				Arguments: call.Arguments,
 			})
 		}
-		return ProviderResult{ToolCalls: requests}, nil
+		return ProviderResult{Text: text, ToolCalls: requests}, nil
 	}
-	text := strings.TrimSpace(extractResponseText(response))
 	if text == "" {
 		return ProviderResult{}, fmt.Errorf("%w: empty response", ErrOpenAIRequestFailed)
 	}
@@ -242,6 +242,8 @@ Rules:
 - Inspect context only from the server-provided prompt and the available workspace tools.
 - Return assistant text when useful.
 - Use tools for workspace reads, git inspection, commands, and patches.
+- When calling tools, include concise output_text in the same response that tells the user what you are checking or changing so the user sees progress while tool calls are pending.
+- Write assistant text, including output_text sent with tool calls, in the same language as the user's prompt unless the user explicitly asks for a different language.
 - If the user prompt asks for a change or investigation, do not answer with readiness, greetings, or "what would you like me to do" questions.
 - For change or investigation prompts, first call at least one workspace inspection tool such as search_files, list_files, read_file, git_status, or git_diff unless the answer can be completed entirely from prior tool results.
 - Ask a clarifying question only when the user prompt is genuinely missing the target or desired outcome.
@@ -252,7 +254,7 @@ Rules:
 - Tool calls in one response may run as a batch. Approval-required tools are decided by the user before the batch runs.
 
 User prompt:
-%s`, request.Task.Prompt)
+%s`, request.Prompt)
 }
 
 func openAITools() []openAITool {

@@ -175,3 +175,9 @@ textarea {
   outline: var(--pp-focus-width) solid var(--pp-color-focus);
   outline-offset: var(--pp-focus-offset);
 }
+
+.vibe-composer :where(textarea, input, select):focus,
+.vibe-composer :where(textarea, input, select):focus-visible {
+  outline: none;
+  box-shadow: none;
+}

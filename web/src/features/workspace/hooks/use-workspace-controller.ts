@@ -4,7 +4,13 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   apiErrorCode,
@@ -34,6 +40,7 @@ import {
   unstageGitFiles,
   type WorkspaceEvent,
 } from "@/shared/api";
+import { useWorkspaceEvents } from "@/shared/events";
 
 import {
   parseGitPorcelain,
@@ -293,15 +300,8 @@ export function useWorkspaceController({
     workspaceId,
   ]);
 
-  useEffect(() => {
-    if (workspaceId.length === 0 || typeof EventSource === "undefined") {
-      return;
-    }
-    const source = new EventSource(`/api/workspaces/${workspaceId}/events`, {
-      withCredentials: true,
-    });
-    const handleEvent = (message: MessageEvent<string>) => {
-      const event = JSON.parse(message.data) as WorkspaceEvent;
+  const handleWorkspaceEvent = useCallback(
+    (event: WorkspaceEvent) => {
       if (
         event.type === "port.opened" ||
         event.type === "port.exposed" ||
@@ -330,18 +330,11 @@ export function useWorkspaceController({
       }
       const command = event.payload as Command;
       updateCommandCache(queryClient, workspaceId, command);
-    };
-    source.addEventListener("process.started", handleEvent);
-    source.addEventListener("process.exited", handleEvent);
-    source.addEventListener("command.output", handleEvent);
-    source.addEventListener("port.opened", handleEvent);
-    source.addEventListener("port.exposed", handleEvent);
-    source.addEventListener("port.closed", handleEvent);
-    source.addEventListener("git.changed", handleEvent);
-    return () => {
-      source.close();
-    };
-  }, [queryClient, workspaceId]);
+    },
+    [queryClient, workspaceId],
+  );
+
+  useWorkspaceEvents(workspaceId, handleWorkspaceEvent);
 
   function handlePanelChange(nextPanel: WorkspacePanel) {
     void setPanel(nextPanel);
