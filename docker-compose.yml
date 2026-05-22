@@ -1,5 +1,6 @@
 services:
   patchpilot:
+    image: ghcr.io/phamtanminhtien/patchpilot:latest
     build:
       context: .
     environment:

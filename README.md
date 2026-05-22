@@ -131,6 +131,34 @@ http://127.0.0.1:8080
 
 Set `PATCHPILOT_OPENAI_API_KEY` in the Compose service environment or an override file before using AI tasks.
 
+Released Docker images are published to GitHub Container Registry:
+
+```sh
+docker run --rm \
+  -p 8080:8080 \
+  -e PATCHPILOT_ADMIN_TOKEN=choose-a-local-admin-token \
+  -e PATCHPILOT_OPENAI_API_KEY=your-openai-or-compatible-key \
+  -v patchpilot-data:/data \
+  -v /absolute/path/to/repos:/workspace \
+  ghcr.io/phamtanminhtien/patchpilot:latest
+```
+
+Use a version tag such as `v0.1.0` instead of `latest` for reproducible runs.
+
+## Releases 🚢
+
+PatchPilot uses Release Please to create release pull requests from Conventional
+Commits. Merging a Release Please PR creates the GitHub Release and tag, then
+publishes Docker image tags to GHCR:
+
+```txt
+ghcr.io/phamtanminhtien/patchpilot:v<version>
+ghcr.io/phamtanminhtien/patchpilot:<version>
+ghcr.io/phamtanminhtien/patchpilot:latest
+```
+
+See `docs/release.md` for the release checklist.
+
 ## Common Commands ⌨️
 
 ```sh

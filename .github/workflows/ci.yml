@@ -51,5 +51,11 @@ jobs:
       - name: Test frontend
         run: pnpm --dir web test
 
+      - name: Install Playwright browsers
+        run: pnpm --dir web exec playwright install --with-deps chromium
+
+      - name: Test frontend e2e
+        run: pnpm --dir web test:e2e
+
       - name: Build frontend
         run: pnpm --dir web build

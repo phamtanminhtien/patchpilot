@@ -1,0 +1,9 @@
+{
+  "packages": {
+    ".": {
+      "initial-version": "0.1.0",
+      "package-name": "patchpilot",
+      "release-type": "go"
+    }
+  }
+}
