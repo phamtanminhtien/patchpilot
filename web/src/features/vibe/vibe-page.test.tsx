@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type * as NuqsModule from "nuqs";
 import type * as ReactModule from "react";
@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "@/app/theme";
 import {
+  approveAgentToolCall,
   createAgentTask,
   createWorkspace,
   getAgentTask,
@@ -15,6 +16,7 @@ import {
   getWorkspace,
   listAgentTasks,
   listWorkspaces,
+  rejectAgentToolCall,
 } from "@/shared/api";
 
 import { VibePage } from "./vibe-page";
@@ -24,6 +26,7 @@ const queryState = vi.hoisted(() => new Map<string, string>());
 vi.mock("@/shared/api", () => ({
   apiErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : "Request failed",
+  approveAgentToolCall: vi.fn(),
   createAgentTask: vi.fn(),
   createWorkspace: vi.fn(),
   getAgentTask: vi.fn(),
@@ -31,6 +34,7 @@ vi.mock("@/shared/api", () => ({
   getWorkspace: vi.fn(),
   listAgentTasks: vi.fn(),
   listWorkspaces: vi.fn(),
+  rejectAgentToolCall: vi.fn(),
 }));
 
 vi.mock("nuqs", async () => {
@@ -66,10 +70,8 @@ const task = {
   createdAt: "2026-05-20T00:00:00Z",
   error: null,
   finishedAt: null,
-  generatedPatch: "",
   id: "task_1",
   model: "gpt-5.4-mini" as const,
-  plan: "",
   prompt: "Fix the failing test",
   reasoningEffort: "high" as const,
   startedAt: null,
@@ -87,9 +89,14 @@ describe("VibePage", () => {
     vi.mocked(getWorkspace).mockResolvedValue(workspace);
     vi.mocked(listWorkspaces).mockResolvedValue({ workspaces: [] });
     vi.mocked(listAgentTasks).mockResolvedValue({ tasks: [] });
+    vi.mocked(approveAgentToolCall).mockResolvedValue(toolCall);
+    vi.mocked(rejectAgentToolCall).mockResolvedValue({
+      ...toolCall,
+      decision: "rejected",
+      status: "rejected",
+    });
     vi.mocked(getAgentTask).mockResolvedValue({
       events: [],
-      patches: [],
       task,
       toolCalls: [],
     });
@@ -145,7 +152,75 @@ describe("VibePage", () => {
       "lg:grid-rows-1",
     );
   });
+
+  it("renders and approves an approval-required tool call", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listAgentTasks).mockResolvedValue({
+      tasks: [{ ...task, status: "waiting_tool_approval" }],
+    });
+    vi.mocked(getAgentTask).mockResolvedValue({
+      events: [],
+      task: { ...task, status: "waiting_tool_approval" },
+      toolCalls: [toolCall],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    expect(await screen.findByText("apply_patch")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approve tool" }));
+
+    await waitFor(() => {
+      expect(approveAgentToolCall).toHaveBeenCalledWith(
+        "ws_1",
+        "task_1",
+        "evt_1",
+      );
+    });
+  });
+
+  it("renders a tool call inside the matching agent tool event block", async () => {
+    vi.mocked(listAgentTasks).mockResolvedValue({ tasks: [task] });
+    vi.mocked(getAgentTask).mockResolvedValue({
+      events: [
+        {
+          createdAt: "2026-05-20T00:00:00Z",
+          id: "event_1",
+          payload: toolCall,
+          taskId: "task_1",
+          type: "agent.approval_required",
+          workspaceId: "ws_1",
+        },
+      ],
+      task,
+      toolCalls: [toolCall],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    const toolEvent = await screen.findByRole("group", {
+      name: "agent.approval_required",
+    });
+
+    expect(within(toolEvent).getByText("apply_patch")).toBeInTheDocument();
+  });
 });
+
+const toolCall = {
+  batchId: "batch_1",
+  createdAt: "2026-05-20T00:00:00Z",
+  decision: null,
+  finishedAt: null,
+  id: "evt_1",
+  input:
+    '{"summary":"Update example","diff":"diff --git a/example.txt b/example.txt\\n"}',
+  name: "apply_patch",
+  output: "{}",
+  providerCallId: "call_1",
+  requiresApproval: true,
+  sequence: 0,
+  startedAt: null,
+  status: "waiting_approval" as const,
+  taskId: "task_1",
+  workspaceId: "ws_1",
+};
 
 function renderVibe(initialEntry: string) {
   queryState.clear();

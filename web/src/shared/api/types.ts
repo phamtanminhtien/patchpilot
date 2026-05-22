@@ -144,11 +144,8 @@ export interface CommandEvent {
 export type AgentTaskStatus =
   | "queued"
   | "running"
-  | "waiting_approval"
-  | "applying"
-  | "testing"
+  | "waiting_tool_approval"
   | "done"
-  | "rejected"
   | "failed";
 
 export type AgentModel = "gpt-5.5" | "gpt-5.4" | "gpt-5.4-mini";
@@ -165,10 +162,8 @@ export interface AgentTask {
   createdAt: string;
   error?: string | null;
   finishedAt?: string | null;
-  generatedPatch: string;
   id: string;
   model: AgentModel;
-  plan: string;
   prompt: string;
   reasoningEffort: AgentReasoningEffort;
   startedAt?: string | null;
@@ -192,41 +187,37 @@ export interface AgentTaskEvent {
     | "agent.tool.started"
     | "agent.tool.finished"
     | "agent.approval_required"
-    | "agent.task.status_changed"
-    | "patch.created"
-    | "patch.applied"
-    | "patch.rejected"
-    | "patch.reverted";
+    | "agent.task.status_changed";
   workspaceId: string;
 }
 
 export interface AgentToolCall {
+  batchId: string;
   createdAt: string;
+  decision?: "approved" | "rejected" | null;
   finishedAt?: string | null;
   id: string;
   input: string;
   name: string;
   output: string;
+  providerCallId: string;
+  requiresApproval: boolean;
+  sequence: number;
   startedAt?: string | null;
-  status: "running" | "finished" | "failed";
+  status:
+    | "pending"
+    | "waiting_approval"
+    | "approved"
+    | "rejected"
+    | "running"
+    | "finished"
+    | "failed";
   taskId: string;
   workspaceId: string;
 }
 
-export interface AgentPatch {
-  appliedAt?: string | null;
-  baseCommit?: string | null;
-  createdAt: string;
-  diff: string;
-  id: string;
-  status: string;
-  summary: string;
-  taskId: string;
-  workspaceId: string;
-}
-
-export interface PatchResponse {
-  patch: AgentPatch;
+export interface AgentToolCallResponse {
+  toolCall: AgentToolCall;
 }
 
 export interface Port {
@@ -252,7 +243,6 @@ export interface PortResponse {
 
 export interface AgentTaskDetail {
   events: AgentTaskEvent[];
-  patches: AgentPatch[];
   task: AgentTask;
   toolCalls: AgentToolCall[];
 }

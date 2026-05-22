@@ -11,11 +11,11 @@ Locked engineering contract. Precedence: this file > `docs/mvp-spec.md` > `docs/
 ## Product
 
 - Self-hosted, single-user, mobile-first AI coding workspace.
-- MVP = Vibe Mode + patch-first AI coding loop.
+- MVP = Vibe Mode + agent tool-loop AI coding flow.
 - Workspace Mode only supports files, search, diffs, small edits, command output, preview, Git status.
 - Do not build VS Code parity.
-- Agents only propose patches; never directly mutate files, read secrets, or expose ports.
-- Server applies agent patches only after explicit user approval.
+- Agents return assistant text and tool calls; tools that mutate files or run risky commands require explicit user approval.
+- Server executes approved mutating tools only after all approval-required tools in the current batch have a user decision.
 
 ## Locked Stack
 
@@ -55,7 +55,6 @@ internal/events/       SSE fan-out and replay
 internal/workspace/    workspace lifecycle and path validation
 internal/filestore/    listing, reads, search, small manual writes
 internal/agent/        task orchestration and tool execution
-internal/patch/        patch storage/apply/reject/revert
 internal/gitrepo/      only package that may execute Git
 internal/runner/       only package that may execute workspace processes
 internal/ports/        port detection and same-host proxy
@@ -80,7 +79,7 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 - Lists newest-first unless naturally tree-ordered; if >100 records, support `limit`/`cursor`, max `limit=100`.
 - REST error: `{ "error": { "code": "snake_case", "message": "...", "details": {} } }`.
 - UI errors must not expose stack traces, secrets, raw env, or host paths outside workspace root.
-- ID prefixes: `ws_`, `auth_`, `sess_`, `task_`, `evt_`, `patch_`, `cmd_`, `port_`.
+- ID prefixes: `ws_`, `auth_`, `sess_`, `task_`, `evt_`, `cmd_`, `port_`.
 - API timestamps: UTC RFC3339. SQLite timestamps: UTC.
 
 Frontend API:
@@ -121,7 +120,7 @@ SSE:
 - Users may manually open files; secret contents must not enter agent context.
 - User commands run only after direct submission.
 - Agent commands auto-run only if allowed by `docs/mvp-spec.md` and no shell control operators.
-- Non-allowlisted agent commands require approval.
+- Patch tools always require approval. Non-allowlisted agent commands require approval.
 - Commands run at workspace root, without elevation, output capped to latest 1 MiB.
 
 ## Frontend
@@ -145,7 +144,7 @@ SSE:
 
 - Server state: TanStack Query. Local UI: React state or Zustand for shared client-only UI state. Cross-route context: `web/src/app`. URL state: nuqs.
 - Install React Router 7 nuqs adapter at route root from `nuqs/adapters/react-router/v7`.
-- Deep-linkable workspace/mode/task/file/patch/port/tab selections live in URL state.
+- Deep-linkable workspace/mode/task/file/tool/port/tab selections live in URL state.
 - Shared query parsers live in `web/src/shared/url`; features do not define ad hoc parsers.
 - Do not duplicate server state into Zustand or keep command output in React state/Zustand beyond visible buffer.
 - MVP Git: status, diff, commit only.
@@ -160,7 +159,7 @@ Coverage when area exists:
 - Go unit: domain logic.
 - Go integration: schema setup, repositories, Git adapter, runner, API handlers.
 - Frontend unit: pure utilities/reducers.
-- Frontend component: Vibe lifecycle, patch approval, command output, Git status.
+- Frontend component: Vibe lifecycle, tool approval, command output, Git status.
 - Playwright: critical mobile AI loop once frontend shell exists.
 
 Canonical commands:

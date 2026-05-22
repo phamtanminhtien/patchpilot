@@ -15,8 +15,6 @@ import (
 
 var ErrOpenAIRequestFailed = errors.New("openai request failed")
 
-const maxOpenAIToolRounds = 60
-
 type OpenAIProvider struct {
 	apiKey  string
 	client  *http.Client
@@ -39,75 +37,48 @@ func (p *OpenAIProvider) Configured() bool {
 	return p != nil && p.apiKey != ""
 }
 
-func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, tools *Tools, stream Stream) (ProviderResult, error) {
+func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, stream Stream) (ProviderResult, error) {
 	if !p.Configured() {
 		return ProviderResult{}, ErrProviderUnavailable
 	}
 	if stream != nil {
 		stream.Delta(ctx, "Calling OpenAI provider.")
 	}
-	input := []any{
-		openAIInputMessage{
-			Type: "message",
-			Role: "user",
-			Content: []openAIInputContent{
-				{
-					Type: "input_text",
-					Text: buildProviderPrompt(request),
-				},
-			},
-		},
-	}
 	body := openAIResponsesRequest{
 		Model: request.Task.Model,
-		Input: input,
+		Input: buildOpenAIInput(request),
 		Reasoning: openAIReasoning{
 			Effort: request.Task.ReasoningEffort,
 		},
-		Tools: openAIFileTools(tools),
+		Tools: openAITools(),
 	}
-
-	for range maxOpenAIToolRounds {
-		response, err := p.createResponse(ctx, body)
-		if err != nil {
-			return ProviderResult{}, err
-		}
-		text := extractResponseText(response)
-		if strings.TrimSpace(text) != "" {
-			if stream != nil {
-				stream.Delta(ctx, "OpenAI response received.")
-			}
-			return parseProviderResult(text), nil
-		}
-
-		toolCalls := extractToolCalls(response)
-		if len(toolCalls) == 0 || tools == nil {
-			return ProviderResult{}, fmt.Errorf("%w: empty response", ErrOpenAIRequestFailed)
-		}
+	response, err := p.createResponse(ctx, body)
+	if err != nil {
+		return ProviderResult{}, err
+	}
+	toolCalls := extractToolCalls(response)
+	if len(toolCalls) > 0 {
 		if stream != nil {
-			stream.Delta(ctx, "OpenAI requested workspace file context.")
+			stream.Delta(ctx, "OpenAI requested workspace tools.")
 		}
+		requests := make([]ToolRequest, 0, len(toolCalls))
 		for _, call := range toolCalls {
-			input = append(input, openAIFunctionCallInput{
-				Type:      "function_call",
+			requests = append(requests, ToolRequest{
 				CallID:    call.CallID,
 				Name:      call.Name,
 				Arguments: call.Arguments,
 			})
 		}
-		for _, output := range runOpenAIFileTools(ctx, tools, toolCalls) {
-			input = append(input, output)
-		}
-		body = openAIResponsesRequest{
-			Model: request.Task.Model,
-			Input: input,
-			Reasoning: openAIReasoning{
-				Effort: request.Task.ReasoningEffort,
-			},
-			Tools: openAIFileTools(tools),
-		}
+		return ProviderResult{ToolCalls: requests}, nil
 	}
-	return ProviderResult{}, fmt.Errorf("%w: too many tool calls", ErrOpenAIRequestFailed)
+	text := strings.TrimSpace(extractResponseText(response))
+	if text == "" {
+		return ProviderResult{}, fmt.Errorf("%w: empty response", ErrOpenAIRequestFailed)
+	}
+	if stream != nil {
+		stream.Delta(ctx, "OpenAI response received.")
+	}
+	return parseProviderText(text), nil
 }
 
 func (p *OpenAIProvider) createResponse(ctx context.Context, body openAIResponsesRequest) (openAIResponsesResponse, error) {
@@ -221,31 +192,85 @@ type openAIToolCall struct {
 	Arguments string
 }
 
+func buildOpenAIInput(request ProviderRequest) []any {
+	input := []any{
+		openAIInputMessage{
+			Type: "message",
+			Role: "user",
+			Content: []openAIInputContent{
+				{
+					Type: "input_text",
+					Text: buildProviderPrompt(request),
+				},
+			},
+		},
+	}
+	for _, item := range request.History {
+		switch item.Type {
+		case "tool_call":
+			input = append(input, openAIFunctionCallInput{
+				Type:      "function_call",
+				CallID:    item.ToolCall.CallID,
+				Name:      item.ToolCall.Name,
+				Arguments: item.ToolCall.Arguments,
+			})
+		case "tool_result":
+			input = append(input, openAIFunctionCallOutput{
+				Type:   "function_call_output",
+				CallID: item.ToolResult.CallID,
+				Output: item.ToolResult.Output,
+			})
+		case "text":
+			if strings.TrimSpace(item.Text) != "" {
+				input = append(input, openAIInputMessage{
+					Type: "message",
+					Role: "assistant",
+					Content: []openAIInputContent{
+						{Type: "output_text", Text: item.Text},
+					},
+				})
+			}
+		}
+	}
+	return input
+}
+
 func buildProviderPrompt(request ProviderRequest) string {
 	return fmt.Sprintf(`You are PatchPilot's coding agent.
 
 Rules:
-- Inspect context only from the server-provided prompt and the available workspace file tools.
-- Propose patches only. Do not claim files were modified.
+- Inspect context only from the server-provided prompt and the available workspace tools.
+- Return assistant text when useful.
+- Use tools for workspace reads, git inspection, commands, and patches.
+- If the user prompt asks for a change or investigation, do not answer with readiness, greetings, or "what would you like me to do" questions.
+- For change or investigation prompts, first call at least one workspace inspection tool such as search_files, list_files, read_file, git_status, or git_diff unless the answer can be completed entirely from prior tool results.
+- Ask a clarifying question only when the user prompt is genuinely missing the target or desired outcome.
+- Do not claim files were modified unless the apply_patch tool result says the patch was applied.
 - Do not include secrets.
-- Return JSON only with string fields "plan", "summary", and "patch".
-- "patch" must be a complete git-apply-compatible unified diff. Use an empty string if no patch is needed.
-- Every changed file in "patch" must include diff --git, ---/+++, and @@ hunk headers with line numbers.
-- Do not return compact diff summaries or hunks without file headers.
-- Use search_files to locate files and read_file to inspect file contents before producing patches when needed.
-
-Workspace git status:
-%s
+- apply_patch input must include "summary" and a complete git-apply-compatible unified "diff".
+- Every changed file in a patch diff must include diff --git, ---/+++, and @@ hunk headers with line numbers.
+- Tool calls in one response may run as a batch. Approval-required tools are decided by the user before the batch runs.
 
 User prompt:
-%s`, request.GitStatus, request.Task.Prompt)
+%s`, request.Task.Prompt)
 }
 
-func openAIFileTools(tools *Tools) []openAITool {
-	if tools == nil {
-		return nil
-	}
+func openAITools() []openAITool {
 	return []openAITool{
+		{
+			Type:        "function",
+			Name:        "list_files",
+			Description: "List files/directories under a workspace-relative path.",
+			Parameters: openAIToolParameters{
+				Type: "object",
+				Properties: map[string]openAIToolProperty{
+					"path": {Type: "string", Description: "Workspace-relative directory path. Use empty string for root."},
+				},
+				Required:             []string{"path"},
+				AdditionalProperties: false,
+			},
+			Strict: true,
+		},
 		{
 			Type:        "function",
 			Name:        "search_files",
@@ -274,6 +299,65 @@ func openAIFileTools(tools *Tools) []openAITool {
 			},
 			Strict: true,
 		},
+		{
+			Type:        "function",
+			Name:        "git_status",
+			Description: "Inspect current workspace git status.",
+			Parameters:  emptyToolParameters(),
+			Strict:      true,
+		},
+		{
+			Type:        "function",
+			Name:        "git_diff",
+			Description: "Inspect the current git diff for the workspace or one workspace-relative path.",
+			Parameters: openAIToolParameters{
+				Type: "object",
+				Properties: map[string]openAIToolProperty{
+					"path": {Type: "string", Description: "Workspace-relative path. Use empty string for full diff."},
+				},
+				Required:             []string{"path"},
+				AdditionalProperties: false,
+			},
+			Strict: true,
+		},
+		{
+			Type:        "function",
+			Name:        "run_command",
+			Description: "Run a workspace command. Non-allowlisted commands require user approval.",
+			Parameters: openAIToolParameters{
+				Type: "object",
+				Properties: map[string]openAIToolProperty{
+					"command": {Type: "string", Description: "Command to run from workspace root."},
+				},
+				Required:             []string{"command"},
+				AdditionalProperties: false,
+			},
+			Strict: true,
+		},
+		{
+			Type:        "function",
+			Name:        "apply_patch",
+			Description: "Request user approval to apply a complete unified diff to the workspace.",
+			Parameters: openAIToolParameters{
+				Type: "object",
+				Properties: map[string]openAIToolProperty{
+					"summary": {Type: "string", Description: "Short summary of the patch."},
+					"diff":    {Type: "string", Description: "Complete git-apply-compatible unified diff."},
+				},
+				Required:             []string{"summary", "diff"},
+				AdditionalProperties: false,
+			},
+			Strict: true,
+		},
+	}
+}
+
+func emptyToolParameters() openAIToolParameters {
+	return openAIToolParameters{
+		Type:                 "object",
+		Properties:           map[string]openAIToolProperty{},
+		Required:             []string{},
+		AdditionalProperties: false,
 	}
 }
 
@@ -315,89 +399,30 @@ func extractToolCalls(response openAIResponsesResponse) []openAIToolCall {
 	return calls
 }
 
-func runOpenAIFileTools(ctx context.Context, tools *Tools, calls []openAIToolCall) []openAIFunctionCallOutput {
-	outputs := make([]openAIFunctionCallOutput, 0, len(calls))
-	for _, call := range calls {
-		outputs = append(outputs, openAIFunctionCallOutput{
-			Type:   "function_call_output",
-			CallID: call.CallID,
-			Output: executeOpenAIFileTool(ctx, tools, call),
-		})
-	}
-	return outputs
-}
-
-func executeOpenAIFileTool(ctx context.Context, tools *Tools, call openAIToolCall) string {
-	switch call.Name {
-	case "search_files":
-		var args struct {
-			Query string `json:"query"`
-		}
-		if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
-			return openAIToolError(err)
-		}
-		results, err := tools.SearchFiles(ctx, args.Query)
-		if err != nil {
-			return openAIToolError(err)
-		}
-		if len(results) > 25 {
-			results = results[:25]
-		}
-		return openAIToolJSON(map[string]any{"results": results})
-	case "read_file":
-		var args struct {
-			Path string `json:"path"`
-		}
-		if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
-			return openAIToolError(err)
-		}
-		file, err := tools.ReadFile("", args.Path)
-		if err != nil {
-			return openAIToolError(err)
-		}
-		return openAIToolJSON(file)
-	default:
-		return openAIToolError(fmt.Errorf("unknown tool: %s", call.Name))
-	}
-}
-
-func openAIToolError(err error) string {
-	return openAIToolJSON(map[string]string{"error": err.Error()})
-}
-
-func openAIToolJSON(value any) string {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return `{"error":"failed to encode tool output"}`
-	}
-	return string(payload)
-}
-
-func parseProviderResult(text string) ProviderResult {
+func parseProviderText(text string) ProviderResult {
 	text = strings.TrimSpace(text)
 	var parsed struct {
-		Plan    string `json:"plan"`
+		Text    string `json:"text"`
 		Summary string `json:"summary"`
-		Patch   string `json:"patch"`
+		Message string `json:"message"`
 	}
 	if err := json.Unmarshal([]byte(text), &parsed); err == nil {
-		return ProviderResult{
-			Plan:    parsed.Plan,
-			Summary: parsed.Summary,
-			Patch:   normalizeProviderPatch(parsed.Patch),
+		for _, candidate := range []string{parsed.Text, parsed.Summary, parsed.Message} {
+			if strings.TrimSpace(candidate) != "" {
+				return ProviderResult{Text: strings.TrimSpace(candidate), Done: true}
+			}
 		}
 	}
-	return ProviderResult{
-		Plan:    "Review the request and produce a patch-first response.",
-		Summary: text,
-		Patch:   normalizeProviderPatch(text),
-	}
+	return ProviderResult{Text: text, Done: true}
 }
 
 func normalizeProviderPatch(patch string) string {
 	patch = strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(patch), "```"), "```diff"))
-	if patch == "" || strings.Contains(patch, "diff --git ") {
+	if patch == "" {
 		return patch
+	}
+	if strings.Contains(patch, "diff --git ") {
+		return strings.TrimRight(patch, "\r\n") + "\n"
 	}
 
 	lines := strings.Split(patch, "\n")

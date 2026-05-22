@@ -13,32 +13,36 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
-  Undo2,
   X,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Link } from "react-router";
 
 import { AppShell } from "@/app/app-shell";
 import { useThemePreference } from "@/app/theme";
 import {
   type AgentModel,
-  type AgentPatch,
   type AgentReasoningEffort,
   type AgentTask,
   type AgentTaskDetail,
   type AgentTaskEvent,
+  type AgentToolCall,
   apiErrorMessage,
-  applyPatch,
+  approveAgentToolCall,
   createAgentTask,
   createWorkspace,
   getAgentTask,
   getWorkspace,
   listAgentTasks,
   listWorkspaces,
-  rejectPatch,
-  revertPatch,
+  rejectAgentToolCall,
   type WorkspaceEvent,
 } from "@/shared/api";
 import {
@@ -117,7 +121,6 @@ export function VibePage() {
       setActiveTaskId(task.id);
       queryClient.setQueryData(["agent-task", workspaceId, task.id], {
         events: [],
-        patches: [],
         task,
         toolCalls: [],
       } satisfies AgentTaskDetail);
@@ -125,19 +128,18 @@ export function VibePage() {
     },
   });
 
-  const patchApplyMutation = useMutation({
-    mutationFn: (patchId: string) => applyPatch(workspaceId, patchId),
-    onSuccess: (patch) => updatePatchCache(queryClient, workspaceId, patch),
+  const toolApproveMutation = useMutation({
+    mutationFn: (input: { taskId: string; toolCallId: string }) =>
+      approveAgentToolCall(workspaceId, input.taskId, input.toolCallId),
+    onSuccess: (toolCall) =>
+      updateToolCallCache(queryClient, workspaceId, toolCall),
   });
 
-  const patchRejectMutation = useMutation({
-    mutationFn: (patchId: string) => rejectPatch(workspaceId, patchId),
-    onSuccess: (patch) => updatePatchCache(queryClient, workspaceId, patch),
-  });
-
-  const patchRevertMutation = useMutation({
-    mutationFn: (patchId: string) => revertPatch(workspaceId, patchId),
-    onSuccess: (patch) => updatePatchCache(queryClient, workspaceId, patch),
+  const toolRejectMutation = useMutation({
+    mutationFn: (input: { taskId: string; toolCallId: string }) =>
+      rejectAgentToolCall(workspaceId, input.taskId, input.toolCallId),
+    onSuccess: (toolCall) =>
+      updateToolCallCache(queryClient, workspaceId, toolCall),
   });
 
   const workspace = workspaceQuery.data;
@@ -194,10 +196,6 @@ export function VibePage() {
     source.addEventListener("agent.tool.finished", handleAgentEvent);
     source.addEventListener("agent.approval_required", handleAgentEvent);
     source.addEventListener("agent.task.status_changed", handleAgentEvent);
-    source.addEventListener("patch.created", handleAgentEvent);
-    source.addEventListener("patch.applied", handleAgentEvent);
-    source.addEventListener("patch.rejected", handleAgentEvent);
-    source.addEventListener("patch.reverted", handleAgentEvent);
     return () => {
       source.close();
     };
@@ -208,7 +206,7 @@ export function VibePage() {
     () => taskDetailQuery.data?.events ?? [],
     [taskDetailQuery.data?.events],
   );
-  const taskPatches = taskDetailQuery.data?.patches ?? [];
+  const taskToolCalls = taskDetailQuery.data?.toolCalls ?? [];
 
   function handleTaskSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -404,9 +402,9 @@ export function VibePage() {
 
             <AgentTaskThread
               activeTask={activeTask}
-              applyError={
-                patchApplyMutation.error
-                  ? apiErrorMessage(patchApplyMutation.error)
+              approvalError={
+                toolApproveMutation.error
+                  ? apiErrorMessage(toolApproveMutation.error)
                   : undefined
               }
               createError={
@@ -415,26 +413,23 @@ export function VibePage() {
                   : undefined
               }
               events={taskEvents}
-              isApplying={patchApplyMutation.isPending}
+              isApproving={toolApproveMutation.isPending}
               isLoading={tasksQuery.isPending || taskDetailQuery.isPending}
-              isRejecting={patchRejectMutation.isPending}
-              isReverting={patchRevertMutation.isPending}
-              onPatchApply={(patchId) => patchApplyMutation.mutate(patchId)}
-              onPatchReject={(patchId) => patchRejectMutation.mutate(patchId)}
-              onPatchRevert={(patchId) => patchRevertMutation.mutate(patchId)}
-              onSelectTask={setActiveTaskId}
-              patches={taskPatches}
-              rejectError={
-                patchRejectMutation.error
-                  ? apiErrorMessage(patchRejectMutation.error)
-                  : undefined
+              isRejecting={toolRejectMutation.isPending}
+              onToolApprove={(taskId, toolCallId) =>
+                toolApproveMutation.mutate({ taskId, toolCallId })
               }
-              revertError={
-                patchRevertMutation.error
-                  ? apiErrorMessage(patchRevertMutation.error)
+              onToolReject={(taskId, toolCallId) =>
+                toolRejectMutation.mutate({ taskId, toolCallId })
+              }
+              onSelectTask={setActiveTaskId}
+              rejectError={
+                toolRejectMutation.error
+                  ? apiErrorMessage(toolRejectMutation.error)
                   : undefined
               }
               tasks={tasksQuery.data?.tasks ?? []}
+              toolCalls={taskToolCalls}
               workspaceRoot={workspace?.rootPath}
             />
           </div>
@@ -501,41 +496,53 @@ function SelectControl({
 
 function AgentTaskThread({
   activeTask,
-  applyError,
+  approvalError,
   createError,
   events,
-  isApplying,
+  isApproving,
   isLoading,
   isRejecting,
-  isReverting,
-  onPatchApply,
-  onPatchReject,
-  onPatchRevert,
+  onToolApprove,
+  onToolReject,
   onSelectTask,
-  patches,
   rejectError,
-  revertError,
   tasks,
+  toolCalls,
   workspaceRoot,
 }: {
   activeTask?: AgentTask;
-  applyError?: string;
+  approvalError?: string;
   createError?: string;
   events: AgentTaskEvent[];
-  isApplying: boolean;
+  isApproving: boolean;
   isLoading: boolean;
   isRejecting: boolean;
-  isReverting: boolean;
-  onPatchApply: (patchId: string) => void;
-  onPatchReject: (patchId: string) => void;
-  onPatchRevert: (patchId: string) => void;
+  onToolApprove: (taskId: string, toolCallId: string) => void;
+  onToolReject: (taskId: string, toolCallId: string) => void;
   onSelectTask: (taskId: string) => void;
-  patches: AgentPatch[];
   rejectError?: string;
-  revertError?: string;
   tasks: AgentTask[];
+  toolCalls: AgentToolCall[];
   workspaceRoot?: string;
 }) {
+  const activeApprovalId = nextApprovalToolCall(toolCalls)?.id ?? "";
+  const attachedToolCallIds = new Set<string>();
+  const lastToolEventIdsByCall = latestToolEventIdsByCall(events);
+
+  const renderToolCallReview = (toolCall: AgentToolCall) => (
+    <ToolCallReview
+      approvalError={approvalError}
+      isApproving={isApproving}
+      isCurrentApproval={toolCall.id === activeApprovalId}
+      isRejecting={isRejecting}
+      key={toolCall.id}
+      onApprove={() => onToolApprove(toolCall.taskId, toolCall.id)}
+      onReject={() => onToolReject(toolCall.taskId, toolCall.id)}
+      rejectError={rejectError}
+      toolCall={toolCall}
+    />
+  );
+
   return (
     <div className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,16rem)_minmax(0,1fr)] gap-3 overflow-hidden lg:grid-cols-[16rem_minmax(0,1fr)] lg:grid-rows-1">
       <div className="bg-panel grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md shadow-sm">
@@ -601,30 +608,25 @@ function AgentTaskThread({
           ) : null}
           {activeTask ? (
             <div className="grid gap-3">
-              {activeTask.plan ? (
-                <TaskBlock label="Plan" text={activeTask.plan} />
-              ) : null}
-              {events.map((event) => (
-                <TaskEventRow event={event} key={event.id} />
-              ))}
-              {activeTask.generatedPatch ? (
-                <TaskBlock label="Patch created" text={activeTask.summary} />
-              ) : null}
-              {patches.map((patch) => (
-                <PatchReview
-                  applyError={applyError}
-                  isApplying={isApplying}
-                  isRejecting={isRejecting}
-                  isReverting={isReverting}
-                  key={patch.id}
-                  onApply={() => onPatchApply(patch.id)}
-                  onReject={() => onPatchReject(patch.id)}
-                  onRevert={() => onPatchRevert(patch.id)}
-                  patch={patch}
-                  rejectError={rejectError}
-                  revertError={revertError}
-                />
-              ))}
+              {events.map((event) => {
+                const toolCall = toolCallForEvent(event, toolCalls);
+                const shouldAttachToolCall =
+                  toolCall !== undefined &&
+                  lastToolEventIdsByCall.get(toolCall.id) === event.id;
+                if (shouldAttachToolCall) {
+                  attachedToolCallIds.add(toolCall.id);
+                }
+                return (
+                  <TaskEventRow event={event} key={event.id}>
+                    {shouldAttachToolCall
+                      ? renderToolCallReview(toolCall)
+                      : null}
+                  </TaskEventRow>
+                );
+              })}
+              {toolCalls
+                .filter((toolCall) => !attachedToolCallIds.has(toolCall.id))
+                .map((toolCall) => renderToolCallReview(toolCall))}
               {activeTask.error ? (
                 <p className="text-warning text-sm font-medium">
                   {activeTask.error}
@@ -651,99 +653,117 @@ function TaskBlock({ label, text }: { label: string; text: string }) {
   );
 }
 
-function PatchReview({
-  applyError,
-  isApplying,
+function ToolCallReview({
+  approvalError,
+  isApproving,
+  isCurrentApproval,
   isRejecting,
-  isReverting,
-  onApply,
+  onApprove,
   onReject,
-  onRevert,
-  patch,
+  toolCall,
   rejectError,
-  revertError,
 }: {
-  applyError?: string;
-  isApplying: boolean;
+  approvalError?: string;
+  isApproving: boolean;
+  isCurrentApproval: boolean;
   isRejecting: boolean;
-  isReverting: boolean;
-  onApply: () => void;
+  onApprove: () => void;
   onReject: () => void;
-  onRevert: () => void;
-  patch: AgentPatch;
+  toolCall: AgentToolCall;
   rejectError?: string;
-  revertError?: string;
 }) {
-  const canDecide = patch.status === "created" || patch.status === "proposed";
-  const canRevert = patch.status === "applied";
-  const error = applyError ?? rejectError ?? revertError;
+  const canDecide =
+    isCurrentApproval &&
+    toolCall.requiresApproval &&
+    toolCall.status === "waiting_approval";
+  const error = approvalError ?? rejectError;
+  const input = parseToolInput(toolCall.input);
+  const diff = typeof input.diff === "string" ? input.diff : "";
+  const summary = typeof input.summary === "string" ? input.summary : "";
 
   return (
     <div className="bg-panel grid min-w-0 gap-3 rounded-md p-3 shadow-sm">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-ink truncate text-sm font-semibold">
-            Patch {patch.id}
+            {toolCall.name}
           </p>
-          <p className="text-muted text-xs">{patch.status}</p>
+          <p className="text-muted text-xs">
+            Batch {toolCall.sequence + 1} · {toolCall.status}
+          </p>
         </div>
-        <StatusPill status={patch.status} />
+        <StatusPill status={toolCall.status} />
       </div>
-      {patch.summary ? (
-        <p className="text-muted text-sm whitespace-pre-wrap">
-          {patch.summary}
-        </p>
+      {summary ? (
+        <p className="text-muted text-sm whitespace-pre-wrap">{summary}</p>
       ) : null}
       <pre className="bg-hover text-ink max-h-64 overflow-auto rounded-sm p-3 text-xs whitespace-pre-wrap">
-        {patch.diff}
+        {diff || toolCall.output || toolCall.input}
       </pre>
       {error ? (
         <p className="text-warning text-sm font-medium">{error}</p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          disabled={!canDecide || isApplying}
-          icon={<Check />}
-          onClick={onApply}
-          size="small"
-          type="button"
-        >
-          Apply patch
-        </Button>
-        <Button
-          disabled={!canDecide || isRejecting}
-          icon={<X />}
-          onClick={onReject}
-          size="small"
-          type="button"
-          variant="secondary"
-        >
-          Reject
-        </Button>
-        <Button
-          disabled={!canRevert || isReverting}
-          icon={<Undo2 />}
-          onClick={onRevert}
-          size="small"
-          type="button"
-          variant="secondary"
-        >
-          Revert
-        </Button>
-      </div>
+      {toolCall.requiresApproval &&
+      (isCurrentApproval || toolCall.status !== "waiting_approval") ? (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={!canDecide || isApproving}
+            icon={<Check />}
+            onClick={onApprove}
+            size="small"
+            type="button"
+          >
+            Approve tool
+          </Button>
+          <Button
+            disabled={!canDecide || isRejecting}
+            icon={<X />}
+            onClick={onReject}
+            size="small"
+            type="button"
+            variant="secondary"
+          >
+            Reject
+          </Button>
+        </div>
+      ) : null}
+      {toolCall.requiresApproval &&
+      toolCall.status === "waiting_approval" &&
+      !isCurrentApproval ? (
+        <p className="text-muted text-xs">
+          Waiting for the previous tool decision.
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function TaskEventRow({ event }: { event: AgentTaskEvent }) {
+function TaskEventRow({
+  children,
+  event,
+}: {
+  children?: ReactNode;
+  event: AgentTaskEvent;
+}) {
   const text = eventText(event);
-  if (text.length === 0) {
+  if (text.length === 0 && !children) {
     return null;
   }
   return (
-    <div className="border-line grid gap-1 border-l px-3">
-      <p className="text-muted text-xs font-semibold">{event.type}</p>
-      <p className="text-ink text-sm break-words whitespace-pre-wrap">{text}</p>
+    <div
+      aria-label={event.type}
+      className="border-line grid gap-2 border-l px-3"
+      role="group"
+    >
+      <div className="grid gap-1">
+        <p className="text-muted text-xs font-semibold">{event.type}</p>
+        {text ? (
+          <p className="text-ink text-sm break-words whitespace-pre-wrap">
+            {text}
+          </p>
+        ) : null}
+      </div>
+      {children}
     </div>
   );
 }
@@ -754,10 +774,10 @@ function eventText(event: AgentTaskEvent) {
     return payload.text;
   }
   if (typeof payload.name === "string") {
+    if (event.type === "agent.approval_required") {
+      return `${payload.name} is waiting for approval.`;
+    }
     return payload.name;
-  }
-  if (typeof payload.patchId === "string") {
-    return `Patch ${payload.patchId} is waiting for approval.`;
   }
   if (typeof payload.status === "string") {
     return payload.status;
@@ -781,20 +801,20 @@ function upsertTask(
   );
 }
 
-function updatePatchCache(
+function updateToolCallCache(
   queryClient: QueryClient,
   workspaceId: string,
-  patch: AgentPatch,
+  toolCall: AgentToolCall,
 ) {
   queryClient.setQueryData<AgentTaskDetail>(
-    ["agent-task", workspaceId, patch.taskId],
+    ["agent-task", workspaceId, toolCall.taskId],
     (current) =>
       current
         ? {
             ...current,
-            patches: [
-              patch,
-              ...current.patches.filter((item) => item.id !== patch.id),
+            toolCalls: [
+              ...current.toolCalls.filter((item) => item.id !== toolCall.id),
+              toolCall,
             ],
           }
         : current,
@@ -821,7 +841,7 @@ function appendTaskEvent(events: AgentTaskEvent[], event: WorkspaceEvent) {
 function isAgentTaskEvent(event: WorkspaceEvent): event is WorkspaceEvent & {
   type: AgentTaskEvent["type"];
 } {
-  return event.type.startsWith("agent.") || event.type.startsWith("patch.");
+  return event.type.startsWith("agent.");
 }
 
 function eventTaskId(event: WorkspaceEvent) {
@@ -829,11 +849,63 @@ function eventTaskId(event: WorkspaceEvent) {
   if (typeof payload.taskId === "string") {
     return payload.taskId;
   }
-  if (typeof payload.id === "string" && payload.id.startsWith("patch_")) {
-    return typeof payload.taskId === "string" ? payload.taskId : "";
-  }
   if (typeof payload.id === "string" && payload.id.startsWith("task_")) {
     return payload.id;
   }
   return "";
+}
+
+function latestToolEventIdsByCall(events: AgentTaskEvent[]) {
+  const eventIds = new Map<string, string>();
+  for (const event of events) {
+    const toolCallId = eventToolCallId(event);
+    if (toolCallId.length > 0) {
+      eventIds.set(toolCallId, event.id);
+    }
+  }
+  return eventIds;
+}
+
+function toolCallForEvent(event: AgentTaskEvent, toolCalls: AgentToolCall[]) {
+  const toolCallId = eventToolCallId(event);
+  if (toolCallId.length === 0) {
+    return undefined;
+  }
+  return toolCalls.find((toolCall) => toolCall.id === toolCallId);
+}
+
+function eventToolCallId(event: AgentTaskEvent) {
+  if (
+    event.type !== "agent.tool.started" &&
+    event.type !== "agent.tool.finished" &&
+    event.type !== "agent.approval_required"
+  ) {
+    return "";
+  }
+  const payload = event.payload as Record<string, unknown>;
+  return typeof payload.id === "string" ? payload.id : "";
+}
+
+function parseToolInput(input: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(input) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function nextApprovalToolCall(toolCalls: AgentToolCall[]) {
+  return [...toolCalls]
+    .filter(
+      (toolCall) =>
+        toolCall.requiresApproval && toolCall.status === "waiting_approval",
+    )
+    .sort((left, right) =>
+      left.batchId === right.batchId
+        ? left.sequence - right.sequence
+        : left.createdAt.localeCompare(right.createdAt),
+    )[0];
 }

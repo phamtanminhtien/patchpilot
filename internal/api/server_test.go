@@ -68,17 +68,20 @@ func (unavailableAgentProvider) Configured() bool {
 	return false
 }
 
-func (unavailableAgentProvider) Generate(context.Context, agent.ProviderRequest, *agent.Tools, agent.Stream) (agent.ProviderResult, error) {
+func (unavailableAgentProvider) Generate(context.Context, agent.ProviderRequest, agent.Stream) (agent.ProviderResult, error) {
 	return agent.ProviderResult{}, agent.ErrProviderUnavailable
 }
 
-func (fakeAgentProvider) Generate(ctx context.Context, request agent.ProviderRequest, _ *agent.Tools, stream agent.Stream) (agent.ProviderResult, error) {
+func (fakeAgentProvider) Generate(ctx context.Context, request agent.ProviderRequest, stream agent.Stream) (agent.ProviderResult, error) {
 	stream.Delta(ctx, "fake provider response")
-	return agent.ProviderResult{
-		Plan:    "Inspect workspace and propose a patch.",
-		Summary: "Fake provider completed.",
-		Patch:   "diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-before\n+after\n",
-	}, nil
+	if len(request.History) > 0 {
+		return agent.ProviderResult{Text: "Fake provider completed.", Done: true}, nil
+	}
+	return agent.ProviderResult{ToolCalls: []agent.ToolRequest{{
+		CallID:    "call_patch",
+		Name:      "apply_patch",
+		Arguments: `{"summary":"update example","diff":"diff --git a/example.txt b/example.txt\nindex 7c8e5d0..ef49dd8 100644\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-before\n+after\n"}`,
+	}}}, nil
 }
 
 func TestHealthCheckReturnsOK(t *testing.T) {
@@ -305,9 +308,9 @@ func TestAgentTaskHandlersCreateListAndGet(t *testing.T) {
 		t.Fatalf("unexpected task: %+v", task)
 	}
 
-	detail := waitForAgentDetail(t, server, ws.ID, task.ID, "waiting_approval")
-	if len(detail.Patches) != 1 {
-		t.Fatalf("expected one patch, got %+v", detail.Patches)
+	detail := waitForAgentDetail(t, server, ws.ID, task.ID, "waiting_tool_approval")
+	if len(detail.ToolCalls) != 1 || detail.ToolCalls[0].Name != "apply_patch" {
+		t.Fatalf("expected one patch tool call, got %+v", detail.ToolCalls)
 	}
 
 	list := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/agent/tasks", "")
@@ -323,7 +326,7 @@ func TestAgentTaskHandlersCreateListAndGet(t *testing.T) {
 	}
 }
 
-func TestPatchApplyRevertAndReapplyLifecycle(t *testing.T) {
+func TestToolApprovalAppliesPatchAndRemovedPatchEndpointsAreGone(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	seedExampleFile(t, root)
 	server := newTestServer(t, root)
@@ -337,35 +340,24 @@ func TestPatchApplyRevertAndReapplyLifecycle(t *testing.T) {
 	}
 	var task agent.Task
 	mustDecode(t, response, &task)
-	detail := waitForAgentDetail(t, server, ws.ID, task.ID, "waiting_approval")
-	detail = waitForAgentPatch(t, server, ws.ID, task.ID)
-	patchID := detail.Patches[0].ID
+	detail := waitForAgentDetail(t, server, ws.ID, task.ID, "waiting_tool_approval")
+	toolCallID := detail.ToolCalls[0].ID
 
-	apply := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/patches/"+patchID+"/apply", "")
+	oldPatchRoute := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/patches/patch_1/apply", "")
+	if oldPatchRoute.Code != http.StatusNotFound {
+		t.Fatalf("expected old patch route 404, got %d: %s", oldPatchRoute.Code, oldPatchRoute.Body.String())
+	}
+
+	apply := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks/"+task.ID+"/tool-calls/"+toolCallID+"/approve", "")
 	if apply.Code != http.StatusOK {
-		t.Fatalf("expected apply 200, got %d: %s\npatch:\n%s\nfile:%q", apply.Code, apply.Body.String(), detail.Patches[0].Diff, mustReadFile(t, filepath.Join(root, "example.txt")))
+		t.Fatalf("expected approve 200, got %d: %s\nfile:%q", apply.Code, apply.Body.String(), mustReadFile(t, filepath.Join(root, "example.txt")))
 	}
-	detail = getAgentDetail(t, server, ws.ID, task.ID)
-	if detail.Task.Status != "done" || detail.Patches[0].Status != "applied" {
-		t.Fatalf("expected done/applied, got task=%s patch=%s", detail.Task.Status, detail.Patches[0].Status)
+	detail = waitForAgentDetail(t, server, ws.ID, task.ID, "done")
+	if detail.ToolCalls[0].Status != "finished" {
+		t.Fatalf("expected finished tool call, got %+v", detail.ToolCalls[0])
 	}
-
-	revert := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/patches/"+patchID+"/revert", "")
-	if revert.Code != http.StatusOK {
-		t.Fatalf("expected revert 200, got %d: %s", revert.Code, revert.Body.String())
-	}
-	detail = getAgentDetail(t, server, ws.ID, task.ID)
-	if detail.Task.Status != "waiting_approval" || detail.Patches[0].Status != "proposed" {
-		t.Fatalf("expected waiting_approval/proposed, got task=%s patch=%s", detail.Task.Status, detail.Patches[0].Status)
-	}
-
-	reapply := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/patches/"+patchID+"/apply", "")
-	if reapply.Code != http.StatusOK {
-		t.Fatalf("expected reapply 200, got %d: %s", reapply.Code, reapply.Body.String())
-	}
-	detail = getAgentDetail(t, server, ws.ID, task.ID)
-	if detail.Task.Status != "done" || detail.Patches[0].Status != "applied" {
-		t.Fatalf("expected done/applied after reapply, got task=%s patch=%s", detail.Task.Status, detail.Patches[0].Status)
+	if got := mustReadFile(t, filepath.Join(root, "example.txt")); got != "after\n" {
+		t.Fatalf("expected approved patch to apply, got %q", got)
 	}
 }
 
@@ -736,20 +728,6 @@ func waitForAgentDetail(t *testing.T, handler http.Handler, workspaceID, taskID,
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("task did not reach %s", status)
-	return agent.Detail{}
-}
-
-func waitForAgentPatch(t *testing.T, handler http.Handler, workspaceID, taskID string) agent.Detail {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		detail := getAgentDetail(t, handler, workspaceID, taskID)
-		if len(detail.Patches) > 0 {
-			return detail
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("task did not create patch")
 	return agent.Detail{}
 }
 

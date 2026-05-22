@@ -1,0 +1,29 @@
+package agent
+
+import "testing"
+
+func TestStaticToolApprovalPolicies(t *testing.T) {
+	expected := map[string]toolApprovalPolicy{
+		"apply_patch":  toolRequiresApproval,
+		"list_files":   toolAutoRun,
+		"read_file":    toolAutoRun,
+		"search_files": toolAutoRun,
+		"git_status":   toolAutoRun,
+		"git_diff":     toolAutoRun,
+	}
+	if len(staticToolApprovalPolicies) != len(expected) {
+		t.Fatalf("unexpected static tool policy count: %+v", staticToolApprovalPolicies)
+	}
+	for name, want := range expected {
+		got, ok := staticToolPolicy(name)
+		if !ok {
+			t.Fatalf("missing static tool policy for %s", name)
+		}
+		if got != want {
+			t.Fatalf("unexpected static tool policy for %s: got %v want %v", name, got, want)
+		}
+	}
+	if _, ok := staticToolPolicy("run_command"); ok {
+		t.Fatal("run_command must use command classification instead of static tool policy")
+	}
+}

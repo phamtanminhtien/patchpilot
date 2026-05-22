@@ -86,10 +86,8 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/tasks", s.listAgentTasks)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/tasks/{taskId}", s.getAgentTask)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks/{taskId}/cancel", s.cancelAgentTask)
-	mux.HandleFunc("GET /api/workspaces/{workspaceId}/patches/{patchId}", s.getPatch)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/patches/{patchId}/apply", s.applyPatch)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/patches/{patchId}/reject", s.rejectPatch)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/patches/{patchId}/revert", s.revertPatch)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks/{taskId}/tool-calls/{toolCallId}/approve", s.approveAgentToolCall)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks/{taskId}/tool-calls/{toolCallId}/reject", s.rejectAgentToolCall)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes", s.listProcesses)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes/{processId}", s.getProcess)
@@ -566,120 +564,38 @@ func (s *Server) cancelAgentTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, task)
 }
 
-func (s *Server) getPatch(w http.ResponseWriter, r *http.Request) {
+func (s *Server) approveAgentToolCall(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
 		return
 	}
-	patch, err := s.store.GetPatch(r.Context(), ws.ID, r.PathValue("patchId"))
-	if err != nil {
-		writePatchError(w, err)
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"patch": agent.PatchFromRecord(patch)})
+	call, err := s.agent.ApproveToolCall(r.Context(), ws.ID, r.PathValue("taskId"), r.PathValue("toolCallId"))
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"toolCall": call})
 }
 
-func (s *Server) applyPatch(w http.ResponseWriter, r *http.Request) {
+func (s *Server) rejectAgentToolCall(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
 		return
 	}
-	patch, err := s.store.GetPatch(r.Context(), ws.ID, r.PathValue("patchId"))
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
+		return
+	}
+	call, err := s.agent.RejectToolCall(r.Context(), ws.ID, r.PathValue("taskId"), r.PathValue("toolCallId"))
 	if err != nil {
-		writePatchError(w, err)
+		writeAgentError(w, err)
 		return
 	}
-	if !patchIsProposed(patch.Status) {
-		writeError(w, http.StatusConflict, "invalid_patch_status", "Only proposed patches can be applied", map[string]any{"status": patch.Status})
-		return
-	}
-	if err := s.git.ApplyPatch(r.Context(), ws.RootPath, patch.Diff, gitrepo.ApplyForward); err != nil {
-		_, _ = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "failed"})
-		writeGitError(w, err, "patch_apply_failed", "Patch could not be applied")
-		return
-	}
-	now := time.Now().UTC()
-	patch, err = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "applied", "applied_at": now})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "patch_update_failed", "Patch status could not be updated", nil)
-		return
-	}
-	publicPatch := agent.PatchFromRecord(patch)
-	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.applied", Payload: publicPatch})
-	s.updatePatchTaskStatus(r.Context(), ws.ID, patch.TaskID, string(agent.StatusDone))
-	s.publishGitChanged(r.Context(), ws)
-	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
-}
-
-func (s *Server) rejectPatch(w http.ResponseWriter, r *http.Request) {
-	ws, ok := s.workspaceFromRequest(w, r)
-	if !ok {
-		return
-	}
-	patch, err := s.store.GetPatch(r.Context(), ws.ID, r.PathValue("patchId"))
-	if err != nil {
-		writePatchError(w, err)
-		return
-	}
-	if !patchIsProposed(patch.Status) {
-		writeError(w, http.StatusConflict, "invalid_patch_status", "Only proposed patches can be rejected", map[string]any{"status": patch.Status})
-		return
-	}
-	patch, err = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "rejected"})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "patch_update_failed", "Patch status could not be updated", nil)
-		return
-	}
-	publicPatch := agent.PatchFromRecord(patch)
-	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.rejected", Payload: publicPatch})
-	s.updatePatchTaskStatus(r.Context(), ws.ID, patch.TaskID, string(agent.StatusDone))
-	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
-}
-
-func (s *Server) revertPatch(w http.ResponseWriter, r *http.Request) {
-	ws, ok := s.workspaceFromRequest(w, r)
-	if !ok {
-		return
-	}
-	patch, err := s.store.GetPatch(r.Context(), ws.ID, r.PathValue("patchId"))
-	if err != nil {
-		writePatchError(w, err)
-		return
-	}
-	if patch.Status != "applied" {
-		writeError(w, http.StatusConflict, "invalid_patch_status", "Only applied patches can be reverted", map[string]any{"status": patch.Status})
-		return
-	}
-	if err := s.git.ApplyPatch(r.Context(), ws.RootPath, patch.Diff, gitrepo.ApplyReverse); err != nil {
-		writeGitError(w, err, "patch_revert_failed", "Patch could not be reverted")
-		return
-	}
-	patch, err = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "proposed", "applied_at": nil})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "patch_update_failed", "Patch status could not be updated", nil)
-		return
-	}
-	publicPatch := agent.PatchFromRecord(patch)
-	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.reverted", Payload: publicPatch})
-	s.updatePatchTaskStatus(r.Context(), ws.ID, patch.TaskID, string(agent.StatusWaitingApproval))
-	s.publishGitChanged(r.Context(), ws)
-	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
-}
-
-func patchIsProposed(status string) bool {
-	return status == "proposed" || status == "created"
-}
-
-func (s *Server) updatePatchTaskStatus(ctx context.Context, workspaceID, taskID, status string) {
-	task, err := s.store.UpdateAgentTask(ctx, workspaceID, taskID, map[string]any{"status": status})
-	if err != nil {
-		return
-	}
-	s.events.Publish(events.Event{
-		WorkspaceID: workspaceID,
-		Type:        "agent.task.status_changed",
-		Payload:     agent.TaskFromRecord(task),
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"toolCall": call})
 }
 
 func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
@@ -1358,15 +1274,6 @@ func writeProcessError(w http.ResponseWriter, err error) {
 	}
 }
 
-func writePatchError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, database.ErrNotFound):
-		writeError(w, http.StatusNotFound, "patch_not_found", "Patch not found", nil)
-	default:
-		writeError(w, http.StatusInternalServerError, "patch_request_failed", "Patch request failed", nil)
-	}
-}
-
 func writePortError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, database.ErrNotFound):
@@ -1388,6 +1295,12 @@ func writeAgentError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "agent_provider_unavailable", "OpenAI provider is not configured", nil)
 	case errors.Is(err, agent.ErrTaskNotFound):
 		writeError(w, http.StatusNotFound, "agent_task_not_found", "Agent task not found", nil)
+	case errors.Is(err, agent.ErrToolCallNotFound):
+		writeError(w, http.StatusNotFound, "agent_tool_call_not_found", "Agent tool call not found", nil)
+	case errors.Is(err, agent.ErrToolNotApprovable):
+		writeError(w, http.StatusConflict, "agent_tool_not_approvable", "Agent tool call is not waiting for approval", nil)
+	case errors.Is(err, agent.ErrTaskNotResumable):
+		writeError(w, http.StatusConflict, "agent_task_not_resumable", "Agent task cannot resume after server restart", nil)
 	default:
 		writeError(w, http.StatusInternalServerError, "agent_task_failed", "Agent task request failed", nil)
 	}

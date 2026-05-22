@@ -8,7 +8,7 @@ A self-hosted AI coding workspace that runs on a server and is optimized for mob
 It is not a VS Code clone.
 It focuses on:
 - Chatting with AI
-- Reviewing patches
+- Reviewing approval-required tools
 - Running commands
 - Web terminal support
 - Exposing preview URLs
@@ -24,8 +24,8 @@ It focuses on:
 Main flow:
 1. Open a repository
 2. Chat with an agent
-3. Agent generates a patch
-4. Review/apply diff
+3. Agent streams text and tool calls
+4. Review approval-required tools
 5. Run tests/commands
 6. Commit/push
 
@@ -377,8 +377,8 @@ queued → running → waiting_approval → applying → testing → done
 
 ## Agent Rules
 - Agent must not directly modify files.
-- Agent must generate a patch first.
-- Server applies the patch only after user approval.
+- Agent must request tools instead of directly mutating files.
+- Server executes mutating tools only after user approval.
 - Agent must not expose ports automatically.
 - Agent must not read secrets directly.
 - Command execution requires user approval if the command is dangerous or not in the allowlist.
@@ -390,7 +390,7 @@ Supported tools:
 - search_files
 - git_diff
 - git_status
-- propose_patch
+- apply_patch
 - run_command
 
 ## Streaming
@@ -486,7 +486,7 @@ In cloud/team mode:
 
 ## AI Restrictions
 AI must not:
-- Auto-apply patches without approval
+- Auto-run mutating tools without approval
 - Access files outside the workspace
 - Read secrets directly
 - Execute privileged commands
@@ -643,11 +643,9 @@ All workspace resources are scoped by workspace ID.
 - `PUT /workspaces/:workspaceId/file`
 - `GET /workspaces/:workspaceId/search?q=`
 
-### Patches
-- `GET /workspaces/:workspaceId/patches/:patchId`
-- `POST /workspaces/:workspaceId/patches/:patchId/apply`
-- `POST /workspaces/:workspaceId/patches/:patchId/reject`
-- `POST /workspaces/:workspaceId/patches/:patchId/revert`
+### Agent Tool Approvals
+- `POST /workspaces/:workspaceId/agent/tasks/:taskId/tool-calls/:toolCallId/approve`
+- `POST /workspaces/:workspaceId/agent/tasks/:taskId/tool-calls/:toolCallId/reject`
 
 ### Git
 - `GET /workspaces/:workspaceId/git/status`
@@ -666,8 +664,8 @@ All workspace resources are scoped by workspace ID.
 - `agent.cancel`
 - `terminal.input`
 - `workspace.open`
-- `patch.apply`
-- `patch.reject`
+- `agent.tool.approve`
+- `agent.tool.reject`
 - `command.run`
 - `port.expose`
 
@@ -683,7 +681,6 @@ All workspace resources are scoped by workspace ID.
 - `port.opened`
 - `port.exposed`
 - `git.changed`
-- `patch.created`
 
 ---
 
@@ -771,8 +768,8 @@ Post-MVP public tunnel can support:
 ## One-tap fix
 Select an error log → AI fixes it.
 
-## Patch-first UX
-Review/apply patches instead of manually editing raw files most of the time.
+## Tool-approval UX
+Review approval-required tools instead of manually editing raw files most of the time.
 
 ## AI Timeline
 Rewind all AI changes.

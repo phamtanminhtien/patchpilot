@@ -7,8 +7,8 @@
 Single self-hosted developer completes the mobile AI coding loop:
 
 ```txt
-open repo -> ask AI -> agent inspects approved files -> proposes patch
--> user reviews/approves/rejects -> server applies approved patch
+open repo -> ask AI -> agent streams text and tool calls
+-> user approves/rejects approval-required tools -> server executes approved tools
 -> user runs commands/tests -> user commits selected paths
 ```
 
@@ -19,12 +19,12 @@ open repo -> ask AI -> agent inspects approved files -> proposes patch
 - REST mutations, SSE realtime, no WebSocket.
 - Admin-token auth with HTTP-only session cookie.
 - Commands run as server OS user at workspace root.
-- Agent changes are patch-first and user-approved.
+- Agent changes are tool-loop based and user-approved for mutating tools.
 - Workspace Mode is lightweight support UI, not IDE.
 - Manual edits: small text files under workspace root only.
 - Agent commands: fixed allowlist below.
 - Command replay: latest 1 MiB per command.
-- Commits require explicit selected paths; UI may default to applied PatchPilot patch paths.
+- Commits require explicit selected paths.
 
 ## Flows
 
@@ -41,10 +41,10 @@ AI task:
 
 ```txt
 prompt + model + reasoning effort -> create task -> agent reads/searches approved files
--> stream progress -> return plan/summary/patch -> wait for approval
+-> stream text/tool progress -> execute safe tools or wait for tool approval -> loop
 ```
 
-Timeline includes deltas, tool starts/finishes, command output, patch creation, status changes.
+Timeline includes deltas, tool starts/finishes, approvals, command output, and status changes.
 The OpenAI provider may call backend-controlled file search/read tools to inspect workspace files while preserving server-side path, secret, ignore, and size checks.
 Vibe Mode sends `model` and `reasoningEffort` with every task. Initial model
 choices are `gpt-5.5`, `gpt-5.4`, and `gpt-5.4-mini`; initial reasoning
@@ -55,13 +55,14 @@ optionally overrides the OpenAI-compatible API base URL; when unset it defaults
 to `https://api.openai.com/v1`, and the provider calls `/responses` under that
 base URL.
 
-Review patch:
+Approve tools:
 
 ```txt
-patch -> mobile-usable diff -> approve or reject
+approval-required tool batch -> show required approvals one at a time
+-> record approve/reject decisions -> execute only approved tools -> return results to agent
 ```
 
-Approve verifies clean apply, applies, updates Git status, records applied. Reject leaves files unchanged and may record reason. Applied PatchPilot patches can revert. Invalid applies fail safely.
+Patch is an approval-required tool. Approve verifies clean apply, applies, updates Git status, and returns the applied result to the agent. Reject leaves files unchanged and returns a rejected tool result to the agent. Invalid applies fail safely.
 
 Run command:
 
@@ -124,10 +125,8 @@ GET  /api/workspaces/:workspaceId/agent/tasks
 GET  /api/workspaces/:workspaceId/agent/tasks/:taskId
 POST /api/workspaces/:workspaceId/agent/tasks/:taskId/cancel
 
-GET  /api/workspaces/:workspaceId/patches/:patchId
-POST /api/workspaces/:workspaceId/patches/:patchId/apply
-POST /api/workspaces/:workspaceId/patches/:patchId/reject
-POST /api/workspaces/:workspaceId/patches/:patchId/revert
+POST /api/workspaces/:workspaceId/agent/tasks/:taskId/tool-calls/:toolCallId/approve
+POST /api/workspaces/:workspaceId/agent/tasks/:taskId/tool-calls/:toolCallId/reject
 
 POST /api/workspaces/:workspaceId/commands
 GET  /api/workspaces/:workspaceId/processes
@@ -197,14 +196,17 @@ SSE envelope:
 }
 ```
 
-Events: `workspace.ready`, `workspace.indexing`, `agent.delta`, `agent.tool.started`, `agent.tool.finished`, `agent.approval_required`, `agent.task.status_changed`, `patch.created`, `patch.applied`, `patch.rejected`, `command.output`, `process.started`, `process.exited`, `port.opened`, `port.exposed`, `git.changed`.
+Events: `workspace.ready`, `workspace.indexing`, `agent.delta`, `agent.tool.started`, `agent.tool.finished`, `agent.approval_required`, `agent.task.status_changed`, `command.output`, `process.started`, `process.exited`, `port.opened`, `port.exposed`, `git.changed`.
 
 Agent task API response notes:
 
 - `POST /api/workspaces/:workspaceId/agent/tasks` accepts `{"prompt":"...","model":"gpt-5.5","reasoningEffort":"medium"}` and returns `202` with a task.
 - `GET /api/workspaces/:workspaceId/agent/tasks` returns `{"tasks":[]}` newest-first.
-- `GET /api/workspaces/:workspaceId/agent/tasks/:taskId` returns `{"task":{...},"events":[],"toolCalls":[],"patches":[]}`.
-- `Task` fields: `id`, `workspaceId`, `prompt`, `model`, `reasoningEffort`, `status`, `plan`, `summary`, `error?`, `generatedPatch`, `createdAt`, `updatedAt`, `startedAt?`, `finishedAt?`.
+- `GET /api/workspaces/:workspaceId/agent/tasks/:taskId` returns `{"task":{...},"events":[],"toolCalls":[]}`.
+- `Task` fields: `id`, `workspaceId`, `prompt`, `model`, `reasoningEffort`, `status`, `summary`, `error?`, `createdAt`, `updatedAt`, `startedAt?`, `finishedAt?`.
+- Tool calls include `id`, `workspaceId`, `taskId`, `batchId`, `sequence`, `name`, `input`, `output`, `status`, `requiresApproval`, `decision?`, `startedAt?`, `finishedAt?`, and `createdAt`.
+- `POST /api/workspaces/:workspaceId/agent/tasks/:taskId/tool-calls/:toolCallId/approve` records approval for a pending approval-required tool.
+- `POST /api/workspaces/:workspaceId/agent/tasks/:taskId/tool-calls/:toolCallId/reject` records rejection for a pending approval-required tool.
 
 Command API response notes:
 
@@ -227,9 +229,10 @@ Command API response notes:
 - `git_status`: inspect status.
 - `git_diff`: inspect diff.
 - `run_command`: run approved command; side effects possible.
-- `propose_patch`: submit patch for review.
+- `apply_patch`: submit a patch tool call for user approval and approved server-side apply.
 
-Agents must not read outside workspace root, access secrets, auto-apply patches, expose ports, or run non-allowlisted commands without approval.
+Agents must not read outside workspace root, access secrets, expose ports, or run approval-required tools without approval.
+Agents may return multiple tool calls in one provider turn. Backend preserves tool-call order. If any tool in the batch requires approval, no tool in that batch runs until all approval-required tools have approve/reject decisions. Rejected tools do not run and return a rejected result to the agent.
 
 ## Command Allowlist
 
@@ -265,10 +268,9 @@ Runtime config loads from OS environment variables, falling back to a local `.en
 - `workspaces`: `id`, `name`, `root_path`, `git_remote?`, `default_branch?`, `status(indexing|ready|error)`, timestamps.
 - `file_index`: `workspace_id`, `path`, `size`, `modified_at`, `indexed_at`.
 - `sessions`: `id`, `workspace_id`, `title`, `mode(vibe|workspace)`, timestamps.
-- `agent_tasks`: `id`, `workspace_id`, `session_id`, `prompt`, `model`, `reasoning_effort`, `status`, `plan?`, `summary?`, `error?`, `generated_patch?`, timestamps.
+- `agent_tasks`: `id`, `workspace_id`, `session_id`, `prompt`, `model`, `reasoning_effort`, `status`, `summary?`, `error?`, timestamps.
 - `agent_task_events`: `id`, `workspace_id`, `task_id`, `type`, `payload_json`, `created_at`.
-- `agent_tool_calls`: `id`, `workspace_id`, `task_id`, `name`, `input_json`, `output_json`, `status`, timestamps.
-- `patches`: `id`, `workspace_id`, `task_id`, `base_commit?`, `diff`, `summary`, `status`, `applied_at?`, `created_at`.
+- `agent_tool_calls`: `id`, `workspace_id`, `task_id`, `batch_id`, `sequence`, `name`, `input_json`, `output_json`, `status`, `requires_approval`, `decision?`, timestamps.
 - `commands`: `id`, `workspace_id`, `task_id?`, `command`, `cwd`, `status`, `exit_code?`, `started_at?`, `finished_at?`, `created_at`.
 - `command_output`: `id`, `command_id`, `stream(stdout|stderr)`, `chunk`, `created_at`.
 - `ports`: `id`, `workspace_id`, `process_id?`, `port`, `status(detected|exposed|closed)`, `exposed_path?` for the backend proxy path, timestamps.
@@ -277,18 +279,9 @@ Runtime config loads from OS environment variables, falling back to a local `.en
 Task status:
 
 ```txt
-queued -> running -> waiting_approval -> applying -> done
-running -> failed | cancelled
-waiting_approval -> rejected
-applying -> failed
-```
-
-Patch status:
-
-```txt
-proposed -> applied -> reverted
-proposed -> rejected
-proposed -> failed
+queued -> running -> waiting_tool_approval -> running -> done
+queued -> running -> done
+queued -> running -> failed
 ```
 
 Command status:
@@ -309,9 +302,9 @@ Full browser IDE, multi-tab editor, LSP, inline diagnostics, xterm terminal, pus
 - Open local Git repo workspace.
 - Ask AI from Vibe Mode.
 - Agent reads/searches approved files.
-- Agent returns patch, not file mutations.
-- User reviews diff and approves/rejects.
-- Server applies only approved patches.
+- Agent returns text and tool calls, not direct file mutations.
+- User approves/rejects approval-required tools.
+- Server executes only approved mutating tools.
 - User runs command and sees streamed output plus exit status.
 - User views Git status/diff.
 - User commits explicit non-empty selected paths.

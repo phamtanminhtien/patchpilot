@@ -5,7 +5,6 @@ export * from "./errors";
 export * from "./files";
 export * from "./git";
 export * from "./health";
-export * from "./patches";
 export * from "./ports";
 export * from "./types";
 export * from "./workspaces";

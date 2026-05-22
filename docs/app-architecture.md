@@ -115,7 +115,7 @@ flowchart TB
 Frontend modules:
 
 - `web/src/app`: shell, routes, theme, default route behavior.
-- `web/src/features/vibe`: AI task flow and patch review.
+- `web/src/features/vibe`: AI task flow and tool approval.
 - `web/src/features/workspace`: files, Git, commands, and preview tools.
 - `web/src/shared/api`: typed API functions over the shared Axios client.
 - `web/src/shared/ui`: reusable UI primitives.
@@ -137,9 +137,9 @@ flowchart LR
   Repo --> Git
 ```
 
-SQLite stores sessions, workspaces, agent tasks, events, patches, commands, command output, ports, and Git snapshots. Source files remain on disk in the workspace repo.
+SQLite stores sessions, workspaces, agent tasks, events, tool calls, commands, command output, ports, and Git snapshots. Source files remain on disk in the workspace repo.
 
-## Patch Flow
+## Agent Tool Flow
 
 ```mermaid
 sequenceDiagram
@@ -155,14 +155,14 @@ sequenceDiagram
   BE->>DB: Store task
   BE->>Agent: Run task
   Agent->>Repo: Read/search approved files
-  Agent->>DB: Store events and proposed patch
+  Agent->>DB: Store events and tool calls
   BE-->>FE: Stream progress via SSE
-  FE-->>User: Show diff
-  User->>FE: Approve or reject
-  FE->>BE: Apply or reject patch
-  BE->>Repo: Apply approved patch
+  FE-->>User: Show tool output or approval request
+  User->>FE: Approve or reject approval-required tools
+  FE->>BE: Record tool decision
+  BE->>Repo: Execute approved mutating tools
   BE->>DB: Update status
   FE-->>User: Show Git status
 ```
 
-Agents inspect approved context and propose patches. File mutations happen only after explicit user approval.
+Agents inspect approved context and request tools. File mutations happen only through approved tool execution.

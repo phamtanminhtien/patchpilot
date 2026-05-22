@@ -3,6 +3,8 @@ import type {
   AgentTask,
   AgentTaskDetail,
   AgentTaskListResponse,
+  AgentToolCall,
+  AgentToolCallResponse,
   CreateAgentTaskRequest,
 } from "./types";
 
@@ -44,4 +46,26 @@ export async function cancelAgentTask(
     `/workspaces/${workspaceId}/agent/tasks/${taskId}/cancel`,
   );
   return response.data;
+}
+
+export async function approveAgentToolCall(
+  workspaceId: string,
+  taskId: string,
+  toolCallId: string,
+): Promise<AgentToolCall> {
+  const response = await apiClient.post<AgentToolCallResponse>(
+    `/workspaces/${workspaceId}/agent/tasks/${taskId}/tool-calls/${toolCallId}/approve`,
+  );
+  return response.data.toolCall;
+}
+
+export async function rejectAgentToolCall(
+  workspaceId: string,
+  taskId: string,
+  toolCallId: string,
+): Promise<AgentToolCall> {
+  const response = await apiClient.post<AgentToolCallResponse>(
+    `/workspaces/${workspaceId}/agent/tasks/${taskId}/tool-calls/${toolCallId}/reject`,
+  );
+  return response.data.toolCall;
 }

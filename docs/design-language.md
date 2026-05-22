@@ -90,8 +90,8 @@ Token rules:
 
 ### Vibe Mode Layout
 
-- Vibe Mode may borrow Codex-style layout cues: a task thread, prompt/action composer, agent activity, and patch review area.
-- Keep the primary path centered on the AI coding loop: open repo, ask AI, inspect progress, review patch.
+- Vibe Mode may borrow Codex-style layout cues: a task thread, prompt/action composer, agent activity, and tool approval area.
+- Keep the primary path centered on the AI coding loop: open repo, ask AI, inspect progress, review approval-required tools.
 - Use context rails only when they add state or available actions; on mobile they stack below the primary task flow.
 - Placeholder states are acceptable only when they describe MVP state and next available action.
 

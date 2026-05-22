@@ -107,10 +107,8 @@ type AgentTaskRecord struct {
 	Model           string     `gorm:"column:model;not null"`
 	ReasoningEffort string     `gorm:"column:reasoning_effort;not null"`
 	Status          string     `gorm:"column:status;not null;index"`
-	Plan            string     `gorm:"column:plan;not null"`
 	Summary         string     `gorm:"column:summary;not null"`
 	Error           *string    `gorm:"column:error"`
-	GeneratedPatch  string     `gorm:"column:generated_patch;not null"`
 	StartedAt       *time.Time `gorm:"column:started_at"`
 	FinishedAt      *time.Time `gorm:"column:finished_at"`
 	CreatedAt       time.Time  `gorm:"column:created_at;not null;index"`
@@ -135,36 +133,25 @@ func (AgentTaskEventRecord) TableName() string {
 }
 
 type AgentToolCallRecord struct {
-	ID          string     `gorm:"primaryKey;column:id"`
-	WorkspaceID string     `gorm:"column:workspace_id;not null;index"`
-	TaskID      string     `gorm:"column:task_id;not null;index"`
-	Name        string     `gorm:"column:name;not null"`
-	InputJSON   string     `gorm:"column:input_json;not null"`
-	OutputJSON  string     `gorm:"column:output_json;not null"`
-	Status      string     `gorm:"column:status;not null;index"`
-	StartedAt   *time.Time `gorm:"column:started_at"`
-	FinishedAt  *time.Time `gorm:"column:finished_at"`
-	CreatedAt   time.Time  `gorm:"column:created_at;not null;index"`
+	ID               string     `gorm:"primaryKey;column:id"`
+	WorkspaceID      string     `gorm:"column:workspace_id;not null;index"`
+	TaskID           string     `gorm:"column:task_id;not null;index"`
+	BatchID          string     `gorm:"column:batch_id;not null;index"`
+	Sequence         int        `gorm:"column:sequence;not null"`
+	ProviderCallID   string     `gorm:"column:provider_call_id;not null"`
+	Name             string     `gorm:"column:name;not null"`
+	InputJSON        string     `gorm:"column:input_json;not null"`
+	OutputJSON       string     `gorm:"column:output_json;not null"`
+	Status           string     `gorm:"column:status;not null;index"`
+	RequiresApproval bool       `gorm:"column:requires_approval;not null"`
+	Decision         *string    `gorm:"column:decision"`
+	StartedAt        *time.Time `gorm:"column:started_at"`
+	FinishedAt       *time.Time `gorm:"column:finished_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at;not null;index"`
 }
 
 func (AgentToolCallRecord) TableName() string {
 	return "agent_tool_calls"
-}
-
-type PatchRecord struct {
-	ID          string     `gorm:"primaryKey;column:id"`
-	WorkspaceID string     `gorm:"column:workspace_id;not null;index"`
-	TaskID      string     `gorm:"column:task_id;not null;index"`
-	BaseCommit  *string    `gorm:"column:base_commit"`
-	Diff        string     `gorm:"column:diff;not null"`
-	Summary     string     `gorm:"column:summary;not null"`
-	Status      string     `gorm:"column:status;not null;index"`
-	AppliedAt   *time.Time `gorm:"column:applied_at"`
-	CreatedAt   time.Time  `gorm:"column:created_at;not null;index"`
-}
-
-func (PatchRecord) TableName() string {
-	return "patches"
 }
 
 type PortRecord struct {
@@ -186,7 +173,6 @@ func (PortRecord) TableName() string {
 type GitSnapshotRecord struct {
 	ID          string    `gorm:"primaryKey;column:id"`
 	WorkspaceID string    `gorm:"column:workspace_id;not null;index"`
-	PatchID     *string   `gorm:"column:patch_id;index"`
 	CommitSHA   *string   `gorm:"column:commit_sha;index"`
 	StatusJSON  string    `gorm:"column:status_json;not null"`
 	CreatedAt   time.Time `gorm:"column:created_at;not null;index"`
@@ -247,7 +233,7 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Metadata{}, &WorkspaceRecord{}, &FileIndexRecord{}, &AuthSessionRecord{}, &SessionRecord{}, &AgentTaskRecord{}, &AgentTaskEventRecord{}, &AgentToolCallRecord{}, &PatchRecord{}, &CommandRecord{}, &CommandOutputRecord{}, &PortRecord{}, &GitSnapshotRecord{})
+	return s.db.AutoMigrate(&Metadata{}, &WorkspaceRecord{}, &FileIndexRecord{}, &AuthSessionRecord{}, &SessionRecord{}, &AgentTaskRecord{}, &AgentTaskEventRecord{}, &AgentToolCallRecord{}, &CommandRecord{}, &CommandOutputRecord{}, &PortRecord{}, &GitSnapshotRecord{})
 }
 
 func (s *Store) enableForeignKeys() error {
@@ -309,9 +295,6 @@ func (s *Store) DeleteWorkspaceMetadata(ctx context.Context, workspaceID string)
 			return err
 		}
 		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentToolCallRecord{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&PatchRecord{}).Error; err != nil {
 			return err
 		}
 		var commands []CommandRecord
@@ -566,63 +549,42 @@ func (s *Store) FinishAgentToolCall(ctx context.Context, workspaceID, taskID, ca
 	return call, nil
 }
 
+func (s *Store) UpdateAgentToolCall(ctx context.Context, workspaceID, taskID, callID string, updates map[string]any) (AgentToolCallRecord, error) {
+	if err := s.db.WithContext(ctx).Model(&AgentToolCallRecord{}).
+		Where("workspace_id = ? AND task_id = ? AND id = ?", workspaceID, taskID, callID).
+		Updates(updates).Error; err != nil {
+		return AgentToolCallRecord{}, err
+	}
+	var call AgentToolCallRecord
+	if err := s.db.WithContext(ctx).First(&call, "workspace_id = ? AND task_id = ? AND id = ?", workspaceID, taskID, callID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return AgentToolCallRecord{}, ErrNotFound
+		}
+		return AgentToolCallRecord{}, err
+	}
+	return call, nil
+}
+
+func (s *Store) GetAgentToolCall(ctx context.Context, workspaceID, taskID, callID string) (AgentToolCallRecord, error) {
+	var call AgentToolCallRecord
+	if err := s.db.WithContext(ctx).First(&call, "workspace_id = ? AND task_id = ? AND id = ?", workspaceID, taskID, callID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return AgentToolCallRecord{}, ErrNotFound
+		}
+		return AgentToolCallRecord{}, err
+	}
+	return call, nil
+}
+
 func (s *Store) ListAgentToolCalls(ctx context.Context, workspaceID, taskID string) ([]AgentToolCallRecord, error) {
 	var calls []AgentToolCallRecord
 	if err := s.db.WithContext(ctx).
 		Where("workspace_id = ? AND task_id = ?", workspaceID, taskID).
-		Order("created_at ASC, id ASC").
+		Order("created_at ASC, batch_id ASC, sequence ASC, id ASC").
 		Find(&calls).Error; err != nil {
 		return nil, err
 	}
 	return calls, nil
-}
-
-func (s *Store) CreatePatch(ctx context.Context, patch PatchRecord) (PatchRecord, error) {
-	if patch.ID == "" {
-		id, err := newPrefixedID("patch_")
-		if err != nil {
-			return PatchRecord{}, err
-		}
-		patch.ID = id
-	}
-	if patch.CreatedAt.IsZero() {
-		patch.CreatedAt = time.Now().UTC()
-	}
-	if err := s.db.WithContext(ctx).Create(&patch).Error; err != nil {
-		return PatchRecord{}, err
-	}
-	return patch, nil
-}
-
-func (s *Store) ListPatches(ctx context.Context, workspaceID, taskID string) ([]PatchRecord, error) {
-	var patches []PatchRecord
-	if err := s.db.WithContext(ctx).
-		Where("workspace_id = ? AND task_id = ?", workspaceID, taskID).
-		Order("created_at ASC, id ASC").
-		Find(&patches).Error; err != nil {
-		return nil, err
-	}
-	return patches, nil
-}
-
-func (s *Store) GetPatch(ctx context.Context, workspaceID, patchID string) (PatchRecord, error) {
-	var patch PatchRecord
-	if err := s.db.WithContext(ctx).First(&patch, "workspace_id = ? AND id = ?", workspaceID, patchID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return PatchRecord{}, ErrNotFound
-		}
-		return PatchRecord{}, err
-	}
-	return patch, nil
-}
-
-func (s *Store) UpdatePatch(ctx context.Context, workspaceID, patchID string, updates map[string]any) (PatchRecord, error) {
-	if err := s.db.WithContext(ctx).Model(&PatchRecord{}).
-		Where("workspace_id = ? AND id = ?", workspaceID, patchID).
-		Updates(updates).Error; err != nil {
-		return PatchRecord{}, err
-	}
-	return s.GetPatch(ctx, workspaceID, patchID)
 }
 
 func (s *Store) CreateCommand(ctx context.Context, command CommandRecord) (CommandRecord, error) {

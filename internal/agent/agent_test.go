@@ -3,11 +3,10 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,23 +18,29 @@ import (
 )
 
 type testProvider struct {
-	err error
-	run func(context.Context, ProviderRequest, *Tools, Stream) (ProviderResult, error)
+	mu    sync.Mutex
+	err   error
+	turns []ProviderResult
+	seen  []ProviderRequest
 }
 
-func (p testProvider) Configured() bool {
+func (p *testProvider) Configured() bool {
 	return true
 }
 
-func (p testProvider) Generate(ctx context.Context, request ProviderRequest, tools *Tools, stream Stream) (ProviderResult, error) {
-	if p.run != nil {
-		return p.run(ctx, request, tools, stream)
-	}
+func (p *testProvider) Generate(ctx context.Context, request ProviderRequest, stream Stream) (ProviderResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.seen = append(p.seen, request)
 	if p.err != nil {
 		return ProviderResult{}, p.err
 	}
-	stream.Delta(ctx, "provider streamed")
-	return ProviderResult{Plan: "plan", Summary: "summary", Patch: "diff --git a/a.txt b/a.txt\nnew file mode 100644\nindex 0000000..7898192\n--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1 @@\n+content\n"}, nil
+	if len(p.turns) == 0 {
+		return ProviderResult{Text: "done", Done: true}, nil
+	}
+	turn := p.turns[0]
+	p.turns = p.turns[1:]
+	return turn, nil
 }
 
 type unconfiguredProvider struct{}
@@ -44,16 +49,18 @@ func (unconfiguredProvider) Configured() bool {
 	return false
 }
 
-func (unconfiguredProvider) Generate(context.Context, ProviderRequest, *Tools, Stream) (ProviderResult, error) {
+func (unconfiguredProvider) Generate(context.Context, ProviderRequest, Stream) (ProviderResult, error) {
 	return ProviderResult{}, ErrProviderUnavailable
 }
 
-func TestManagerCreatesTaskAndStoresPatch(t *testing.T) {
-	ctx := context.Background()
+func TestManagerCreatesApprovalRequiredPatchTool(t *testing.T) {
 	root := initAgentGitRepo(t)
-	manager, store := newAgentTestManager(t, testProvider{})
+	provider := &testProvider{turns: []ProviderResult{{
+		ToolCalls: []ToolRequest{patchToolRequest("call_patch")},
+	}}}
+	manager, store := newAgentTestManager(t, provider)
 
-	task, err := manager.Create(ctx, "ws_1", root, CreateTaskInput{
+	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
 		Prompt:          "fix bug",
 		Model:           "gpt-5.5",
 		ReasoningEffort: "medium",
@@ -62,33 +69,34 @@ func TestManagerCreatesTaskAndStoresPatch(t *testing.T) {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingApproval)
+	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingToolApproval)
 	if detail.Task.Model != "gpt-5.5" || detail.Task.ReasoningEffort != "medium" {
 		t.Fatalf("unexpected task selections: %+v", detail.Task)
 	}
-	detail = waitForAgentPatch(t, manager, "ws_1", task.ID)
-	if len(detail.Patches) != 1 || detail.Patches[0].Status != "proposed" {
-		t.Fatalf("expected proposed patch, got %+v", detail.Patches)
+	if len(detail.ToolCalls) != 1 || detail.ToolCalls[0].Name != "apply_patch" || !detail.ToolCalls[0].RequiresApproval {
+		t.Fatalf("expected pending patch tool, got %+v", detail.ToolCalls)
 	}
-	events, err := store.ListAgentTaskEvents(ctx, "ws_1", task.ID)
+	if got := readAgentFile(t, filepath.Join(root, "a.txt")); got != "" {
+		t.Fatalf("patch should not be applied before approval, got %q", got)
+	}
+	events, err := store.ListAgentTaskEvents(context.Background(), "ws_1", task.ID)
 	if err != nil {
 		t.Fatalf("ListAgentTaskEvents returned error: %v", err)
 	}
-	if len(events) == 0 {
-		t.Fatal("expected stored task events")
+	if !hasEvent(events, "agent.approval_required") {
+		t.Fatalf("expected approval event, got %+v", events)
 	}
 }
 
-func TestManagerFailsInvalidGeneratedPatchBeforeApproval(t *testing.T) {
-	ctx := context.Background()
+func TestManagerApprovesPatchToolAndResumesAgent(t *testing.T) {
 	root := initAgentGitRepo(t)
-	manager, _ := newAgentTestManager(t, testProvider{
-		run: func(context.Context, ProviderRequest, *Tools, Stream) (ProviderResult, error) {
-			return ProviderResult{Plan: "plan", Summary: "summary", Patch: "not a patch"}, nil
-		},
-	})
+	provider := &testProvider{turns: []ProviderResult{
+		{ToolCalls: []ToolRequest{patchToolRequest("call_patch")}},
+		{Text: "Patch applied.", Done: true},
+	}}
+	manager, _ := newAgentTestManager(t, provider)
 
-	task, err := manager.Create(ctx, "ws_1", root, CreateTaskInput{
+	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
 		Prompt:          "fix bug",
 		Model:           "gpt-5.5",
 		ReasoningEffort: "medium",
@@ -96,42 +104,32 @@ func TestManagerFailsInvalidGeneratedPatchBeforeApproval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
+	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingToolApproval)
 
-	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusFailed)
-	if detail.Task.Error == nil || !strings.Contains(*detail.Task.Error, "generated patch failed git apply check") {
-		t.Fatalf("expected generated patch validation error, got %+v", detail.Task.Error)
+	if _, err := manager.ApproveToolCall(context.Background(), "ws_1", task.ID, detail.ToolCalls[0].ID); err != nil {
+		t.Fatalf("ApproveToolCall returned error: %v", err)
 	}
-	if len(detail.Patches) != 0 {
-		t.Fatalf("expected no proposed patches, got %+v", detail.Patches)
+	detail = waitForAgentTask(t, manager, "ws_1", task.ID, StatusDone)
+	if got := readAgentFile(t, filepath.Join(root, "a.txt")); got != "content\n" {
+		t.Fatalf("expected applied patch, got %q", got)
+	}
+	if detail.ToolCalls[0].Status != ToolStatusFinished {
+		t.Fatalf("expected finished tool call, got %+v", detail.ToolCalls)
+	}
+	if len(provider.seen) < 2 || len(provider.seen[1].History) == 0 {
+		t.Fatalf("expected resumed provider history, got %+v", provider.seen)
 	}
 }
 
-func TestManagerAcceptsNormalizedCompactGeneratedPatch(t *testing.T) {
-	ctx := context.Background()
+func TestManagerRejectsPatchToolAndResumesAgent(t *testing.T) {
 	root := initAgentGitRepo(t)
-	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("before\n"), 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-	runAgentGit(t, root, "config", "user.email", "test@example.com")
-	runAgentGit(t, root, "config", "user.name", "Test")
-	runAgentGit(t, root, "add", "tracked.txt")
-	runAgentGit(t, root, "commit", "-m", "initial")
-	manager, _ := newAgentTestManager(t, testProvider{
-		run: func(context.Context, ProviderRequest, *Tools, Stream) (ProviderResult, error) {
-			return ProviderResult{
-				Plan:    "plan",
-				Summary: "summary",
-				Patch: normalizeProviderPatch(`tracked.txt
-  @@ -1,1 +1,1 @@
-  -before
-  +after
-  
-  +1 -1`),
-			}, nil
-		},
-	})
+	provider := &testProvider{turns: []ProviderResult{
+		{ToolCalls: []ToolRequest{patchToolRequest("call_patch")}},
+		{Text: "Patch rejected.", Done: true},
+	}}
+	manager, _ := newAgentTestManager(t, provider)
 
-	task, err := manager.Create(ctx, "ws_1", root, CreateTaskInput{
+	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
 		Prompt:          "fix bug",
 		Model:           "gpt-5.5",
 		ReasoningEffort: "medium",
@@ -139,20 +137,56 @@ func TestManagerAcceptsNormalizedCompactGeneratedPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
+	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingToolApproval)
 
-	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingApproval)
-	detail = waitForAgentPatch(t, manager, "ws_1", task.ID)
-	if len(detail.Patches) != 1 {
-		t.Fatalf("expected one proposed patch, got %+v", detail.Patches)
+	if _, err := manager.RejectToolCall(context.Background(), "ws_1", task.ID, detail.ToolCalls[0].ID); err != nil {
+		t.Fatalf("RejectToolCall returned error: %v", err)
+	}
+	detail = waitForAgentTask(t, manager, "ws_1", task.ID, StatusDone)
+	if got := readAgentFile(t, filepath.Join(root, "a.txt")); got != "" {
+		t.Fatalf("rejected patch should not be applied, got %q", got)
+	}
+	if detail.ToolCalls[0].Status != ToolStatusRejected {
+		t.Fatalf("expected rejected tool call, got %+v", detail.ToolCalls)
 	}
 }
 
-func runAgentGit(t *testing.T, root string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = root
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
+func TestManagerWaitsForApprovalsBeforeExecutingMixedBatch(t *testing.T) {
+	root := initAgentGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write note: %v", err)
+	}
+	provider := &testProvider{turns: []ProviderResult{
+		{ToolCalls: []ToolRequest{
+			{CallID: "call_search", Name: "search_files", Arguments: `{"query":"hello"}`},
+			patchToolRequest("call_patch"),
+		}},
+		{Text: "done", Done: true},
+	}}
+	manager, _ := newAgentTestManager(t, provider)
+
+	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
+		Prompt:          "fix bug",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingToolApproval)
+	if len(detail.ToolCalls) != 2 {
+		t.Fatalf("expected two tool calls, got %+v", detail.ToolCalls)
+	}
+	if detail.ToolCalls[0].Status != ToolStatusPending {
+		t.Fatalf("safe tool should wait while batch approvals are pending: %+v", detail.ToolCalls)
+	}
+
+	if _, err := manager.ApproveToolCall(context.Background(), "ws_1", task.ID, detail.ToolCalls[1].ID); err != nil {
+		t.Fatalf("ApproveToolCall returned error: %v", err)
+	}
+	detail = waitForAgentTask(t, manager, "ws_1", task.ID, StatusDone)
+	if detail.ToolCalls[0].Status != ToolStatusFinished || detail.ToolCalls[1].Status != ToolStatusFinished {
+		t.Fatalf("expected both approved/safe tools to finish, got %+v", detail.ToolCalls)
 	}
 }
 
@@ -167,7 +201,7 @@ func TestManagerValidatesInputAndProvider(t *testing.T) {
 		t.Fatalf("expected provider unavailable, got %v", err)
 	}
 
-	manager, _ = newAgentTestManager(t, testProvider{})
+	manager, _ = newAgentTestManager(t, &testProvider{})
 	_, err = manager.Create(context.Background(), "ws_1", t.TempDir(), CreateTaskInput{
 		Prompt:          "",
 		Model:           "gpt-5.5",
@@ -178,7 +212,7 @@ func TestManagerValidatesInputAndProvider(t *testing.T) {
 	}
 	_, err = manager.Create(context.Background(), "ws_1", t.TempDir(), CreateTaskInput{
 		Prompt:          "fix",
-		Model:           "bad",
+		Model:           "unknown",
 		ReasoningEffort: "medium",
 	})
 	if !errors.Is(err, ErrInvalidModel) {
@@ -194,41 +228,21 @@ func TestManagerValidatesInputAndProvider(t *testing.T) {
 	}
 }
 
-func TestToolsBlockSecretsAndRequireCommandApproval(t *testing.T) {
-	root := initAgentGitRepo(t)
-	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("SECRET=value"), 0o600); err != nil {
-		t.Fatalf("write secret: %v", err)
+func patchToolRequest(callID string) ToolRequest {
+	return ToolRequest{
+		CallID:    callID,
+		Name:      "apply_patch",
+		Arguments: `{"summary":"add file","diff":"diff --git a/a.txt b/a.txt\nnew file mode 100644\nindex 0000000..7898192\n--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1 @@\n+content\n"}`,
 	}
-	provider := testProvider{
-		run: func(ctx context.Context, _ ProviderRequest, tools *Tools, _ Stream) (ProviderResult, error) {
-			if _, err := tools.ReadFile(root, ".env"); !errors.Is(err, ErrSecretPath) {
-				return ProviderResult{}, fmt.Errorf("expected secret path error, got %v", err)
-			}
-			if _, err := tools.RunCommand(ctx, "node scripts/check.js"); err == nil {
-				return ProviderResult{}, errors.New("expected command approval")
-			}
-			return ProviderResult{Plan: "plan", Summary: "approval required"}, nil
-		},
-	}
-	manager, _ := newAgentTestManager(t, provider)
-	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
-		Prompt:          "fix",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "medium",
-	})
-	if err != nil {
-		t.Fatalf("Create returned error: %v", err)
-	}
-	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusDone)
-	foundApproval := false
-	for _, event := range detail.Events {
-		if event.Type == "agent.approval_required" {
-			foundApproval = true
+}
+
+func hasEvent(events []database.AgentTaskEventRecord, eventType string) bool {
+	for _, event := range events {
+		if event.Type == eventType {
+			return true
 		}
 	}
-	if !foundApproval {
-		t.Fatalf("expected approval event, got %+v", detail.Events)
-	}
+	return false
 }
 
 func newAgentTestManager(t *testing.T, provider Provider) (*Manager, *database.Store) {
@@ -268,24 +282,6 @@ func waitForAgentTask(t *testing.T, manager *Manager, workspaceID, taskID string
 	return Detail{}
 }
 
-func waitForAgentPatch(t *testing.T, manager *Manager, workspaceID, taskID string) Detail {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		detail, err := manager.Detail(context.Background(), workspaceID, taskID)
-		if err != nil {
-			t.Fatalf("Detail returned error: %v", err)
-		}
-		if len(detail.Patches) > 0 {
-			return detail
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	detail, _ := manager.Detail(context.Background(), workspaceID, taskID)
-	t.Fatalf("task did not create patch: %+v", detail.Task)
-	return Detail{}
-}
-
 func initAgentGitRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -295,4 +291,16 @@ func initAgentGitRepo(t *testing.T) string {
 		t.Fatalf("git init failed: %v\n%s", err, output)
 	}
 	return root
+}
+
+func readAgentFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ""
+		}
+		t.Fatalf("read file: %v", err)
+	}
+	return string(content)
 }

@@ -1,14 +1,13 @@
 # PatchPilot 🚀
 
-PatchPilot is a self-hosted, single-user coding assistant for running the AI coding loop against local Git repositories. It lets you open an allowed workspace, ask an AI agent for a change, review the proposed patch, apply or reject it, run project commands, inspect Git status, and commit selected paths from a mobile-friendly web UI.
+PatchPilot is a self-hosted, single-user coding assistant for running the AI coding loop against local Git repositories. It lets you open an allowed workspace, ask an AI agent for a change, review approval-required tool calls, run project commands, inspect Git status, and commit selected paths from a mobile-friendly web UI.
 
 ## MVP Scope ✅
 
 - Open and index local Git workspaces under configured allowed roots.
 - Use Vibe Mode to create AI tasks with model and reasoning-effort choices.
-- Stream task, patch, command, and workspace activity through SSE.
-- Review AI-generated patches before they touch the workspace.
-- Apply, reject, or revert PatchPilot patches.
+- Stream task, tool, command, and workspace activity through SSE.
+- Approve or reject mutating agent tools before they touch the workspace.
 - Browse files, read small text files, search workspace contents, and inspect diffs.
 - Run classified workspace commands without a shell and replay the latest command output.
 - Stage, unstage, discard, and commit explicit selected paths.
@@ -166,7 +165,7 @@ docs                 Product rules, MVP spec, architecture, and design language
 
 ## Safety Model 🔒
 
-PatchPilot keeps workspace source files in their original repositories. App metadata lives in SQLite. Agent changes are patch-first: the agent can inspect approved workspace context and propose a patch, but files are changed only after user approval.
+PatchPilot keeps workspace source files in their original repositories. App metadata lives in SQLite. Agent changes run through the tool loop: the agent can inspect approved workspace context and request tools, but mutating tools run only after user approval.
 
 Commands run from the workspace root without a shell. Shell control operators, workspace escape attempts, and destructive patterns are blocked or require confirmation according to the command classifier.
 
