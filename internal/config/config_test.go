@@ -26,8 +26,8 @@ func TestLoadFromEnvUsesDefaults(t *testing.T) {
 	if cfg.DBPath != filepath.Join(home, defaultDataDir, defaultDBName) {
 		t.Fatalf("unexpected db path: %q", cfg.DBPath)
 	}
-	if cfg.StaticDir != "" {
-		t.Fatalf("expected no static dir, got %q", cfg.StaticDir)
+	if cfg.StaticDir != filepath.Join(cwd, "web", "dist") {
+		t.Fatalf("unexpected static dir: %q", cfg.StaticDir)
 	}
 	if cfg.LogFormat != "console" {
 		t.Fatalf("expected default console log format, got %q", cfg.LogFormat)

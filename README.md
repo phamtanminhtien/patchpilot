@@ -58,7 +58,7 @@ Important variables:
 - `PATCHPILOT_ADDR`: backend listen address. Defaults to `127.0.0.1:8080`.
 - `PATCHPILOT_DATA_DIR`: directory for PatchPilot-owned state when `PATCHPILOT_DB_PATH` is unset. Defaults to `~/.patchpilot`.
 - `PATCHPILOT_DB_PATH`: explicit SQLite database path.
-- `PATCHPILOT_STATIC_DIR`: built frontend directory served by the Go server.
+- `PATCHPILOT_STATIC_DIR`: built frontend directory served by the Go server. Defaults to `web/dist`.
 
 Do not commit `.env` files or provider keys.
 
@@ -107,7 +107,7 @@ make build
 Serve the built frontend from the Go server:
 
 ```sh
-PATCHPILOT_STATIC_DIR=web/dist go run ./cmd/patchpilot
+go run ./cmd/patchpilot
 ```
 
 Then open:

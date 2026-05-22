@@ -13,6 +13,7 @@ const (
 	defaultDataDir       = ".patchpilot"
 	defaultDBName        = "patchpilot.db"
 	defaultOpenAIBaseURL = "https://api.openai.com/v1"
+	defaultStaticDir     = "web/dist"
 )
 
 type Config struct {
@@ -82,14 +83,15 @@ func LoadFromEnv(cwd string, home string, getenv func(string) string) (Config, e
 	}
 
 	staticDir := strings.TrimSpace(getenv("PATCHPILOT_STATIC_DIR"))
-	if staticDir != "" {
-		if !filepath.IsAbs(staticDir) {
-			staticDir = filepath.Join(cwd, staticDir)
-		}
-		staticDir, err = filepath.Abs(staticDir)
-		if err != nil {
-			return Config{}, err
-		}
+	if staticDir == "" {
+		staticDir = defaultStaticDir
+	}
+	if !filepath.IsAbs(staticDir) {
+		staticDir = filepath.Join(cwd, staticDir)
+	}
+	staticDir, err = filepath.Abs(staticDir)
+	if err != nil {
+		return Config{}, err
 	}
 
 	return Config{

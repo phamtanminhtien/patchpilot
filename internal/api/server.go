@@ -100,7 +100,6 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /workspaces/{workspaceId}/ports/{port}/proxy/{path...}", s.proxyPort)
 	if staticDir != "" {
 		mux.HandleFunc("GET /", serveStatic(staticDir))
-		mux.HandleFunc("HEAD /", serveStatic(staticDir))
 	}
 	return s.authenticatedRoutes(mux)
 }
