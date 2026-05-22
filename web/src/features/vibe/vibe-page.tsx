@@ -255,7 +255,7 @@ export function VibePage() {
 
   return (
     <AppShell mode="vibe" workspace={workspace} workspaceId={workspaceId}>
-      <section className="grid min-h-[calc(100vh-2.5rem)] w-full overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <section className="grid h-[calc(100vh-2.5rem)] min-h-0 w-full overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
         <aside className="bg-panel hidden min-h-0 px-3 py-3 shadow-sm lg:grid lg:grid-rows-[auto_minmax(0,1fr)_auto]">
           <div className="grid gap-1.5">
             <button
@@ -311,8 +311,8 @@ export function VibePage() {
           </div>
         </aside>
 
-        <div className="grid min-w-0 px-3 py-5 sm:px-4">
-          <div className="mx-auto grid h-full w-full max-w-4xl grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
+        <div className="grid min-h-0 min-w-0 overflow-hidden px-3 py-5 sm:px-4">
+          <div className="mx-auto grid h-full min-h-0 w-full max-w-4xl grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden">
             <div className="grid justify-items-center gap-3 text-center">
               <h1 className="text-ink text-2xl font-semibold text-balance sm:text-3xl">
                 What should we build in PatchPilot?
@@ -535,7 +535,7 @@ function AgentTaskThread({
   workspaceRoot?: string;
 }) {
   return (
-    <div className="grid min-h-0 gap-3 lg:grid-cols-[16rem_minmax(0,1fr)]">
+    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[16rem_minmax(0,1fr)]">
       <div className="bg-panel min-h-0 overflow-hidden rounded-md shadow-sm">
         <div className="border-line border-b px-3 py-2">
           <p className="text-ink text-xs font-semibold">Tasks</p>
