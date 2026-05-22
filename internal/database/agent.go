@@ -8,43 +8,43 @@ import (
 	"gorm.io/gorm"
 )
 
-type AgentTaskRecord struct {
-	ID              string     `gorm:"primaryKey;column:id"`
-	WorkspaceID     string     `gorm:"column:workspace_id;not null;index"`
-	SessionID       *string    `gorm:"column:session_id"`
-	Prompt          string     `gorm:"column:prompt;not null"`
-	Model           string     `gorm:"column:model;not null"`
-	ReasoningEffort string     `gorm:"column:reasoning_effort;not null"`
-	Status          string     `gorm:"column:status;not null;index"`
-	Summary         string     `gorm:"column:summary;not null"`
-	Error           *string    `gorm:"column:error"`
-	StartedAt       *time.Time `gorm:"column:started_at"`
-	FinishedAt      *time.Time `gorm:"column:finished_at"`
-	CreatedAt       time.Time  `gorm:"column:created_at;not null;index"`
-	UpdatedAt       time.Time  `gorm:"column:updated_at;not null;index"`
+type AgentRunRecord struct {
+	ID               string     `gorm:"primaryKey;column:id"`
+	WorkspaceID      string     `gorm:"column:workspace_id;not null;index"`
+	ConversationID   string     `gorm:"column:conversation_id;not null;index"`
+	TriggerMessageID string     `gorm:"column:trigger_message_id;not null;index"`
+	Model            string     `gorm:"column:model;not null"`
+	ReasoningEffort  string     `gorm:"column:reasoning_effort;not null"`
+	Status           string     `gorm:"column:status;not null;index"`
+	Summary          string     `gorm:"column:summary;not null"`
+	Error            *string    `gorm:"column:error"`
+	StartedAt        *time.Time `gorm:"column:started_at"`
+	FinishedAt       *time.Time `gorm:"column:finished_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at;not null;index"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at;not null;index"`
 }
 
-func (AgentTaskRecord) TableName() string {
-	return "agent_tasks"
+func (AgentRunRecord) TableName() string {
+	return "agent_runs"
 }
 
-type AgentTaskEventRecord struct {
+type AgentRunEventRecord struct {
 	ID          string    `gorm:"primaryKey;column:id"`
 	WorkspaceID string    `gorm:"column:workspace_id;not null;index"`
-	TaskID      string    `gorm:"column:task_id;not null;index"`
+	RunID       string    `gorm:"column:run_id;not null;index"`
 	Type        string    `gorm:"column:type;not null;index"`
 	PayloadJSON string    `gorm:"column:payload_json;not null"`
 	CreatedAt   time.Time `gorm:"column:created_at;not null;index"`
 }
 
-func (AgentTaskEventRecord) TableName() string {
-	return "agent_task_events"
+func (AgentRunEventRecord) TableName() string {
+	return "agent_run_events"
 }
 
 type AgentToolCallRecord struct {
 	ID               string     `gorm:"primaryKey;column:id"`
 	WorkspaceID      string     `gorm:"column:workspace_id;not null;index"`
-	TaskID           string     `gorm:"column:task_id;not null;index"`
+	RunID            string     `gorm:"column:run_id;not null;index"`
 	BatchID          string     `gorm:"column:batch_id;not null;index"`
 	Sequence         int        `gorm:"column:sequence;not null"`
 	ProviderCallID   string     `gorm:"column:provider_call_id;not null"`
@@ -63,64 +63,64 @@ func (AgentToolCallRecord) TableName() string {
 	return "agent_tool_calls"
 }
 
-func (s *Store) CreateAgentTask(ctx context.Context, task AgentTaskRecord) (AgentTaskRecord, error) {
-	if task.ID == "" {
-		id, err := newPrefixedID("task_")
+func (s *Store) CreateAgentRun(ctx context.Context, run AgentRunRecord) (AgentRunRecord, error) {
+	if run.ID == "" {
+		id, err := newPrefixedID("run_")
 		if err != nil {
-			return AgentTaskRecord{}, err
+			return AgentRunRecord{}, err
 		}
-		task.ID = id
+		run.ID = id
 	}
 	now := time.Now().UTC()
-	if task.CreatedAt.IsZero() {
-		task.CreatedAt = now
+	if run.CreatedAt.IsZero() {
+		run.CreatedAt = now
 	}
-	if task.UpdatedAt.IsZero() {
-		task.UpdatedAt = task.CreatedAt
+	if run.UpdatedAt.IsZero() {
+		run.UpdatedAt = run.CreatedAt
 	}
-	if err := s.db.WithContext(ctx).Create(&task).Error; err != nil {
-		return AgentTaskRecord{}, err
+	if err := s.db.WithContext(ctx).Create(&run).Error; err != nil {
+		return AgentRunRecord{}, err
 	}
-	return task, nil
+	return run, nil
 }
 
-func (s *Store) GetAgentTask(ctx context.Context, workspaceID, taskID string) (AgentTaskRecord, error) {
-	var task AgentTaskRecord
-	if err := s.db.WithContext(ctx).First(&task, "workspace_id = ? AND id = ?", workspaceID, taskID).Error; err != nil {
+func (s *Store) GetAgentRun(ctx context.Context, workspaceID, conversationID, runID string) (AgentRunRecord, error) {
+	var run AgentRunRecord
+	if err := s.db.WithContext(ctx).First(&run, "workspace_id = ? AND conversation_id = ? AND id = ?", workspaceID, conversationID, runID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return AgentTaskRecord{}, ErrNotFound
+			return AgentRunRecord{}, ErrNotFound
 		}
-		return AgentTaskRecord{}, err
+		return AgentRunRecord{}, err
 	}
-	return task, nil
+	return run, nil
 }
 
-func (s *Store) ListAgentTasks(ctx context.Context, workspaceID string) ([]AgentTaskRecord, error) {
-	var tasks []AgentTaskRecord
+func (s *Store) ListAgentRuns(ctx context.Context, workspaceID, conversationID string) ([]AgentRunRecord, error) {
+	var runs []AgentRunRecord
 	if err := s.db.WithContext(ctx).
-		Where("workspace_id = ?", workspaceID).
-		Order("created_at DESC, id DESC").
-		Find(&tasks).Error; err != nil {
+		Where("workspace_id = ? AND conversation_id = ?", workspaceID, conversationID).
+		Order("created_at ASC, id ASC").
+		Find(&runs).Error; err != nil {
 		return nil, err
 	}
-	return tasks, nil
+	return runs, nil
 }
 
-func (s *Store) UpdateAgentTask(ctx context.Context, workspaceID, taskID string, updates map[string]any) (AgentTaskRecord, error) {
+func (s *Store) UpdateAgentRun(ctx context.Context, workspaceID, conversationID, runID string, updates map[string]any) (AgentRunRecord, error) {
 	updates["updated_at"] = time.Now().UTC()
-	if err := s.db.WithContext(ctx).Model(&AgentTaskRecord{}).
-		Where("workspace_id = ? AND id = ?", workspaceID, taskID).
+	if err := s.db.WithContext(ctx).Model(&AgentRunRecord{}).
+		Where("workspace_id = ? AND conversation_id = ? AND id = ?", workspaceID, conversationID, runID).
 		Updates(updates).Error; err != nil {
-		return AgentTaskRecord{}, err
+		return AgentRunRecord{}, err
 	}
-	return s.GetAgentTask(ctx, workspaceID, taskID)
+	return s.GetAgentRun(ctx, workspaceID, conversationID, runID)
 }
 
-func (s *Store) CreateAgentTaskEvent(ctx context.Context, event AgentTaskEventRecord) (AgentTaskEventRecord, error) {
+func (s *Store) CreateAgentRunEvent(ctx context.Context, event AgentRunEventRecord) (AgentRunEventRecord, error) {
 	if event.ID == "" {
 		id, err := newPrefixedID("evt_")
 		if err != nil {
-			return AgentTaskEventRecord{}, err
+			return AgentRunEventRecord{}, err
 		}
 		event.ID = id
 	}
@@ -128,16 +128,16 @@ func (s *Store) CreateAgentTaskEvent(ctx context.Context, event AgentTaskEventRe
 		event.CreatedAt = time.Now().UTC()
 	}
 	if err := s.db.WithContext(ctx).Create(&event).Error; err != nil {
-		return AgentTaskEventRecord{}, err
+		return AgentRunEventRecord{}, err
 	}
 	return event, nil
 }
 
-func (s *Store) ListAgentTaskEvents(ctx context.Context, workspaceID, taskID string) ([]AgentTaskEventRecord, error) {
-	var events []AgentTaskEventRecord
+func (s *Store) ListAgentRunEvents(ctx context.Context, workspaceID, runID string) ([]AgentRunEventRecord, error) {
+	var events []AgentRunEventRecord
 	query := s.db.WithContext(ctx).Where("workspace_id = ?", workspaceID)
-	if taskID != "" {
-		query = query.Where("task_id = ?", taskID)
+	if runID != "" {
+		query = query.Where("run_id = ?", runID)
 	}
 	if err := query.Order("created_at ASC, id ASC").Find(&events).Error; err != nil {
 		return nil, err
@@ -162,27 +162,27 @@ func (s *Store) CreateAgentToolCall(ctx context.Context, call AgentToolCallRecor
 	return call, nil
 }
 
-func (s *Store) FinishAgentToolCall(ctx context.Context, workspaceID, taskID, callID, status, outputJSON string, finishedAt time.Time) (AgentToolCallRecord, error) {
+func (s *Store) FinishAgentToolCall(ctx context.Context, workspaceID, runID, callID, status, outputJSON string, finishedAt time.Time) (AgentToolCallRecord, error) {
 	if err := s.db.WithContext(ctx).Model(&AgentToolCallRecord{}).
-		Where("workspace_id = ? AND task_id = ? AND id = ?", workspaceID, taskID, callID).
+		Where("workspace_id = ? AND run_id = ? AND id = ?", workspaceID, runID, callID).
 		Updates(map[string]any{"status": status, "output_json": outputJSON, "finished_at": finishedAt}).Error; err != nil {
 		return AgentToolCallRecord{}, err
 	}
 	var call AgentToolCallRecord
-	if err := s.db.WithContext(ctx).First(&call, "workspace_id = ? AND task_id = ? AND id = ?", workspaceID, taskID, callID).Error; err != nil {
+	if err := s.db.WithContext(ctx).First(&call, "workspace_id = ? AND run_id = ? AND id = ?", workspaceID, runID, callID).Error; err != nil {
 		return AgentToolCallRecord{}, err
 	}
 	return call, nil
 }
 
-func (s *Store) UpdateAgentToolCall(ctx context.Context, workspaceID, taskID, callID string, updates map[string]any) (AgentToolCallRecord, error) {
+func (s *Store) UpdateAgentToolCall(ctx context.Context, workspaceID, runID, callID string, updates map[string]any) (AgentToolCallRecord, error) {
 	if err := s.db.WithContext(ctx).Model(&AgentToolCallRecord{}).
-		Where("workspace_id = ? AND task_id = ? AND id = ?", workspaceID, taskID, callID).
+		Where("workspace_id = ? AND run_id = ? AND id = ?", workspaceID, runID, callID).
 		Updates(updates).Error; err != nil {
 		return AgentToolCallRecord{}, err
 	}
 	var call AgentToolCallRecord
-	if err := s.db.WithContext(ctx).First(&call, "workspace_id = ? AND task_id = ? AND id = ?", workspaceID, taskID, callID).Error; err != nil {
+	if err := s.db.WithContext(ctx).First(&call, "workspace_id = ? AND run_id = ? AND id = ?", workspaceID, runID, callID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return AgentToolCallRecord{}, ErrNotFound
 		}
@@ -191,9 +191,9 @@ func (s *Store) UpdateAgentToolCall(ctx context.Context, workspaceID, taskID, ca
 	return call, nil
 }
 
-func (s *Store) GetAgentToolCall(ctx context.Context, workspaceID, taskID, callID string) (AgentToolCallRecord, error) {
+func (s *Store) GetAgentToolCall(ctx context.Context, workspaceID, runID, callID string) (AgentToolCallRecord, error) {
 	var call AgentToolCallRecord
-	if err := s.db.WithContext(ctx).First(&call, "workspace_id = ? AND task_id = ? AND id = ?", workspaceID, taskID, callID).Error; err != nil {
+	if err := s.db.WithContext(ctx).First(&call, "workspace_id = ? AND run_id = ? AND id = ?", workspaceID, runID, callID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return AgentToolCallRecord{}, ErrNotFound
 		}
@@ -202,10 +202,10 @@ func (s *Store) GetAgentToolCall(ctx context.Context, workspaceID, taskID, callI
 	return call, nil
 }
 
-func (s *Store) ListAgentToolCalls(ctx context.Context, workspaceID, taskID string) ([]AgentToolCallRecord, error) {
+func (s *Store) ListAgentToolCalls(ctx context.Context, workspaceID, runID string) ([]AgentToolCallRecord, error) {
 	var calls []AgentToolCallRecord
 	if err := s.db.WithContext(ctx).
-		Where("workspace_id = ? AND task_id = ?", workspaceID, taskID).
+		Where("workspace_id = ? AND run_id = ?", workspaceID, runID).
 		Order("created_at ASC, batch_id ASC, sequence ASC, id ASC").
 		Find(&calls).Error; err != nil {
 		return nil, err

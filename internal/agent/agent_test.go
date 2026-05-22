@@ -56,22 +56,25 @@ func (unconfiguredProvider) Generate(context.Context, ProviderRequest, Stream) (
 func TestManagerCreatesApprovalRequiredPatchTool(t *testing.T) {
 	root := initAgentGitRepo(t)
 	provider := &testProvider{turns: []ProviderResult{{
+		Text:      "I will inspect and prepare the patch.",
 		ToolCalls: []ToolRequest{patchToolRequest("call_patch")},
 	}}}
 	manager, store := newAgentTestManager(t, provider)
 
-	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
-		Prompt:          "fix bug",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "medium",
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "fix bug",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
 	})
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingToolApproval)
-	if detail.Task.Model != "gpt-5.5" || detail.Task.ReasoningEffort != "medium" {
-		t.Fatalf("unexpected task selections: %+v", detail.Task)
+	detail := waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusWaitingToolApproval)
+	if detail.Run.Model != "gpt-5.5" || detail.Run.ReasoningEffort != "medium" {
+		t.Fatalf("unexpected run selections: %+v", detail.Run)
 	}
 	if len(detail.ToolCalls) != 1 || detail.ToolCalls[0].Name != "apply_patch" || !detail.ToolCalls[0].RequiresApproval {
 		t.Fatalf("expected pending patch tool, got %+v", detail.ToolCalls)
@@ -79,12 +82,19 @@ func TestManagerCreatesApprovalRequiredPatchTool(t *testing.T) {
 	if got := readAgentFile(t, filepath.Join(root, "a.txt")); got != "" {
 		t.Fatalf("patch should not be applied before approval, got %q", got)
 	}
-	events, err := store.ListAgentTaskEvents(context.Background(), "ws_1", task.ID)
+	events, err := store.ListAgentRunEvents(context.Background(), "ws_1", run.ID)
 	if err != nil {
-		t.Fatalf("ListAgentTaskEvents returned error: %v", err)
+		t.Fatalf("ListAgentRunEvents returned error: %v", err)
 	}
 	if !hasEvent(events, "agent.approval_required") {
 		t.Fatalf("expected approval event, got %+v", events)
+	}
+	messages, err := store.ListMessages(context.Background(), "ws_1", run.ConversationID)
+	if err != nil {
+		t.Fatalf("ListMessages returned error: %v", err)
+	}
+	if !hasAgentMessage(messages, "assistant", "I will inspect and prepare the patch.") {
+		t.Fatalf("expected assistant progress message, got %+v", messages)
 	}
 }
 
@@ -96,20 +106,22 @@ func TestManagerApprovesPatchToolAndResumesAgent(t *testing.T) {
 	}}
 	manager, _ := newAgentTestManager(t, provider)
 
-	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
-		Prompt:          "fix bug",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "medium",
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "fix bug",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
 	})
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingToolApproval)
+	detail := waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusWaitingToolApproval)
 
-	if _, err := manager.ApproveToolCall(context.Background(), "ws_1", task.ID, detail.ToolCalls[0].ID); err != nil {
+	if _, err := manager.ApproveToolCall(context.Background(), "ws_1", run.ID, detail.ToolCalls[0].ID); err != nil {
 		t.Fatalf("ApproveToolCall returned error: %v", err)
 	}
-	detail = waitForAgentTask(t, manager, "ws_1", task.ID, StatusDone)
+	detail = waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
 	if got := readAgentFile(t, filepath.Join(root, "a.txt")); got != "content\n" {
 		t.Fatalf("expected applied patch, got %q", got)
 	}
@@ -129,20 +141,22 @@ func TestManagerRejectsPatchToolAndResumesAgent(t *testing.T) {
 	}}
 	manager, _ := newAgentTestManager(t, provider)
 
-	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
-		Prompt:          "fix bug",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "medium",
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "fix bug",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
 	})
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingToolApproval)
+	detail := waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusWaitingToolApproval)
 
-	if _, err := manager.RejectToolCall(context.Background(), "ws_1", task.ID, detail.ToolCalls[0].ID); err != nil {
+	if _, err := manager.RejectToolCall(context.Background(), "ws_1", run.ID, detail.ToolCalls[0].ID); err != nil {
 		t.Fatalf("RejectToolCall returned error: %v", err)
 	}
-	detail = waitForAgentTask(t, manager, "ws_1", task.ID, StatusDone)
+	detail = waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
 	if got := readAgentFile(t, filepath.Join(root, "a.txt")); got != "" {
 		t.Fatalf("rejected patch should not be applied, got %q", got)
 	}
@@ -165,15 +179,17 @@ func TestManagerWaitsForApprovalsBeforeExecutingMixedBatch(t *testing.T) {
 	}}
 	manager, _ := newAgentTestManager(t, provider)
 
-	task, err := manager.Create(context.Background(), "ws_1", root, CreateTaskInput{
-		Prompt:          "fix bug",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "medium",
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "fix bug",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
 	})
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	detail := waitForAgentTask(t, manager, "ws_1", task.ID, StatusWaitingToolApproval)
+	detail := waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusWaitingToolApproval)
 	if len(detail.ToolCalls) != 2 {
 		t.Fatalf("expected two tool calls, got %+v", detail.ToolCalls)
 	}
@@ -181,10 +197,10 @@ func TestManagerWaitsForApprovalsBeforeExecutingMixedBatch(t *testing.T) {
 		t.Fatalf("safe tool should wait while batch approvals are pending: %+v", detail.ToolCalls)
 	}
 
-	if _, err := manager.ApproveToolCall(context.Background(), "ws_1", task.ID, detail.ToolCalls[1].ID); err != nil {
+	if _, err := manager.ApproveToolCall(context.Background(), "ws_1", run.ID, detail.ToolCalls[1].ID); err != nil {
 		t.Fatalf("ApproveToolCall returned error: %v", err)
 	}
-	detail = waitForAgentTask(t, manager, "ws_1", task.ID, StatusDone)
+	detail = waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
 	if detail.ToolCalls[0].Status != ToolStatusFinished || detail.ToolCalls[1].Status != ToolStatusFinished {
 		t.Fatalf("expected both approved/safe tools to finish, got %+v", detail.ToolCalls)
 	}
@@ -192,36 +208,44 @@ func TestManagerWaitsForApprovalsBeforeExecutingMixedBatch(t *testing.T) {
 
 func TestManagerValidatesInputAndProvider(t *testing.T) {
 	manager, _ := newAgentTestManager(t, unconfiguredProvider{})
-	_, err := manager.Create(context.Background(), "ws_1", t.TempDir(), CreateTaskInput{
-		Prompt:          "fix",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "medium",
+	_, err := manager.Create(context.Background(), "ws_1", t.TempDir(), CreateRunInput{
+		Prompt:           "fix",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
 	})
 	if !errors.Is(err, ErrProviderUnavailable) {
 		t.Fatalf("expected provider unavailable, got %v", err)
 	}
 
 	manager, _ = newAgentTestManager(t, &testProvider{})
-	_, err = manager.Create(context.Background(), "ws_1", t.TempDir(), CreateTaskInput{
-		Prompt:          "",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "medium",
+	_, err = manager.Create(context.Background(), "ws_1", t.TempDir(), CreateRunInput{
+		Prompt:           "",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
 	})
 	if !errors.Is(err, ErrEmptyPrompt) {
 		t.Fatalf("expected empty prompt, got %v", err)
 	}
-	_, err = manager.Create(context.Background(), "ws_1", t.TempDir(), CreateTaskInput{
-		Prompt:          "fix",
-		Model:           "unknown",
-		ReasoningEffort: "medium",
+	_, err = manager.Create(context.Background(), "ws_1", t.TempDir(), CreateRunInput{
+		Prompt:           "fix",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "unknown",
+		ReasoningEffort:  "medium",
 	})
 	if !errors.Is(err, ErrInvalidModel) {
 		t.Fatalf("expected invalid model, got %v", err)
 	}
-	_, err = manager.Create(context.Background(), "ws_1", t.TempDir(), CreateTaskInput{
-		Prompt:          "fix",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "none",
+	_, err = manager.Create(context.Background(), "ws_1", t.TempDir(), CreateRunInput{
+		Prompt:           "fix",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "none",
 	})
 	if !errors.Is(err, ErrInvalidEffort) {
 		t.Fatalf("expected invalid effort, got %v", err)
@@ -236,9 +260,18 @@ func patchToolRequest(callID string) ToolRequest {
 	}
 }
 
-func hasEvent(events []database.AgentTaskEventRecord, eventType string) bool {
+func hasEvent(events []database.AgentRunEventRecord, eventType string) bool {
 	for _, event := range events {
 		if event.Type == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAgentMessage(messages []database.MessageRecord, role, content string) bool {
+	for _, message := range messages {
+		if message.Role == role && message.Content == content {
 			return true
 		}
 	}
@@ -260,25 +293,25 @@ func newAgentTestManager(t *testing.T, provider Provider) (*Manager, *database.S
 	return manager, store
 }
 
-func waitForAgentTask(t *testing.T, manager *Manager, workspaceID, taskID string, status TaskStatus) Detail {
+func waitForAgentRun(t *testing.T, manager *Manager, workspaceID, conversationID, runID string, status RunStatus) Detail {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		detail, err := manager.Detail(context.Background(), workspaceID, taskID)
+		detail, err := manager.Detail(context.Background(), workspaceID, conversationID, runID)
 		if err != nil {
 			t.Fatalf("Detail returned error: %v", err)
 		}
-		if detail.Task.Status == string(status) {
+		if detail.Run.Status == string(status) {
 			return detail
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	detail, _ := manager.Detail(context.Background(), workspaceID, taskID)
+	detail, _ := manager.Detail(context.Background(), workspaceID, conversationID, runID)
 	taskError := ""
-	if detail.Task.Error != nil {
-		taskError = *detail.Task.Error
+	if detail.Run.Error != nil {
+		taskError = *detail.Run.Error
 	}
-	t.Fatalf("task did not reach %s: %+v error=%q", status, detail.Task, taskError)
+	t.Fatalf("run did not reach %s: %+v error=%q", status, detail.Run, taskError)
 	return Detail{}
 }
 

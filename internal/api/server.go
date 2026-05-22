@@ -82,12 +82,14 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/unstage", s.gitUnstage)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/discard", s.gitDiscard)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/commit", s.gitCommit)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks", s.createAgentTask)
-	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/tasks", s.listAgentTasks)
-	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/tasks/{taskId}", s.getAgentTask)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks/{taskId}/cancel", s.cancelAgentTask)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks/{taskId}/tool-calls/{toolCallId}/approve", s.approveAgentToolCall)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks/{taskId}/tool-calls/{toolCallId}/reject", s.rejectAgentToolCall)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/conversations", s.createConversation)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/conversations", s.listConversations)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/conversations/{conversationId}", s.getConversation)
+	mux.HandleFunc("PATCH /api/workspaces/{workspaceId}/conversations/{conversationId}", s.updateConversation)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/conversations/{conversationId}/messages", s.createMessage)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/conversations/{conversationId}/runs/{runId}/cancel", s.cancelAgentRun)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/conversations/{conversationId}/runs/{runId}/tool-calls/{toolCallId}/approve", s.approveAgentToolCall)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/conversations/{conversationId}/runs/{runId}/tool-calls/{toolCallId}/reject", s.rejectAgentToolCall)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes", s.listProcesses)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes/{processId}", s.getProcess)
@@ -169,8 +171,12 @@ type createCommandRequest struct {
 	Confirmed bool   `json:"confirmed"`
 }
 
-type createAgentTaskRequest struct {
-	Prompt          string `json:"prompt"`
+type conversationRequest struct {
+	Title string `json:"title"`
+}
+
+type createMessageRequest struct {
+	Content         string `json:"content"`
 	Model           string `json:"model"`
 	ReasoningEffort string `json:"reasoningEffort"`
 }
@@ -253,7 +259,6 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeIndexRefreshError(w, err)
 		return
 	}
-	s.restoreWorkspaceSession(r.Context(), ws, "vibe")
 	s.publishWorkspaceState(ws.ID, "workspace.ready", ws)
 	writeJSON(w, http.StatusCreated, ws)
 }
@@ -277,7 +282,6 @@ func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeIndexRefreshError(w, err)
 		return
 	}
-	s.restoreWorkspaceSession(r.Context(), ws, "vibe")
 	s.publishWorkspaceState(ws.ID, "workspace.ready", ws)
 	writeJSON(w, http.StatusOK, ws)
 }
@@ -487,67 +491,85 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, commit)
 }
 
-func (s *Server) createAgentTask(w http.ResponseWriter, r *http.Request) {
+func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
 		return
 	}
-	if s.agent == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
-		return
-	}
-	var req createAgentTaskRequest
+	var req conversationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
 		return
 	}
-	task, err := s.agent.Create(r.Context(), ws.ID, ws.RootPath, agent.CreateTaskInput{
-		Prompt:          req.Prompt,
-		Model:           req.Model,
-		ReasoningEffort: req.ReasoningEffort,
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = "New conversation"
+	}
+	conversation, err := s.store.CreateConversation(r.Context(), database.ConversationRecord{
+		WorkspaceID: ws.ID,
+		Title:       title,
 	})
 	if err != nil {
-		writeAgentError(w, err)
+		writeError(w, http.StatusInternalServerError, "conversation_create_failed", "Conversation could not be created", nil)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, task)
+	writeJSON(w, http.StatusCreated, conversationResponseFromRecord(conversation))
 }
 
-func (s *Server) listAgentTasks(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
 		return
 	}
-	if s.agent == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
-		return
-	}
-	tasks, err := s.agent.List(r.Context(), ws.ID)
+	conversations, err := s.store.ListConversations(r.Context(), ws.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "agent_task_list_failed", "Agent tasks could not be listed", nil)
+		writeError(w, http.StatusInternalServerError, "conversation_list_failed", "Conversations could not be listed", nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	out := make([]conversationResponse, 0, len(conversations))
+	for _, conversation := range conversations {
+		out = append(out, conversationResponseFromRecord(conversation))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conversations": out})
 }
 
-func (s *Server) getAgentTask(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
 		return
 	}
-	if s.agent == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
-		return
-	}
-	detail, err := s.agent.Detail(r.Context(), ws.ID, r.PathValue("taskId"))
+	detail, err := s.conversationDetail(r.Context(), ws.ID, r.PathValue("conversationId"))
 	if err != nil {
-		writeAgentError(w, err)
+		writeConversationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
 }
 
-func (s *Server) cancelAgentTask(w http.ResponseWriter, r *http.Request) {
+func (s *Server) updateConversation(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req conversationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "invalid_conversation_title", "Conversation title is required", nil)
+		return
+	}
+	conversation, err := s.store.UpdateConversation(r.Context(), ws.ID, r.PathValue("conversationId"), map[string]any{"title": title})
+	if err != nil {
+		writeConversationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, conversationResponseFromRecord(conversation))
+}
+
+func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
 		return
@@ -556,12 +578,60 @@ func (s *Server) cancelAgentTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
 		return
 	}
-	task, err := s.agent.Cancel(r.Context(), ws.ID, r.PathValue("taskId"))
+	conversationID := r.PathValue("conversationId")
+	if _, err := s.store.GetConversation(r.Context(), ws.ID, conversationID); err != nil {
+		writeConversationError(w, err)
+		return
+	}
+	var req createMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	message, err := s.store.CreateMessage(r.Context(), database.MessageRecord{
+		WorkspaceID:    ws.ID,
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        strings.TrimSpace(req.Content),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "message_create_failed", "Message could not be created", nil)
+		return
+	}
+	run, err := s.agent.Create(r.Context(), ws.ID, ws.RootPath, agent.CreateRunInput{
+		Prompt:           message.Content,
+		ConversationID:   conversationID,
+		TriggerMessageID: message.ID,
+		Model:            req.Model,
+		ReasoningEffort:  req.ReasoningEffort,
+	})
 	if err != nil {
 		writeAgentError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	updatedMessage, err := s.store.UpdateMessageRun(r.Context(), ws.ID, conversationID, message.ID, run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "message_update_failed", "Message could not be linked to the run", nil)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"message": messageResponseFromRecord(updatedMessage), "run": run})
+}
+
+func (s *Server) cancelAgentRun(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
+		return
+	}
+	run, err := s.agent.Cancel(r.Context(), ws.ID, r.PathValue("conversationId"), r.PathValue("runId"))
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, run)
 }
 
 func (s *Server) approveAgentToolCall(w http.ResponseWriter, r *http.Request) {
@@ -573,7 +643,7 @@ func (s *Server) approveAgentToolCall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
 		return
 	}
-	call, err := s.agent.ApproveToolCall(r.Context(), ws.ID, r.PathValue("taskId"), r.PathValue("toolCallId"))
+	call, err := s.agent.ApproveToolCall(r.Context(), ws.ID, r.PathValue("runId"), r.PathValue("toolCallId"))
 	if err != nil {
 		writeAgentError(w, err)
 		return
@@ -590,12 +660,55 @@ func (s *Server) rejectAgentToolCall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
 		return
 	}
-	call, err := s.agent.RejectToolCall(r.Context(), ws.ID, r.PathValue("taskId"), r.PathValue("toolCallId"))
+	call, err := s.agent.RejectToolCall(r.Context(), ws.ID, r.PathValue("runId"), r.PathValue("toolCallId"))
 	if err != nil {
 		writeAgentError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"toolCall": call})
+}
+
+func (s *Server) conversationDetail(ctx context.Context, workspaceID, conversationID string) (map[string]any, error) {
+	conversation, err := s.store.GetConversation(ctx, workspaceID, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	messages, err := s.store.ListMessages(ctx, workspaceID, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.agent.List(ctx, workspaceID, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	messageResponses := make([]messageResponse, 0, len(messages))
+	for _, message := range messages {
+		messageResponses = append(messageResponses, messageResponseFromRecord(message))
+	}
+	toolCalls := make([]agent.ToolCall, 0)
+	runEvents := make([]agent.RunEvent, 0)
+	for _, run := range runs {
+		records, err := s.store.ListAgentToolCalls(ctx, workspaceID, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		toolCalls = append(toolCalls, agent.ToolCallsFromRecords(records)...)
+		if run.Status == string(agent.StatusDone) || run.Status == string(agent.StatusFailed) {
+			continue
+		}
+		eventRecords, err := s.store.ListAgentRunEvents(ctx, workspaceID, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		runEvents = append(runEvents, agent.EventsFromRecords(eventRecords)...)
+	}
+	return map[string]any{
+		"conversation": conversationResponseFromRecord(conversation),
+		"events":       runEvents,
+		"messages":     messageResponses,
+		"runs":         runs,
+		"toolCalls":    toolCalls,
+	}, nil
 }
 
 func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
@@ -799,8 +912,6 @@ func (s *Server) workspaceEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	s.replayAgentEvents(r.Context(), w, ws.ID)
-	s.replayCommandEvents(r.Context(), w, ws.ID)
 	flusher.Flush()
 	events, unsubscribe := s.events.Subscribe()
 	defer unsubscribe()
@@ -939,67 +1050,6 @@ func (s *Server) refreshPortStates(ctx context.Context, workspaceID string) {
 	}
 }
 
-func (s *Server) replayCommandEvents(ctx context.Context, w http.ResponseWriter, workspaceID string) {
-	commands, err := s.store.ListCommands(ctx, workspaceID)
-	if err != nil {
-		return
-	}
-	for i := len(commands) - 1; i >= 0; i-- {
-		command := commands[i]
-		if command.StartedAt != nil {
-			writeSSE(w, events.Event{
-				ID:          "evt_replay_started_" + command.ID,
-				WorkspaceID: workspaceID,
-				Type:        "process.started",
-				CreatedAt:   *command.StartedAt,
-				Payload:     commandResponseFromRecord(command),
-			})
-		}
-		output, err := s.store.ListCommandOutput(ctx, command.ID)
-		if err != nil {
-			continue
-		}
-		for _, chunk := range output {
-			writeSSE(w, events.Event{
-				ID:          "evt_replay_output_" + chunk.ID,
-				WorkspaceID: workspaceID,
-				Type:        "command.output",
-				CreatedAt:   chunk.CreatedAt,
-				Payload:     outputResponseFromRecord(chunk),
-			})
-		}
-		if command.FinishedAt != nil {
-			writeSSE(w, events.Event{
-				ID:          "evt_replay_exited_" + command.ID,
-				WorkspaceID: workspaceID,
-				Type:        "process.exited",
-				CreatedAt:   *command.FinishedAt,
-				Payload:     commandResponseFromRecord(command),
-			})
-		}
-	}
-}
-
-func (s *Server) replayAgentEvents(ctx context.Context, w http.ResponseWriter, workspaceID string) {
-	taskEvents, err := s.store.ListAgentTaskEvents(ctx, workspaceID, "")
-	if err != nil {
-		return
-	}
-	for _, event := range taskEvents {
-		var payload any
-		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
-			continue
-		}
-		writeSSE(w, events.Event{
-			ID:          event.ID,
-			WorkspaceID: workspaceID,
-			Type:        event.Type,
-			CreatedAt:   event.CreatedAt,
-			Payload:     payload,
-		})
-	}
-}
-
 func (s *Server) publishProcessStarted(command database.CommandRecord) {
 	s.events.Publish(events.Event{
 		WorkspaceID: command.WorkspaceID,
@@ -1036,14 +1086,6 @@ func (s *Server) publishWorkspaceState(workspaceID, eventType string, ws workspa
 	})
 }
 
-func (s *Server) restoreWorkspaceSession(ctx context.Context, ws workspace.Workspace, mode string) {
-	_, _ = s.store.UpsertSession(ctx, database.SessionRecord{
-		WorkspaceID: ws.ID,
-		Title:       ws.Name,
-		Mode:        mode,
-	})
-}
-
 func (s *Server) workspaceFromRequest(w http.ResponseWriter, r *http.Request) (workspace.Workspace, bool) {
 	ws, err := s.workspaces.Get(r.Context(), r.PathValue("workspaceId"))
 	if err != nil {
@@ -1066,6 +1108,25 @@ type commandResponse struct {
 	DurationMs  *int64     `json:"durationMs"`
 }
 
+type conversationResponse struct {
+	ID            string    `json:"id"`
+	WorkspaceID   string    `json:"workspaceId"`
+	Title         string    `json:"title"`
+	LastMessageAt time.Time `json:"lastMessageAt"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+type messageResponse struct {
+	ID             string    `json:"id"`
+	WorkspaceID    string    `json:"workspaceId"`
+	ConversationID string    `json:"conversationId"`
+	Role           string    `json:"role"`
+	Content        string    `json:"content"`
+	RunID          *string   `json:"runId"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
 type commandOutputResponse struct {
 	ID        string    `json:"id"`
 	CommandID string    `json:"commandId"`
@@ -1085,6 +1146,29 @@ type portResponse struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	ClosedAt    *time.Time `json:"closedAt"`
+}
+
+func conversationResponseFromRecord(record database.ConversationRecord) conversationResponse {
+	return conversationResponse{
+		ID:            record.ID,
+		WorkspaceID:   record.WorkspaceID,
+		Title:         record.Title,
+		LastMessageAt: record.LastMessageAt,
+		CreatedAt:     record.CreatedAt,
+		UpdatedAt:     record.UpdatedAt,
+	}
+}
+
+func messageResponseFromRecord(record database.MessageRecord) messageResponse {
+	return messageResponse{
+		ID:             record.ID,
+		WorkspaceID:    record.WorkspaceID,
+		ConversationID: record.ConversationID,
+		Role:           record.Role,
+		Content:        record.Content,
+		RunID:          record.RunID,
+		CreatedAt:      record.CreatedAt,
+	}
 }
 
 func commandResponseFromRecord(record database.CommandRecord) commandResponse {
@@ -1293,16 +1377,25 @@ func writeAgentError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "invalid_reasoning_effort", "Reasoning effort is not supported", nil)
 	case errors.Is(err, agent.ErrProviderUnavailable):
 		writeError(w, http.StatusBadRequest, "agent_provider_unavailable", "OpenAI provider is not configured", nil)
-	case errors.Is(err, agent.ErrTaskNotFound):
-		writeError(w, http.StatusNotFound, "agent_task_not_found", "Agent task not found", nil)
+	case errors.Is(err, agent.ErrRunNotFound):
+		writeError(w, http.StatusNotFound, "agent_run_not_found", "Agent run not found", nil)
 	case errors.Is(err, agent.ErrToolCallNotFound):
 		writeError(w, http.StatusNotFound, "agent_tool_call_not_found", "Agent tool call not found", nil)
 	case errors.Is(err, agent.ErrToolNotApprovable):
 		writeError(w, http.StatusConflict, "agent_tool_not_approvable", "Agent tool call is not waiting for approval", nil)
-	case errors.Is(err, agent.ErrTaskNotResumable):
-		writeError(w, http.StatusConflict, "agent_task_not_resumable", "Agent task cannot resume after server restart", nil)
+	case errors.Is(err, agent.ErrRunNotResumable):
+		writeError(w, http.StatusConflict, "agent_run_not_resumable", "Agent run cannot resume after server restart", nil)
 	default:
-		writeError(w, http.StatusInternalServerError, "agent_task_failed", "Agent task request failed", nil)
+		writeError(w, http.StatusInternalServerError, "agent_run_failed", "Agent run request failed", nil)
+	}
+}
+
+func writeConversationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, database.ErrNotFound):
+		writeError(w, http.StatusNotFound, "conversation_not_found", "Conversation not found", nil)
+	default:
+		writeError(w, http.StatusInternalServerError, "conversation_request_failed", "Conversation request failed", nil)
 	}
 }
 

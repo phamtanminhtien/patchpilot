@@ -24,10 +24,10 @@ var (
 	ErrInvalidModel        = errors.New("invalid model")
 	ErrInvalidEffort       = errors.New("invalid reasoning effort")
 	ErrProviderUnavailable = errors.New("agent provider is unavailable")
-	ErrTaskNotFound        = errors.New("agent task not found")
+	ErrRunNotFound         = errors.New("agent run not found")
 	ErrToolCallNotFound    = errors.New("agent tool call not found")
 	ErrToolNotApprovable   = errors.New("agent tool call is not waiting for approval")
-	ErrTaskNotResumable    = errors.New("agent task is not resumable after server restart")
+	ErrRunNotResumable     = errors.New("agent run is not resumable after server restart")
 	ErrSecretPath          = errors.New("secret paths cannot enter agent context")
 )
 
@@ -44,14 +44,14 @@ var supportedEfforts = map[string]struct{}{
 	"xhigh":  {},
 }
 
-type TaskStatus string
+type RunStatus string
 
 const (
-	StatusQueued              TaskStatus = "queued"
-	StatusRunning             TaskStatus = "running"
-	StatusWaitingToolApproval TaskStatus = "waiting_tool_approval"
-	StatusDone                TaskStatus = "done"
-	StatusFailed              TaskStatus = "failed"
+	StatusQueued              RunStatus = "queued"
+	StatusRunning             RunStatus = "running"
+	StatusWaitingToolApproval RunStatus = "waiting_tool_approval"
+	StatusDone                RunStatus = "done"
+	StatusFailed              RunStatus = "failed"
 )
 
 const (
@@ -64,31 +64,34 @@ const (
 	ToolStatusFailed          = "failed"
 )
 
-type CreateTaskInput struct {
-	Prompt          string
-	Model           string
-	ReasoningEffort string
+type CreateRunInput struct {
+	Prompt           string
+	ConversationID   string
+	TriggerMessageID string
+	Model            string
+	ReasoningEffort  string
 }
 
-type Task struct {
-	ID              string     `json:"id"`
-	WorkspaceID     string     `json:"workspaceId"`
-	Prompt          string     `json:"prompt"`
-	Model           string     `json:"model"`
-	ReasoningEffort string     `json:"reasoningEffort"`
-	Status          string     `json:"status"`
-	Summary         string     `json:"summary"`
-	Error           *string    `json:"error"`
-	StartedAt       *time.Time `json:"startedAt"`
-	FinishedAt      *time.Time `json:"finishedAt"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+type Run struct {
+	ID               string     `json:"id"`
+	WorkspaceID      string     `json:"workspaceId"`
+	ConversationID   string     `json:"conversationId"`
+	TriggerMessageID string     `json:"triggerMessageId"`
+	Model            string     `json:"model"`
+	ReasoningEffort  string     `json:"reasoningEffort"`
+	Status           string     `json:"status"`
+	Summary          string     `json:"summary"`
+	Error            *string    `json:"error"`
+	StartedAt        *time.Time `json:"startedAt"`
+	FinishedAt       *time.Time `json:"finishedAt"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 }
 
-type TaskEvent struct {
+type RunEvent struct {
 	ID          string          `json:"id"`
 	WorkspaceID string          `json:"workspaceId"`
-	TaskID      string          `json:"taskId"`
+	RunID       string          `json:"runId"`
 	Type        string          `json:"type"`
 	Payload     json.RawMessage `json:"payload"`
 	CreatedAt   time.Time       `json:"createdAt"`
@@ -97,7 +100,7 @@ type TaskEvent struct {
 type ToolCall struct {
 	ID               string     `json:"id"`
 	WorkspaceID      string     `json:"workspaceId"`
-	TaskID           string     `json:"taskId"`
+	RunID            string     `json:"runId"`
 	BatchID          string     `json:"batchId"`
 	Sequence         int        `json:"sequence"`
 	ProviderCallID   string     `json:"providerCallId"`
@@ -113,9 +116,9 @@ type ToolCall struct {
 }
 
 type Detail struct {
-	Task      Task        `json:"task"`
-	Events    []TaskEvent `json:"events"`
-	ToolCalls []ToolCall  `json:"toolCalls"`
+	Run       Run        `json:"run"`
+	Events    []RunEvent `json:"events"`
+	ToolCalls []ToolCall `json:"toolCalls"`
 }
 
 type Provider interface {
@@ -124,7 +127,8 @@ type Provider interface {
 }
 
 type ProviderRequest struct {
-	Task          Task
+	Run           Run
+	Prompt        string
 	WorkspaceRoot string
 	GitStatus     string
 	History       []ProviderHistoryItem
@@ -167,124 +171,129 @@ type Manager struct {
 	provider Provider
 
 	mu       sync.Mutex
-	runtimes map[string]*taskRuntime
+	runtimes map[string]*runRuntime
 }
 
-type taskRuntime struct {
-	workspaceID   string
-	workspaceRoot string
-	taskID        string
-	gitStatus     string
-	history       []ProviderHistoryItem
-	pendingBatch  string
+type runRuntime struct {
+	workspaceID    string
+	workspaceRoot  string
+	conversationID string
+	runID          string
+	prompt         string
+	gitStatus      string
+	history        []ProviderHistoryItem
+	pendingBatch   string
 }
 
 func NewManager(store *database.Store, files *filestore.Service, git *gitrepo.Client, run *runner.Runner, hub *events.Hub, provider Provider) *Manager {
-	return &Manager{store: store, files: files, git: git, runner: run, events: hub, provider: provider, runtimes: map[string]*taskRuntime{}}
+	return &Manager{store: store, files: files, git: git, runner: run, events: hub, provider: provider, runtimes: map[string]*runRuntime{}}
 }
 
-func (m *Manager) Create(ctx context.Context, workspaceID, workspaceRoot string, input CreateTaskInput) (Task, error) {
+func (m *Manager) Create(ctx context.Context, workspaceID, workspaceRoot string, input CreateRunInput) (Run, error) {
 	input.Prompt = strings.TrimSpace(input.Prompt)
+	input.ConversationID = strings.TrimSpace(input.ConversationID)
+	input.TriggerMessageID = strings.TrimSpace(input.TriggerMessageID)
 	input.Model = strings.TrimSpace(input.Model)
 	input.ReasoningEffort = strings.TrimSpace(input.ReasoningEffort)
-	if input.Prompt == "" {
-		return Task{}, ErrEmptyPrompt
+	if input.Prompt == "" || input.ConversationID == "" || input.TriggerMessageID == "" {
+		return Run{}, ErrEmptyPrompt
 	}
 	if _, ok := supportedModels[input.Model]; !ok {
-		return Task{}, ErrInvalidModel
+		return Run{}, ErrInvalidModel
 	}
 	if _, ok := supportedEfforts[input.ReasoningEffort]; !ok {
-		return Task{}, ErrInvalidEffort
+		return Run{}, ErrInvalidEffort
 	}
 	if m.provider == nil || !m.provider.Configured() {
-		return Task{}, ErrProviderUnavailable
+		return Run{}, ErrProviderUnavailable
 	}
 
-	task, err := m.store.CreateAgentTask(ctx, database.AgentTaskRecord{
-		WorkspaceID:     workspaceID,
-		Prompt:          input.Prompt,
-		Model:           input.Model,
-		ReasoningEffort: input.ReasoningEffort,
-		Status:          string(StatusQueued),
+	run, err := m.store.CreateAgentRun(ctx, database.AgentRunRecord{
+		WorkspaceID:      workspaceID,
+		ConversationID:   input.ConversationID,
+		TriggerMessageID: input.TriggerMessageID,
+		Model:            input.Model,
+		ReasoningEffort:  input.ReasoningEffort,
+		Status:           string(StatusQueued),
 	})
 	if err != nil {
-		return Task{}, err
+		return Run{}, err
 	}
-	publicTask := TaskFromRecord(task)
-	runtime := &taskRuntime{workspaceID: workspaceID, workspaceRoot: workspaceRoot, taskID: task.ID}
+	publicRun := RunFromRecord(run)
+	runtime := &runRuntime{workspaceID: workspaceID, workspaceRoot: workspaceRoot, conversationID: input.ConversationID, runID: run.ID, prompt: input.Prompt}
 	m.setRuntime(runtime)
 	go m.run(runtime)
-	return publicTask, nil
+	return publicRun, nil
 }
 
-func (m *Manager) List(ctx context.Context, workspaceID string) ([]Task, error) {
-	records, err := m.store.ListAgentTasks(ctx, workspaceID)
+func (m *Manager) List(ctx context.Context, workspaceID, conversationID string) ([]Run, error) {
+	records, err := m.store.ListAgentRuns(ctx, workspaceID, conversationID)
 	if err != nil {
 		return nil, err
 	}
-	tasks := make([]Task, 0, len(records))
+	runs := make([]Run, 0, len(records))
 	for _, record := range records {
-		tasks = append(tasks, TaskFromRecord(record))
+		runs = append(runs, RunFromRecord(record))
 	}
-	return tasks, nil
+	return runs, nil
 }
 
-func (m *Manager) Detail(ctx context.Context, workspaceID, taskID string) (Detail, error) {
-	task, err := m.store.GetAgentTask(ctx, workspaceID, taskID)
+func (m *Manager) Detail(ctx context.Context, workspaceID, conversationID, runID string) (Detail, error) {
+	run, err := m.store.GetAgentRun(ctx, workspaceID, conversationID, runID)
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
-			return Detail{}, ErrTaskNotFound
+			return Detail{}, ErrRunNotFound
 		}
 		return Detail{}, err
 	}
-	eventRecords, err := m.store.ListAgentTaskEvents(ctx, workspaceID, taskID)
+	eventRecords, err := m.store.ListAgentRunEvents(ctx, workspaceID, runID)
 	if err != nil {
 		return Detail{}, err
 	}
-	toolRecords, err := m.store.ListAgentToolCalls(ctx, workspaceID, taskID)
+	toolRecords, err := m.store.ListAgentToolCalls(ctx, workspaceID, runID)
 	if err != nil {
 		return Detail{}, err
 	}
 	return Detail{
-		Task:      TaskFromRecord(task),
+		Run:       RunFromRecord(run),
 		Events:    EventsFromRecords(eventRecords),
 		ToolCalls: ToolCallsFromRecords(toolRecords),
 	}, nil
 }
 
-func (m *Manager) Cancel(ctx context.Context, workspaceID, taskID string) (Task, error) {
+func (m *Manager) Cancel(ctx context.Context, workspaceID, conversationID, runID string) (Run, error) {
 	now := time.Now().UTC()
-	task, err := m.store.UpdateAgentTask(ctx, workspaceID, taskID, map[string]any{
+	run, err := m.store.UpdateAgentRun(ctx, workspaceID, conversationID, runID, map[string]any{
 		"status":      string(StatusFailed),
-		"error":       "Task was cancelled",
+		"error":       "Run was cancelled",
 		"finished_at": now,
 	})
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
-			return Task{}, ErrTaskNotFound
+			return Run{}, ErrRunNotFound
 		}
-		return Task{}, err
+		return Run{}, err
 	}
-	m.deleteRuntime(taskID)
-	publicTask := TaskFromRecord(task)
-	_ = m.publish(ctx, publicTask, "agent.task.status_changed", publicTask)
-	return publicTask, nil
+	m.deleteRuntime(runID)
+	publicRun := RunFromRecord(run)
+	_ = m.publish(ctx, publicRun, "agent.run.status_changed", publicRun)
+	return publicRun, nil
 }
 
-func (m *Manager) ApproveToolCall(ctx context.Context, workspaceID, taskID, toolCallID string) (ToolCall, error) {
-	return m.decideToolCall(ctx, workspaceID, taskID, toolCallID, "approved")
+func (m *Manager) ApproveToolCall(ctx context.Context, workspaceID, runID, toolCallID string) (ToolCall, error) {
+	return m.decideToolCall(ctx, workspaceID, runID, toolCallID, "approved")
 }
 
-func (m *Manager) RejectToolCall(ctx context.Context, workspaceID, taskID, toolCallID string) (ToolCall, error) {
-	return m.decideToolCall(ctx, workspaceID, taskID, toolCallID, "rejected")
+func (m *Manager) RejectToolCall(ctx context.Context, workspaceID, runID, toolCallID string) (ToolCall, error) {
+	return m.decideToolCall(ctx, workspaceID, runID, toolCallID, "rejected")
 }
 
-func (m *Manager) decideToolCall(ctx context.Context, workspaceID, taskID, toolCallID, decision string) (ToolCall, error) {
-	runtime := m.runtime(taskID)
+func (m *Manager) decideToolCall(ctx context.Context, workspaceID, runID, toolCallID, decision string) (ToolCall, error) {
+	runtime := m.runtime(runID)
 	if runtime == nil {
-		return ToolCall{}, ErrTaskNotResumable
+		return ToolCall{}, ErrRunNotResumable
 	}
-	call, err := m.store.GetAgentToolCall(ctx, workspaceID, taskID, toolCallID)
+	call, err := m.store.GetAgentToolCall(ctx, workspaceID, runID, toolCallID)
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
 			return ToolCall{}, ErrToolCallNotFound
@@ -294,7 +303,7 @@ func (m *Manager) decideToolCall(ctx context.Context, workspaceID, taskID, toolC
 	if !call.RequiresApproval || call.Status != ToolStatusWaitingApproval {
 		return ToolCall{}, ErrToolNotApprovable
 	}
-	call, err = m.store.UpdateAgentToolCall(ctx, workspaceID, taskID, toolCallID, map[string]any{
+	call, err = m.store.UpdateAgentToolCall(ctx, workspaceID, runID, toolCallID, map[string]any{
 		"status":   decision,
 		"decision": decision,
 	})
@@ -302,96 +311,119 @@ func (m *Manager) decideToolCall(ctx context.Context, workspaceID, taskID, toolC
 		return ToolCall{}, err
 	}
 	publicCall := ToolCallFromRecord(call)
-	task := Task{ID: taskID, WorkspaceID: workspaceID}
-	_ = m.publish(ctx, task, "agent.tool.finished", publicCall)
-	if m.batchDecided(ctx, workspaceID, taskID, call.BatchID) {
+	run := Run{ID: runID, WorkspaceID: workspaceID, ConversationID: runtime.conversationID}
+	_ = m.publish(ctx, run, "agent.tool.finished", publicCall)
+	if m.batchDecided(ctx, workspaceID, runID, call.BatchID) {
 		go m.resume(runtime)
 	}
 	return publicCall, nil
 }
 
-func (m *Manager) run(runtime *taskRuntime) {
+func (m *Manager) run(runtime *runRuntime) {
 	ctx := context.Background()
 	startedAt := time.Now().UTC()
-	record, err := m.store.UpdateAgentTask(ctx, runtime.workspaceID, runtime.taskID, map[string]any{
+	record, err := m.store.UpdateAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID, map[string]any{
 		"status":     string(StatusRunning),
 		"started_at": startedAt,
 	})
 	if err != nil {
 		return
 	}
-	task := TaskFromRecord(record)
-	_ = m.publish(ctx, task, "agent.task.status_changed", task)
-	_ = m.publish(ctx, task, "agent.delta", map[string]string{"taskId": task.ID, "text": "Preparing workspace context."})
+	run := RunFromRecord(record)
+	_ = m.publish(ctx, run, "agent.run.status_changed", run)
+	_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": "Preparing workspace context."})
 
 	status, err := m.git.Status(ctx, runtime.workspaceRoot)
 	if err != nil {
-		m.fail(ctx, task, err)
+		m.fail(ctx, run, err)
 		return
 	}
 	runtime.gitStatus = status.Porcelain
 	m.loop(ctx, runtime)
 }
 
-func (m *Manager) resume(runtime *taskRuntime) {
+func (m *Manager) resume(runtime *runRuntime) {
 	ctx := context.Background()
-	record, err := m.store.UpdateAgentTask(ctx, runtime.workspaceID, runtime.taskID, map[string]any{
+	record, err := m.store.UpdateAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID, map[string]any{
 		"status": string(StatusRunning),
 	})
 	if err != nil {
 		return
 	}
-	task := TaskFromRecord(record)
-	_ = m.publish(ctx, task, "agent.task.status_changed", task)
-	calls, err := m.store.ListAgentToolCalls(ctx, runtime.workspaceID, runtime.taskID)
+	run := RunFromRecord(record)
+	_ = m.publish(ctx, run, "agent.run.status_changed", run)
+	calls, err := m.store.ListAgentToolCalls(ctx, runtime.workspaceID, runtime.runID)
 	if err != nil {
-		m.fail(ctx, task, err)
+		m.fail(ctx, run, err)
 		return
 	}
 	batch := callsForBatch(calls, runtime.pendingBatch)
-	results := m.executeBatch(ctx, task, runtime, batch)
+	results := m.executeBatch(ctx, run, runtime, batch)
 	runtime.history = append(runtime.history, results...)
 	runtime.pendingBatch = ""
 	m.loop(ctx, runtime)
 }
 
-func (m *Manager) loop(ctx context.Context, runtime *taskRuntime) {
+func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 	for {
-		record, err := m.store.GetAgentTask(ctx, runtime.workspaceID, runtime.taskID)
+		record, err := m.store.GetAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID)
 		if err != nil {
 			return
 		}
-		task := TaskFromRecord(record)
+		run := RunFromRecord(record)
 		result, err := m.provider.Generate(ctx, ProviderRequest{
-			Task:          task,
+			Run:           run,
+			Prompt:        runtime.prompt,
 			WorkspaceRoot: runtime.workspaceRoot,
 			GitStatus:     runtime.gitStatus,
 			History:       runtime.history,
-		}, m.stream(task))
+		}, m.stream(run))
 		if err != nil {
-			m.fail(ctx, task, err)
+			m.fail(ctx, run, err)
 			return
 		}
 		if strings.TrimSpace(result.Text) != "" {
 			runtime.history = append(runtime.history, ProviderHistoryItem{Type: "text", Text: result.Text})
-			_ = m.publish(ctx, task, "agent.delta", map[string]string{"taskId": task.ID, "text": result.Text})
+			_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": result.Text})
 		}
 		if len(result.ToolCalls) == 0 {
 			now := time.Now().UTC()
-			record, err = m.store.UpdateAgentTask(ctx, runtime.workspaceID, runtime.taskID, map[string]any{
+			summary := strings.TrimSpace(result.Text)
+			record, err = m.store.UpdateAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID, map[string]any{
 				"status":      string(StatusDone),
-				"summary":     strings.TrimSpace(result.Text),
+				"summary":     summary,
 				"finished_at": now,
 			})
-			if err == nil {
-				_ = m.publish(ctx, TaskFromRecord(record), "agent.task.status_changed", TaskFromRecord(record))
+			if err == nil && summary != "" {
+				runID := runtime.runID
+				_, _ = m.store.CreateMessage(ctx, database.MessageRecord{
+					WorkspaceID:    runtime.workspaceID,
+					ConversationID: runtime.conversationID,
+					Role:           "assistant",
+					Content:        summary,
+					RunID:          &runID,
+					CreatedAt:      now,
+				})
 			}
-			m.deleteRuntime(runtime.taskID)
+			if err == nil {
+				_ = m.publish(ctx, RunFromRecord(record), "agent.run.status_changed", RunFromRecord(record))
+			}
+			m.deleteRuntime(runtime.runID)
 			return
 		}
-		waiting, results, err := m.prepareOrExecuteBatch(ctx, task, runtime, result.ToolCalls)
+		if strings.TrimSpace(result.Text) != "" {
+			runID := runtime.runID
+			_, _ = m.store.CreateMessage(ctx, database.MessageRecord{
+				WorkspaceID:    runtime.workspaceID,
+				ConversationID: runtime.conversationID,
+				Role:           "assistant",
+				Content:        strings.TrimSpace(result.Text),
+				RunID:          &runID,
+			})
+		}
+		waiting, results, err := m.prepareOrExecuteBatch(ctx, run, runtime, result.ToolCalls)
 		if err != nil {
-			m.fail(ctx, task, err)
+			m.fail(ctx, run, err)
 			return
 		}
 		runtime.history = append(runtime.history, results...)
@@ -401,7 +433,7 @@ func (m *Manager) loop(ctx context.Context, runtime *taskRuntime) {
 	}
 }
 
-func (m *Manager) prepareOrExecuteBatch(ctx context.Context, task Task, runtime *taskRuntime, requests []ToolRequest) (bool, []ProviderHistoryItem, error) {
+func (m *Manager) prepareOrExecuteBatch(ctx context.Context, run Run, runtime *runRuntime, requests []ToolRequest) (bool, []ProviderHistoryItem, error) {
 	batchID, err := randomID("batch_")
 	if err != nil {
 		return false, nil, err
@@ -418,8 +450,8 @@ func (m *Manager) prepareOrExecuteBatch(ctx context.Context, task Task, runtime 
 			requiresApproval = true
 		}
 		record, err := m.store.CreateAgentToolCall(ctx, database.AgentToolCallRecord{
-			WorkspaceID:      task.WorkspaceID,
-			TaskID:           task.ID,
+			WorkspaceID:      run.WorkspaceID,
+			RunID:            run.ID,
 			BatchID:          batchID,
 			Sequence:         i,
 			ProviderCallID:   request.CallID,
@@ -435,21 +467,21 @@ func (m *Manager) prepareOrExecuteBatch(ctx context.Context, task Task, runtime 
 		records = append(records, record)
 		runtime.history = append(runtime.history, ProviderHistoryItem{Type: "tool_call", ToolCall: request})
 		if callRequiresApproval {
-			_ = m.publish(ctx, task, "agent.approval_required", ToolCallFromRecord(record))
+			_ = m.publish(ctx, run, "agent.approval_required", ToolCallFromRecord(record))
 		}
 	}
 	if requiresApproval {
 		runtime.pendingBatch = batchID
-		record, err := m.store.UpdateAgentTask(ctx, task.WorkspaceID, task.ID, map[string]any{"status": string(StatusWaitingToolApproval)})
+		record, err := m.store.UpdateAgentRun(ctx, run.WorkspaceID, run.ConversationID, run.ID, map[string]any{"status": string(StatusWaitingToolApproval)})
 		if err == nil {
-			_ = m.publish(ctx, TaskFromRecord(record), "agent.task.status_changed", TaskFromRecord(record))
+			_ = m.publish(ctx, RunFromRecord(record), "agent.run.status_changed", RunFromRecord(record))
 		}
 		return true, nil, nil
 	}
-	return false, m.executeBatch(ctx, task, runtime, records), nil
+	return false, m.executeBatch(ctx, run, runtime, records), nil
 }
 
-func (m *Manager) executeBatch(ctx context.Context, task Task, runtime *taskRuntime, records []database.AgentToolCallRecord) []ProviderHistoryItem {
+func (m *Manager) executeBatch(ctx context.Context, run Run, runtime *runRuntime, records []database.AgentToolCallRecord) []ProviderHistoryItem {
 	results := make([]ProviderHistoryItem, 0, len(records))
 	for _, record := range records {
 		if record.Status == ToolStatusFailed || record.Status == ToolStatusFinished {
@@ -459,20 +491,20 @@ func (m *Manager) executeBatch(ctx context.Context, task Task, runtime *taskRunt
 		if record.RequiresApproval && record.Status == ToolStatusRejected {
 			output := openToolJSON(map[string]string{"status": "rejected"})
 			finished := time.Now().UTC()
-			updated, err := m.store.FinishAgentToolCall(ctx, task.WorkspaceID, task.ID, record.ID, ToolStatusRejected, output, finished)
+			updated, err := m.store.FinishAgentToolCall(ctx, run.WorkspaceID, run.ID, record.ID, ToolStatusRejected, output, finished)
 			if err == nil {
-				_ = m.publish(ctx, task, "agent.tool.finished", ToolCallFromRecord(updated))
+				_ = m.publish(ctx, run, "agent.tool.finished", ToolCallFromRecord(updated))
 			}
 			results = append(results, ProviderHistoryItem{Type: "tool_result", ToolResult: ToolResponse{CallID: record.ProviderCallID, Output: output}})
 			continue
 		}
 		started := time.Now().UTC()
-		updated, err := m.store.UpdateAgentToolCall(ctx, task.WorkspaceID, task.ID, record.ID, map[string]any{
+		updated, err := m.store.UpdateAgentToolCall(ctx, run.WorkspaceID, run.ID, record.ID, map[string]any{
 			"status":     ToolStatusRunning,
 			"started_at": started,
 		})
 		if err == nil {
-			_ = m.publish(ctx, task, "agent.tool.started", ToolCallFromRecord(updated))
+			_ = m.publish(ctx, run, "agent.tool.started", ToolCallFromRecord(updated))
 		}
 		output, execErr := m.executeTool(ctx, runtime.workspaceRoot, record)
 		status := ToolStatusFinished
@@ -481,12 +513,12 @@ func (m *Manager) executeBatch(ctx context.Context, task Task, runtime *taskRunt
 			output = openToolError(execErr)
 		}
 		finished := time.Now().UTC()
-		updated, err = m.store.FinishAgentToolCall(ctx, task.WorkspaceID, task.ID, record.ID, status, output, finished)
+		updated, err = m.store.FinishAgentToolCall(ctx, run.WorkspaceID, run.ID, record.ID, status, output, finished)
 		if err == nil {
-			_ = m.publish(ctx, task, "agent.tool.finished", ToolCallFromRecord(updated))
+			_ = m.publish(ctx, run, "agent.tool.finished", ToolCallFromRecord(updated))
 		}
 		if record.Name == "apply_patch" && execErr == nil {
-			m.events.Publish(events.Event{WorkspaceID: task.WorkspaceID, Type: "git.changed", Payload: map[string]string{"workspaceId": task.WorkspaceID}})
+			m.events.Publish(events.Event{WorkspaceID: run.WorkspaceID, Type: "git.changed", Payload: map[string]string{"workspaceId": run.WorkspaceID}})
 		}
 		results = append(results, ProviderHistoryItem{Type: "tool_result", ToolResult: ToolResponse{CallID: record.ProviderCallID, Output: output}})
 	}
@@ -655,8 +687,8 @@ func (m *Manager) executeCommandTool(record database.AgentToolCallRecord, worksp
 	return openToolJSON(map[string]any{"status": result.Status, "exitCode": result.ExitCode, "output": output.String()}), nil
 }
 
-func (m *Manager) batchDecided(ctx context.Context, workspaceID, taskID, batchID string) bool {
-	calls, err := m.store.ListAgentToolCalls(ctx, workspaceID, taskID)
+func (m *Manager) batchDecided(ctx context.Context, workspaceID, runID, batchID string) bool {
+	calls, err := m.store.ListAgentToolCalls(ctx, workspaceID, runID)
 	if err != nil {
 		return false
 	}
@@ -678,10 +710,10 @@ func callsForBatch(calls []database.AgentToolCallRecord, batchID string) []datab
 	return out
 }
 
-func (m *Manager) fail(ctx context.Context, task Task, failure error) {
+func (m *Manager) fail(ctx context.Context, run Run, failure error) {
 	message := failure.Error()
 	now := time.Now().UTC()
-	record, err := m.store.UpdateAgentTask(ctx, task.WorkspaceID, task.ID, map[string]any{
+	record, err := m.store.UpdateAgentRun(ctx, run.WorkspaceID, run.ConversationID, run.ID, map[string]any{
 		"status":      string(StatusFailed),
 		"error":       message,
 		"finished_at": now,
@@ -689,19 +721,19 @@ func (m *Manager) fail(ctx context.Context, task Task, failure error) {
 	if err != nil {
 		return
 	}
-	m.deleteRuntime(task.ID)
-	publicTask := TaskFromRecord(record)
-	_ = m.publish(ctx, publicTask, "agent.task.status_changed", publicTask)
+	m.deleteRuntime(run.ID)
+	publicRun := RunFromRecord(record)
+	_ = m.publish(ctx, publicRun, "agent.run.status_changed", publicRun)
 }
 
-func (m *Manager) publish(ctx context.Context, task Task, eventType string, payload any) error {
+func (m *Manager) publish(ctx context.Context, run Run, eventType string, payload any) error {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	record, err := m.store.CreateAgentTaskEvent(ctx, database.AgentTaskEventRecord{
-		WorkspaceID: task.WorkspaceID,
-		TaskID:      task.ID,
+	record, err := m.store.CreateAgentRunEvent(ctx, database.AgentRunEventRecord{
+		WorkspaceID: run.WorkspaceID,
+		RunID:       run.ID,
 		Type:        eventType,
 		PayloadJSON: string(payloadBytes),
 	})
@@ -710,7 +742,7 @@ func (m *Manager) publish(ctx context.Context, task Task, eventType string, payl
 	}
 	m.events.Publish(events.Event{
 		ID:          record.ID,
-		WorkspaceID: task.WorkspaceID,
+		WorkspaceID: run.WorkspaceID,
 		Type:        eventType,
 		CreatedAt:   record.CreatedAt,
 		Payload:     payload,
@@ -718,12 +750,12 @@ func (m *Manager) publish(ctx context.Context, task Task, eventType string, payl
 	return nil
 }
 
-func (m *Manager) stream(task Task) Stream {
+func (m *Manager) stream(run Run) Stream {
 	return streamFunc(func(ctx context.Context, text string) {
 		if strings.TrimSpace(text) == "" {
 			return
 		}
-		_ = m.publish(ctx, task, "agent.delta", map[string]string{"taskId": task.ID, "text": text})
+		_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": text})
 	})
 }
 
@@ -733,22 +765,22 @@ func (s streamFunc) Delta(ctx context.Context, text string) {
 	s(ctx, text)
 }
 
-func (m *Manager) setRuntime(runtime *taskRuntime) {
+func (m *Manager) setRuntime(runtime *runRuntime) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.runtimes[runtime.taskID] = runtime
+	m.runtimes[runtime.runID] = runtime
 }
 
-func (m *Manager) runtime(taskID string) *taskRuntime {
+func (m *Manager) runtime(runID string) *runRuntime {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.runtimes[taskID]
+	return m.runtimes[runID]
 }
 
-func (m *Manager) deleteRuntime(taskID string) {
+func (m *Manager) deleteRuntime(runID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.runtimes, taskID)
+	delete(m.runtimes, runID)
 }
 
 func isSecretPath(relPath string) bool {
@@ -780,36 +812,37 @@ func randomID(prefix string) (string, error) {
 	return prefix + hex.EncodeToString(bytes), nil
 }
 
-func TaskFromRecord(record database.AgentTaskRecord) Task {
-	return Task{
-		ID:              record.ID,
-		WorkspaceID:     record.WorkspaceID,
-		Prompt:          record.Prompt,
-		Model:           record.Model,
-		ReasoningEffort: record.ReasoningEffort,
-		Status:          record.Status,
-		Summary:         record.Summary,
-		Error:           record.Error,
-		StartedAt:       record.StartedAt,
-		FinishedAt:      record.FinishedAt,
-		CreatedAt:       record.CreatedAt,
-		UpdatedAt:       record.UpdatedAt,
+func RunFromRecord(record database.AgentRunRecord) Run {
+	return Run{
+		ID:               record.ID,
+		WorkspaceID:      record.WorkspaceID,
+		ConversationID:   record.ConversationID,
+		TriggerMessageID: record.TriggerMessageID,
+		Model:            record.Model,
+		ReasoningEffort:  record.ReasoningEffort,
+		Status:           record.Status,
+		Summary:          record.Summary,
+		Error:            record.Error,
+		StartedAt:        record.StartedAt,
+		FinishedAt:       record.FinishedAt,
+		CreatedAt:        record.CreatedAt,
+		UpdatedAt:        record.UpdatedAt,
 	}
 }
 
-func EventsFromRecords(records []database.AgentTaskEventRecord) []TaskEvent {
-	out := make([]TaskEvent, 0, len(records))
+func EventsFromRecords(records []database.AgentRunEventRecord) []RunEvent {
+	out := make([]RunEvent, 0, len(records))
 	for _, record := range records {
-		out = append(out, TaskEventFromRecord(record))
+		out = append(out, RunEventFromRecord(record))
 	}
 	return out
 }
 
-func TaskEventFromRecord(record database.AgentTaskEventRecord) TaskEvent {
-	return TaskEvent{
+func RunEventFromRecord(record database.AgentRunEventRecord) RunEvent {
+	return RunEvent{
 		ID:          record.ID,
 		WorkspaceID: record.WorkspaceID,
-		TaskID:      record.TaskID,
+		RunID:       record.RunID,
 		Type:        record.Type,
 		Payload:     json.RawMessage(record.PayloadJSON),
 		CreatedAt:   record.CreatedAt,
@@ -828,7 +861,7 @@ func ToolCallFromRecord(record database.AgentToolCallRecord) ToolCall {
 	return ToolCall{
 		ID:               record.ID,
 		WorkspaceID:      record.WorkspaceID,
-		TaskID:           record.TaskID,
+		RunID:            record.RunID,
 		BatchID:          record.BatchID,
 		Sequence:         record.Sequence,
 		ProviderCallID:   record.ProviderCallID,

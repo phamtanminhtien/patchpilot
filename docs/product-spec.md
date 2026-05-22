@@ -18,6 +18,9 @@ open repo -> open/create conversation -> send message
 Core decisions:
 
 - Local filesystem + SQLite; multiple conversations per workspace.
+- v0.2 public product model is `conversation -> message -> agent run`;
+  product APIs, DTOs, and database tables use conversation/run naming. `session`
+  remains only for authentication cookies and auth session storage.
 - REST mutations, SSE realtime, no WebSocket.
 - Admin-token login with HTTP-only session cookie.
 - Commands run as the server OS user at the workspace root, without a shell.
@@ -229,6 +232,10 @@ Events: `workspace.ready`, `workspace.indexing`, `conversation.created`,
 `agent.tool.started`, `agent.tool.finished`, `agent.approval_required`,
 `agent.run.status_changed`, `command.output`, `process.started`,
 `process.exited`, `port.opened`, `port.exposed`, `git.changed`.
+`GET /api/workspaces/:workspaceId/events` is a live stream only; it does not
+replay historical agent or command events on connect. Historical conversation
+state comes from conversation detail, and historical command output comes from
+process detail.
 
 ## Agent Tools And Commands
 
@@ -288,15 +295,15 @@ Active tables:
   `status(indexing|ready|error)`, timestamps.
 - `file_index`: `workspace_id`, `path`, `size`, `modified_at`, `indexed_at`.
 - `conversations`: `id`, `workspace_id`, `title`, timestamps, `last_message_at`.
-- `conversation_messages`: `id`, `workspace_id`, `conversation_id`, `run_id?`,
-  `role`, `content`, `created_at`.
+- `messages`: `id`, `workspace_id`, `conversation_id`, `run_id?`, `role`,
+  `content`, `created_at`.
 - `agent_runs`: `id`, `workspace_id`, `conversation_id`, `trigger_message_id`,
   `model`, `reasoning_effort`, `status`, `summary?`, `error?`, timestamps.
-- `agent_run_events`: `id`, `workspace_id`, `conversation_id`, `run_id`, `type`,
-  `payload_json`, `created_at`.
-- `agent_tool_calls`: `id`, `workspace_id`, `conversation_id`, `run_id`,
-  `batch_id`, `sequence`, `name`, `input_json`, `output_json`, `status`,
-  `requires_approval`, `decision?`, timestamps.
+- `agent_run_events`: `id`, `workspace_id`, `run_id`, `type`, `payload_json`,
+  `created_at`.
+- `agent_tool_calls`: `id`, `workspace_id`, `run_id`, `batch_id`, `sequence`,
+  `name`, `input_json`, `output_json`, `status`, `requires_approval`,
+  `decision?`, timestamps.
 - `commands`: `id`, `workspace_id`, `run_id?`, `command`, `cwd`, `status`,
   `exit_code?`, `started_at?`, `finished_at?`, `created_at`.
 - `command_output`: `id`, `command_id`, `stream(stdout|stderr)`, `chunk`,
@@ -314,6 +321,12 @@ command: queued -> running -> exited|stopped
 command: queued -> failed
 command: running -> failed
 ```
+
+## Frontend Structure
+
+Feature screens keep route entry files thin. Vibe feature code is grouped under
+`web/src/features/vibe` with `hooks` for orchestration, `layout` for shell
+regions, `components` for Vibe-only UI, and `lib` for local pure helpers.
 
 ## Acceptance
 
