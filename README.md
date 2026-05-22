@@ -174,3 +174,7 @@ Commands run from the workspace root without a shell. Shell control operators, w
 - `docs/mvp-spec.md`: MVP scope, flows, API, and data contracts.
 - `docs/app-architecture.md`: architecture overview.
 - `docs/design-language.md`: frontend design system and UI rules.
+
+## License
+
+PatchPilot is licensed under the [Apache License 2.0](LICENSE).
