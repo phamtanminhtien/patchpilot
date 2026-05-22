@@ -1,6 +1,6 @@
 # PatchPilot Project Rules
 
-Locked engineering contract. Precedence: this file > `docs/mvp-spec.md` > `docs/concept.md` > implementation.
+Locked engineering contract. Precedence: this file > `docs/product-spec.md` > `docs/concept.md` > implementation.
 
 ## Change Control
 
@@ -11,7 +11,7 @@ Locked engineering contract. Precedence: this file > `docs/mvp-spec.md` > `docs/
 ## Product
 
 - Self-hosted, single-user, mobile-first AI coding workspace.
-- MVP = Vibe Mode + agent tool-loop AI coding flow.
+- Active product direction = Vibe Mode conversations + agent run tool-loop AI coding flow.
 - Workspace Mode only supports files, search, diffs, small edits, command output, preview, Git status.
 - Do not build VS Code parity.
 - Agents return assistant text and tool calls; tools that mutate files or run risky commands require explicit user approval.
@@ -22,11 +22,11 @@ Locked engineering contract. Precedence: this file > `docs/mvp-spec.md` > `docs/
 Backend:
 
 - Go 1.26.x, `net/http`, `http.ServeMux`, REST mutations, SSE realtime.
-- SQLite via GORM 1.x with `github.com/glebarez/sqlite` (pure-Go `modernc.org/sqlite` driver); direct schema setup is acceptable before first release.
+- SQLite via GORM 1.x with `github.com/glebarez/sqlite` (pure-Go `modernc.org/sqlite` driver); schema changes require explicit, manually authored migrations.
 - Logging via `go.uber.org/zap`; default console logs colorize level, time, and caller for local dev, and `PATCHPILOT_LOG_FORMAT=json` enables JSON logs.
 - Git only via `internal/gitrepo`; process execution only via `internal/runner`.
 - One Go binary serves API and embedded frontend.
-- No Go web framework, GraphQL, gRPC, WebSocket for MVP, ORM other than GORM, or CGO-only default dependency.
+- No Go web framework, GraphQL, gRPC, WebSocket for the active product direction, ORM other than GORM, or CGO-only default dependency.
 
 Frontend:
 
@@ -42,7 +42,7 @@ Runtime:
 - Local `.env` is supported for PatchPilot config; OS environment variables override `.env` values.
 - Logical isolation under configured workspace roots.
 - Same-host preview proxy only.
-- Docker isolation, public tunnels, multi-user cloud are post-MVP.
+- Docker isolation, public tunnels, and multi-user cloud are outside the active product direction.
 
 ## Structure
 
@@ -50,11 +50,11 @@ Runtime:
 cmd/patchpilot/        startup and wiring only
 internal/api/          HTTP handlers, middleware, routes, request/response encoding
 internal/auth/         admin-token login, session cookies, validation
-internal/db/           SQLite setup, schema setup, transactions
+internal/database/     SQLite setup, manual migrations, transactions
 internal/events/       SSE fan-out and replay
 internal/workspace/    workspace lifecycle and path validation
 internal/filestore/    listing, reads, search, small manual writes
-internal/agent/        task orchestration and tool execution
+internal/agent/        conversation agent runs and tool execution
 internal/gitrepo/      only package that may execute Git
 internal/runner/       only package that may execute workspace processes
 internal/ports/        port detection and same-host proxy
@@ -79,7 +79,7 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 - Lists newest-first unless naturally tree-ordered; if >100 records, support `limit`/`cursor`, max `limit=100`.
 - REST error: `{ "error": { "code": "snake_case", "message": "...", "details": {} } }`.
 - UI errors must not expose stack traces, secrets, raw env, or host paths outside workspace root.
-- ID prefixes: `ws_`, `auth_`, `sess_`, `task_`, `evt_`, `cmd_`, `port_`.
+- ID prefixes: `ws_`, `auth_`, `sess_`, `conv_`, `msg_`, `run_`, `evt_`, `cmd_`, `port_`.
 - API timestamps: UTC RFC3339. SQLite timestamps: UTC.
 
 Frontend API:
@@ -93,15 +93,15 @@ SSE:
 
 - Endpoint: `GET /api/workspaces/:workspaceId/events`.
 - Server-to-client only; no mutations over SSE.
-- Every event has ID and `docs/mvp-spec.md` envelope.
-- Replay `Last-Event-ID` for stored task events and latest 1 MiB command output.
+- Every event has ID and `docs/product-spec.md` envelope.
+- Replay `Last-Event-ID` for stored conversation/run events and latest 1 MiB command output.
 - Non-replayable transient events need durable follow-up state events.
 
 ## Data
 
-- SQLite is only MVP app DB; source files stay on disk; Git is repo history source.
+- SQLite is the only app DB in the active product direction; source files stay on disk; Git is repo history source.
 - App-owned runtime/state files may live under `~/.patchpilot`; workspace source files must not be copied there.
-- Schema setup runs before API traffic and enables foreign keys. Versioned migrations start after first release.
+- Manual migrations run before API traffic and enable foreign keys. Automatic GORM `AutoMigrate` is not used for product schema changes.
 - Multi-table writes use transactions.
 - JSON columns only for event payloads, snapshots, unindexed metadata; query-critical fields are columns.
 - No plaintext secrets.
@@ -112,14 +112,14 @@ SSE:
 - Single-user auth: admin token -> `POST /api/auth/login` -> HTTP-only session cookie.
 - All other APIs require valid cookie.
 - Cookies: `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS; session tokens hashed in SQLite.
-- Admin token never goes to logs, task events, or agent context.
+- Admin token never goes to logs, conversation/run events, or agent context.
 - Workspace roots are absolute and inside configured allowed roots.
 - File API paths are workspace-relative; reject traversal and symlinks outside root.
 - Do not expose arbitrary host paths.
 - Agent `read_file` blocks secrets by default: `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`.
 - Users may manually open files; secret contents must not enter agent context.
 - User commands run only after direct submission.
-- Agent commands auto-run only if allowed by `docs/mvp-spec.md` and no shell control operators.
+- Agent commands auto-run only if allowed by `docs/product-spec.md` and no shell control operators.
 - Patch tools always require approval. Non-allowlisted agent commands require approval.
 - Commands run at workspace root, without elevation, output capped to latest 1 MiB.
 
@@ -144,12 +144,12 @@ SSE:
 
 - Server state: TanStack Query. Local UI: React state or Zustand for shared client-only UI state. Cross-route context: `web/src/app`. URL state: nuqs.
 - Install React Router 7 nuqs adapter at route root from `nuqs/adapters/react-router/v7`.
-- Deep-linkable workspace/mode/task/file/tool/port/tab selections live in URL state.
+- Deep-linkable workspace/mode/conversation/run/file/tool/port/tab selections live in URL state.
 - Shared query parsers live in `web/src/shared/url`; features do not define ad hoc parsers.
 - Do not duplicate server state into Zustand or keep command output in React state/Zustand beyond visible buffer.
-- MVP Git: status, diff, commit only.
+- Current Git scope: status, diff, commit only.
 - Commits require non-empty selected paths, do not push, do not auto-stage unrelated files, show untracked files, and use exact user message.
-- Push/pull/branch/merge/rebase are post-MVP.
+- Push/pull/branch/merge/rebase are outside the active product direction.
 - Local Git hooks live in `.githooks`; `make setup` configures `core.hooksPath` and executable bits. Pre-commit calls `make pre-commit`, which runs Go formatting/tests and frontend `lint-staged` checks before allowing a commit.
 
 ## Testing
@@ -157,7 +157,7 @@ SSE:
 Coverage when area exists:
 
 - Go unit: domain logic.
-- Go integration: schema setup, repositories, Git adapter, runner, API handlers.
+- Go integration: manual migrations, repositories, Git adapter, runner, API handlers.
 - Frontend unit: pure utilities/reducers.
 - Frontend component: Vibe lifecycle, tool approval, command output, Git status.
 - Playwright: critical mobile AI loop once frontend shell exists.
@@ -179,11 +179,11 @@ Verify by change: backend `go test ./...`; frontend `pnpm --dir web test` + `pnp
 
 ## Docs And Dependencies
 
-- Behavior -> `docs/mvp-spec.md`.
+- Behavior -> `docs/product-spec.md`.
 - Rules/stack/structure/workflow -> this file.
 - Product direction -> `docs/concept.md`.
 - API/data changes update spec before implementation.
-- MVP docs use concrete decisions; no unresolved MVP questions or post-MVP acceptance criteria.
+- Product docs use concrete decisions; no unresolved current-scope questions or out-of-scope acceptance criteria.
 - New runtime dependencies need approval and must reduce real risk/complexity.
 - Project-standard dependency changes update locked stack.
 - Backend deps preserve single-binary build.
@@ -192,15 +192,15 @@ Verify by change: backend `go test ./...`; frontend `pnpm --dir web test` + `pnp
 
 ## Agent Rules
 
-1. Read `AGENTS.md`, this file, `docs/mvp-spec.md`, and related files.
+1. Read `AGENTS.md`, this file, `docs/product-spec.md`, and related files.
 2. Identify relevant rule/spec before editing.
 3. Update docs first for behavior/API/data/stack/scope changes.
 4. Make the smallest complete change.
 5. Run narrowest verification.
 6. Report files and results.
 
-Agents must not add disallowed deps, broaden MVP, implement post-MVP features, leave scratch/generated files, run destructive Git commands, or revert user changes unless instructed.
+Agents must not add disallowed deps, broaden active product scope, implement out-of-scope features, leave scratch/generated files, run destructive Git commands, or revert user changes unless instructed.
 
-## Post-MVP Non-Goals
+## Current Out-Of-Scope Areas
 
 Full IDE, terminal emulator, WebSocket, plugins, Docker-required runtime, public tunnels, multi-user/team/RBAC, hosted SaaS, billing, push/pull/branch/merge/rebase, LSP, inline diagnostics, multi-tab editor, marketplace integrations.

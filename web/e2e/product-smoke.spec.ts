@@ -15,7 +15,7 @@ const task = {
   finishedAt: null,
   id: "task_1",
   model: "gpt-5.5",
-  prompt: "Finish MVP smoke test",
+  prompt: "Finish product smoke test",
   reasoningEffort: "medium",
   startedAt: "2026-05-20T00:00:00Z",
   status: "waiting_tool_approval",
@@ -31,7 +31,7 @@ const toolCall = {
   finishedAt: null,
   id: "tool_1",
   input:
-    '{"summary":"Update MVP checklist","diff":"diff --git a/docs/mvp-release-checklist.md b/docs/mvp-release-checklist.md\\n"}',
+    '{"summary":"Update product checklist","diff":"diff --git a/docs/product-release-checklist.md b/docs/product-release-checklist.md\\n"}',
   name: "apply_patch",
   output: "{}",
   providerCallId: "call_1",
@@ -57,7 +57,7 @@ test("signs in and opens a recent workspace in Vibe Mode", async ({ page }) => {
   await expect(
     page
       .getByRole("button", {
-        name: /Finish MVP smoke test gpt-5\.5/,
+        name: /Finish product smoke test gpt-5\.5/,
       })
       .first(),
   ).toBeVisible();

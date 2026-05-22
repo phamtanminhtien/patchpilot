@@ -196,7 +196,7 @@ internal/agent/openai_test.go
 
 func TestNormalizeProviderPatchConvertsIndentedCompactDiff(t *testing.T) {
 	compact := "\n" +
-		"docs/mvp-spec.md\n" +
+		"docs/product-spec.md\n" +
 		"  @@ -315,10 +315,9 @@ Workspace source files stay in their original repositories and are not copied in\n" +
 		"  -queued -> running -> waiting_approval -> applying -> done\n" +
 		"  +queued -> running -> waiting_approval\n" +
@@ -213,7 +213,7 @@ func TestNormalizeProviderPatchConvertsIndentedCompactDiff(t *testing.T) {
 
 	normalized := normalizeProviderPatch(compact)
 	for _, expected := range []string{
-		"diff --git a/docs/mvp-spec.md b/docs/mvp-spec.md",
+		"diff --git a/docs/product-spec.md b/docs/product-spec.md",
 		"diff --git a/web/src/shared/api/types.ts b/web/src/shared/api/types.ts",
 		"-queued -> running -> waiting_approval -> applying -> done",
 		"+queued -> running -> waiting_approval",
