@@ -37,7 +37,7 @@ lint:
 build: build-go build-web
 
 build-go:
-	go build ./...
+	go build -o bin/patchpilot ./cmd/patchpilot
 
 build-web:
 	pnpm --dir $(WEB_DIR) build
