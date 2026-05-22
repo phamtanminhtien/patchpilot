@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type * as NuqsModule from "nuqs";
 import type * as ReactModule from "react";
@@ -11,12 +11,14 @@ import {
   commitGitChanges,
   createWorkspace,
   discardGitChanges,
+  exposePort,
   getGitDiff,
   getGitStatus,
   getHealth,
   getProcess,
   getWorkspace,
   listFileIndex,
+  listPorts,
   listProcesses,
   listWorkspaces,
   queueCommand,
@@ -40,12 +42,14 @@ vi.mock("@/shared/api", () => ({
   commitGitChanges: vi.fn(),
   createWorkspace: vi.fn(),
   discardGitChanges: vi.fn(),
+  exposePort: vi.fn(),
   getHealth: vi.fn(),
   getProcess: vi.fn(),
   getGitDiff: vi.fn(),
   getGitStatus: vi.fn(),
   getWorkspace: vi.fn(),
   listFileIndex: vi.fn(),
+  listPorts: vi.fn(),
   listProcesses: vi.fn(),
   listWorkspaces: vi.fn(),
   queueCommand: vi.fn(),
@@ -169,6 +173,46 @@ describe("WorkspacePage", () => {
           workspaceId: "ws_1",
         },
       ],
+    });
+    vi.mocked(listPorts).mockResolvedValue({
+      ports: [
+        {
+          closedAt: null,
+          createdAt: "2026-05-20T00:00:00Z",
+          exposedPath: null,
+          exposedUrl: null,
+          id: "port_5173",
+          port: 5173,
+          processId: "cmd_1",
+          status: "detected",
+          updatedAt: "2026-05-20T00:00:00Z",
+          workspaceId: "ws_1",
+        },
+        {
+          closedAt: null,
+          createdAt: "2026-05-20T00:00:00Z",
+          exposedPath: "/workspaces/ws_1/ports/8080/proxy/",
+          exposedUrl: "/workspaces/ws_1/ports/8080/proxy/",
+          id: "port_8080",
+          port: 8080,
+          processId: "cmd_1",
+          status: "exposed",
+          updatedAt: "2026-05-20T00:00:00Z",
+          workspaceId: "ws_1",
+        },
+      ],
+    });
+    vi.mocked(exposePort).mockResolvedValue({
+      closedAt: null,
+      createdAt: "2026-05-20T00:00:00Z",
+      exposedPath: "/workspaces/ws_1/ports/5173/proxy/",
+      exposedUrl: "/workspaces/ws_1/ports/5173/proxy/",
+      id: "port_5173",
+      port: 5173,
+      processId: "cmd_1",
+      status: "exposed",
+      updatedAt: "2026-05-20T00:00:01Z",
+      workspaceId: "ws_1",
     });
     vi.mocked(getProcess).mockResolvedValue({
       command: {
@@ -542,6 +586,32 @@ describe("WorkspacePage", () => {
         "node scripts/check.js",
         true,
       );
+    });
+  });
+
+  it("shows preview ports and exposes detected ports from the main panel", async () => {
+    const user = userEvent.setup();
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=preview");
+
+    const previewPorts = await screen.findByRole("region", {
+      name: "Preview ports",
+    });
+    expect(
+      within(previewPorts).getByText("localhost:5173"),
+    ).toBeInTheDocument();
+    expect(
+      within(previewPorts).getByText("localhost:8080"),
+    ).toBeInTheDocument();
+    expect(
+      within(previewPorts).getByRole("link", { name: "Open preview" }),
+    ).toHaveAttribute("href", "/workspaces/ws_1/ports/8080/proxy/");
+
+    await user.click(
+      within(previewPorts).getByRole("button", { name: "Expose port" }),
+    );
+
+    await waitFor(() => {
+      expect(exposePort).toHaveBeenCalledWith("ws_1", 5173);
     });
   });
 });

@@ -127,7 +127,7 @@ describe("VibePage", () => {
         reasoningEffort: "high",
       });
     });
-    expect(await screen.findAllByText("Fix the failing test")).toHaveLength(2);
+    expect(await screen.findAllByText("Fix the failing test")).toHaveLength(3);
   });
 
   it("keeps the task list in a bounded scroll region", async () => {

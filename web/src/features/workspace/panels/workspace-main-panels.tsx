@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 
-import type { Command, CommandOutput } from "@/shared/api";
+import type { Command, CommandOutput, Port } from "@/shared/api";
 import { cn } from "@/shared/ui";
 
 import type { GitChange } from "../git/workspace-git";
@@ -46,6 +46,15 @@ interface WorkspaceMainPanelsProps {
     isDiffLoading: boolean;
     isLoading: boolean;
   };
+  preview: {
+    error?: string;
+    exposeError?: string;
+    exposingPort?: number;
+    isExposing: boolean;
+    isLoading: boolean;
+    onExpose: (port: number) => void;
+    ports: Port[];
+  };
   selectedPath: string;
 }
 
@@ -54,6 +63,7 @@ export function WorkspaceMainPanels({
   command,
   files,
   git,
+  preview,
   selectedPath,
 }: WorkspaceMainPanelsProps) {
   return (
@@ -103,7 +113,15 @@ export function WorkspaceMainPanels({
       </WorkspaceMainPanelFrame>
 
       <WorkspaceMainPanelFrame activePanel={activePanel} panel="preview">
-        <PreviewPanel />
+        <PreviewPanel
+          error={preview.error}
+          exposeError={preview.exposeError}
+          exposingPort={preview.exposingPort}
+          isExposing={preview.isExposing}
+          isLoading={preview.isLoading}
+          onExpose={preview.onExpose}
+          ports={preview.ports}
+        />
       </WorkspaceMainPanelFrame>
     </section>
   );

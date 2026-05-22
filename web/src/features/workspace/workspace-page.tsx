@@ -66,6 +66,7 @@ export function WorkspacePage() {
             command={controller.command}
             files={controller.files}
             git={controller.git}
+            preview={controller.preview}
             selectedPath={selectedPath}
           />
         }

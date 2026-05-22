@@ -9,7 +9,6 @@ import {
   ChevronDown,
   FolderOpen,
   Loader2,
-  MessageSquare,
   Send,
   ShieldCheck,
   Sparkles,
@@ -253,49 +252,13 @@ export function VibePage() {
     <AppShell mode="vibe" workspace={workspace} workspaceId={workspaceId}>
       <section className="grid h-[calc(100vh-2.5rem)] min-h-0 w-full overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
         <aside className="bg-panel hidden min-h-0 px-3 py-3 shadow-sm lg:grid lg:grid-rows-[auto_minmax(0,1fr)_auto]">
-          <div className="text-bold text-center text-xs">
-            Conversation will be implemented in the future.
-          </div>
-          <div className=""></div>
-          {/* <div className="grid gap-1.5">
-            <button
-              className="text-ink flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55"
-              disabled
-              type="button"
-            >
-              <Plus aria-hidden="true" className="size-4 shrink-0" />
-              <span className="truncate">New chat</span>
-            </button>
-            <button
-              className="text-muted flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55"
-              disabled
-              type="button"
-            >
-              <Search aria-hidden="true" className="size-4 shrink-0" />
-              <span className="truncate">Search</span>
-            </button>
-          </div>
-
-          <div className="min-h-0 overflow-auto py-5">
-            <div className="grid gap-5">
-              <ConversationGroup
-                items={[
-                  "Ask PatchPilot anything",
-                  "Review next patch proposal",
-                  "Run checks after approval",
-                ]}
-                title="Pinned"
-              />
-              <ConversationGroup
-                items={[
-                  workspace?.name ?? "Workspace loading",
-                  "Agent task console",
-                  "Open workspace tools",
-                ]}
-                title="PatchPilot"
-              />
-            </div>
-          </div> */}
+          <VibeTaskSidebar
+            activeTaskId={currentTaskId}
+            isLoading={tasksQuery.isPending}
+            onSelectTask={setActiveTaskId}
+            tasks={tasksQuery.data?.tasks ?? []}
+            workspaceName={workspace?.name}
+          />
 
           <div className="grid gap-2">
             {workspace ? (
@@ -439,29 +402,55 @@ export function VibePage() {
   );
 }
 
-function ConversationGroup({
-  items,
-  title,
+function VibeTaskSidebar({
+  activeTaskId,
+  isLoading,
+  onSelectTask,
+  tasks,
+  workspaceName,
 }: {
-  items: string[];
-  title: string;
+  activeTaskId: string;
+  isLoading: boolean;
+  onSelectTask: (taskId: string) => void;
+  tasks: AgentTask[];
+  workspaceName?: string;
 }) {
   return (
-    <section className="grid gap-1">
-      <h2 className="text-muted px-2 text-xs font-semibold">{title}</h2>
-      <div className="grid gap-0.5">
-        {items.map((item, index) => (
-          <div
-            aria-current={index === 0 ? "page" : undefined}
-            className="text-muted aria-[current=page]:bg-hover aria-[current=page]:text-ink flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 text-sm"
-            key={item}
-          >
-            <MessageSquare aria-hidden="true" className="size-4 shrink-0" />
-            <span className="truncate">{item}</span>
-          </div>
-        ))}
+    <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
+      <div className="grid gap-1 px-1">
+        <p className="text-ink truncate text-xs font-semibold">
+          {workspaceName ?? "Workspace"}
+        </p>
+        <p className="text-muted text-xs">Vibe task history</p>
       </div>
-    </section>
+      <div className="min-h-0 overflow-auto">
+        {tasks.length === 0 ? (
+          <p className="text-muted px-1 py-2 text-xs">
+            {isLoading ? "Loading tasks" : "No agent tasks yet."}
+          </p>
+        ) : (
+          <div className="grid gap-1">
+            {tasks.map((task) => (
+              <button
+                aria-current={task.id === activeTaskId ? "page" : undefined}
+                className="hover:bg-hover aria-[current=page]:bg-hover grid min-h-12 min-w-0 gap-1 rounded-md px-2 py-2 text-left transition"
+                key={task.id}
+                onClick={() => onSelectTask(task.id)}
+                type="button"
+              >
+                <span className="text-ink truncate text-xs font-semibold">
+                  {task.prompt}
+                </span>
+                <span className="text-muted flex min-w-0 items-center justify-between gap-2 text-xs">
+                  <span className="truncate">{task.model}</span>
+                  <span className="shrink-0 truncate">{task.status}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -640,15 +629,6 @@ function AgentTaskThread({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function TaskBlock({ label, text }: { label: string; text: string }) {
-  return (
-    <div className="bg-hover grid min-w-0 gap-1 rounded-sm p-3">
-      <p className="text-muted text-xs font-semibold">{label}</p>
-      <p className="text-ink text-sm break-words whitespace-pre-wrap">{text}</p>
     </div>
   );
 }
