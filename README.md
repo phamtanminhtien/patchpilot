@@ -1,19 +1,20 @@
 # PatchPilot 🚀
 
-PatchPilot is a self-hosted, single-user coding assistant for running the AI coding loop against local Git repositories. It lets you open an allowed workspace, ask an AI agent for a change, review approval-required tool calls, run project commands, inspect Git status, and commit selected paths from a mobile-friendly web UI.
+PatchPilot is a self-hosted, single-user coding assistant for running chat-driven AI coding loops against local Git repositories. It lets you open an allowed workspace, continue multiple conversations, review approval-required tool calls, run project commands, inspect Git status, and commit selected paths from a mobile-friendly web UI.
 
-## MVP Scope ✅
+## v0.2 Product Direction ✅
 
 - Open and index local Git workspaces under configured allowed roots.
-- Use Vibe Mode to create AI tasks with model and reasoning-effort choices.
-- Stream task, tool, command, and workspace activity through SSE.
+- Use Vibe Mode to create and continue multiple workspace conversations.
+- Send chat messages that trigger agent runs with model and reasoning-effort choices.
+- Stream conversation, agent run, tool, command, and workspace activity through SSE.
 - Approve or reject mutating agent tools before they touch the workspace.
 - Browse files, read small text files, search workspace contents, and inspect diffs.
 - Run classified workspace commands without a shell and replay the latest command output.
 - Stage, unstage, discard, and commit explicit selected paths.
 - Serve the frontend through Vite in development or through the Go server in a built deployment.
 
-Post-MVP areas such as multi-user auth, hosted SaaS, branch management, push/pull, marketplace integrations, LSP, and full IDE behavior are intentionally out of scope.
+The v0.2 focus is the conversation agent: follow-up chat, visible agent plans, reviewable patches, and narrow verification after changes.
 
 ## Tech Stack 🧱
 
@@ -52,7 +53,7 @@ Important variables:
 
 - `PATCHPILOT_ALLOWED_ROOTS`: OS path-list of directories that may be opened as workspaces.
 - `PATCHPILOT_ADMIN_TOKEN`: required single-user login secret.
-- `PATCHPILOT_OPENAI_API_KEY`: backend-only provider secret used by AI tasks.
+- `PATCHPILOT_OPENAI_API_KEY`: backend-only provider secret used by agent runs.
 - `PATCHPILOT_OPENAI_BASE_URL`: optional OpenAI-compatible base URL. Defaults to `https://api.openai.com/v1`.
 - `PATCHPILOT_ADDR`: backend listen address. Defaults to `127.0.0.1:8080`.
 - `PATCHPILOT_DATA_DIR`: directory for PatchPilot-owned state when `PATCHPILOT_DB_PATH` is unset. Defaults to `~/.patchpilot`.
@@ -129,7 +130,7 @@ The container listens on:
 http://127.0.0.1:8080
 ```
 
-Set `PATCHPILOT_OPENAI_API_KEY` in the Compose service environment or an override file before using AI tasks.
+Set `PATCHPILOT_OPENAI_API_KEY` in the Compose service environment or an override file before using agent runs.
 
 Released Docker images are published to GitHub Container Registry:
 
@@ -177,9 +178,9 @@ make build          # build backend and frontend
 ```txt
 cmd/patchpilot       Go application entrypoint
 internal/api         HTTP routes, handlers, SSE, and static serving
-internal/agent       AI task orchestration and OpenAI-compatible provider
+internal/agent       Conversation agent run orchestration and OpenAI-compatible provider
 internal/config      Runtime configuration
-internal/database    SQLite connection and schema setup
+internal/database    SQLite connection and manual migrations
 internal/events      SSE event fan-out
 internal/filestore   Safe workspace file access
 internal/gitrepo     Git status, diff, staging, discard, and commit helpers
@@ -188,7 +189,7 @@ internal/workspace   Workspace validation, metadata, and file indexing
 web/src/app          Frontend shell, routing, theme, and mode defaults
 web/src/features     Vibe and Workspace feature UI
 web/src/shared       API client, UI primitives, URL helpers, and styles
-docs                 Product rules, MVP spec, architecture, and design language
+docs                 Product rules, product spec, architecture, and design language
 ```
 
 ## Safety Model 🔒
@@ -200,7 +201,7 @@ Commands run from the workspace root without a shell. Shell control operators, w
 ## Documentation 📚
 
 - `docs/project-rules.md`: locked implementation rules.
-- `docs/mvp-spec.md`: MVP scope, flows, API, and data contracts.
+- `docs/product-spec.md`: v0.2 scope, flows, API, and data contracts.
 - `docs/app-architecture.md`: architecture overview.
 - `docs/design-language.md`: frontend design system and UI rules.
 

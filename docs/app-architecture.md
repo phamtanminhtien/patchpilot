@@ -1,6 +1,6 @@
 # PatchPilot Architecture
 
-This document summarizes the MVP architecture. `docs/project-rules.md` and `docs/mvp-spec.md` remain the source of truth for locked rules, scope, APIs, and data contracts.
+This document summarizes the current architecture. `docs/project-rules.md` and `docs/product-spec.md` remain the source of truth for locked rules, scope, APIs, and data contracts.
 
 ## Overview
 
@@ -30,7 +30,7 @@ flowchart TB
   API["HTTP API"]
   Auth["Auth/session"]
   Workspace["Workspace"]
-  Agent["Agent tasks"]
+  Agent["Agent runs"]
   Patch["Patch review/apply"]
   Runner["Command runner"]
   Git["Git adapter"]
@@ -73,7 +73,7 @@ Backend modules:
 - `cmd/patchpilot`: application entrypoint.
 - `internal/api`: HTTP routes, handlers, SSE, and preview proxy.
 - `internal/config`: runtime configuration.
-- `internal/database`: SQLite connection and schema setup.
+- `internal/database`: SQLite connection and manual migrations.
 - `internal/workspace`: allowed workspace validation and metadata.
 - `internal/filestore`: safe workspace file access.
 - `internal/gitrepo`: Git status, diff, and commit operations.
@@ -115,7 +115,7 @@ flowchart TB
 Frontend modules:
 
 - `web/src/app`: shell, routes, theme, default route behavior.
-- `web/src/features/vibe`: AI task flow and tool approval.
+- `web/src/features/vibe`: conversation chat, agent run activity, and tool approval.
 - `web/src/features/workspace`: files, Git, commands, and preview tools.
 - `web/src/shared/api`: typed API functions over the shared Axios client.
 - `web/src/shared/ui`: reusable UI primitives.
@@ -137,7 +137,7 @@ flowchart LR
   Repo --> Git
 ```
 
-SQLite stores sessions, workspaces, agent tasks, events, tool calls, commands, command output, ports, and Git snapshots. Source files remain on disk in the workspace repo.
+SQLite stores conversations, messages, agent runs, events, tool calls, commands, command output, ports, and Git snapshots. Source files remain on disk in the workspace repo.
 
 ## Agent Tool Flow
 
@@ -146,14 +146,14 @@ sequenceDiagram
   actor User
   participant FE as Frontend
   participant BE as Backend
-  participant Agent as Agent task
+  participant Agent as Agent run
   participant Repo as Workspace repo
   participant DB as SQLite
 
-  User->>FE: Ask AI
-  FE->>BE: Create task
-  BE->>DB: Store task
-  BE->>Agent: Run task
+  User->>FE: Send chat message
+  FE->>BE: Create message and agent run
+  BE->>DB: Store conversation message and run
+  BE->>Agent: Run agent loop
   Agent->>Repo: Read/search approved files
   Agent->>DB: Store events and tool calls
   BE-->>FE: Stream progress via SSE
