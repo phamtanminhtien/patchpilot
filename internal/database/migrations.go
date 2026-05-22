@@ -23,6 +23,7 @@ const schemaVersionKey = "schema_version"
 
 var migrations = []migration{
 	{version: 1, name: "create_initial_schema", path: "migrations/001_create_initial_schema.sql"},
+	{version: 2, name: "align_conversation_run_model", path: "migrations/002_align_conversation_run_model.sql"},
 }
 
 func (s *Store) Migrate() error {

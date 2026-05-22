@@ -290,7 +290,7 @@ func TestCommandHandlersConfirmAndBlockBySafety(t *testing.T) {
 	}
 }
 
-func TestAgentTaskHandlersCreateListAndGet(t *testing.T) {
+func TestConversationRunHandlersCreateListAndGet(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	seedExampleFile(t, root)
 	server := newTestServer(t, root)
@@ -298,31 +298,41 @@ func TestAgentTaskHandlersCreateListAndGet(t *testing.T) {
 	var ws workspace.Workspace
 	mustDecode(t, create, &ws)
 
-	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks", `{"prompt":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	conversation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{"title":"Fix bug"}`)
+	if conversation.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", conversation.Code, conversation.Body.String())
+	}
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
 	}
-	var task agent.Task
-	mustDecode(t, response, &task)
-	if !strings.HasPrefix(task.ID, "task_") || task.Model != "gpt-5.5" || task.ReasoningEffort != "medium" {
-		t.Fatalf("unexpected task: %+v", task)
+	var created struct {
+		Message messageResponse `json:"message"`
+		Run     agent.Run       `json:"run"`
+	}
+	mustDecode(t, response, &created)
+	if !strings.HasPrefix(created.Run.ID, "run_") || created.Run.Model != "gpt-5.5" || created.Run.ReasoningEffort != "medium" {
+		t.Fatalf("unexpected run: %+v", created.Run)
 	}
 
-	detail := waitForAgentDetail(t, server, ws.ID, task.ID, "waiting_tool_approval")
+	detail := waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "waiting_tool_approval")
 	if len(detail.ToolCalls) != 1 || detail.ToolCalls[0].Name != "apply_patch" {
 		t.Fatalf("expected one patch tool call, got %+v", detail.ToolCalls)
 	}
 
-	list := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/agent/tasks", "")
+	list := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/conversations", "")
 	if list.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", list.Code, list.Body.String())
 	}
 	var listBody struct {
-		Tasks []agent.Task `json:"tasks"`
+		Conversations []conversationResponse `json:"conversations"`
 	}
 	mustDecode(t, list, &listBody)
-	if len(listBody.Tasks) != 1 || listBody.Tasks[0].ID != task.ID {
-		t.Fatalf("unexpected task list: %+v", listBody.Tasks)
+	if len(listBody.Conversations) != 1 || listBody.Conversations[0].ID != createdConversation.ID {
+		t.Fatalf("unexpected conversation list: %+v", listBody.Conversations)
 	}
 }
 
@@ -334,13 +344,20 @@ func TestToolApprovalAppliesPatchAndRemovedPatchEndpointsAreGone(t *testing.T) {
 	var ws workspace.Workspace
 	mustDecode(t, create, &ws)
 
-	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks", `{"prompt":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	conversation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{"title":"Fix bug"}`)
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
 	}
-	var task agent.Task
-	mustDecode(t, response, &task)
-	detail := waitForAgentDetail(t, server, ws.ID, task.ID, "waiting_tool_approval")
+	var created struct {
+		Message messageResponse `json:"message"`
+		Run     agent.Run       `json:"run"`
+	}
+	mustDecode(t, response, &created)
+	detail := waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "waiting_tool_approval")
 	toolCallID := detail.ToolCalls[0].ID
 
 	oldPatchRoute := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/patches/patch_1/apply", "")
@@ -348,35 +365,91 @@ func TestToolApprovalAppliesPatchAndRemovedPatchEndpointsAreGone(t *testing.T) {
 		t.Fatalf("expected old patch route 404, got %d: %s", oldPatchRoute.Code, oldPatchRoute.Body.String())
 	}
 
-	apply := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks/"+task.ID+"/tool-calls/"+toolCallID+"/approve", "")
+	apply := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/runs/"+created.Run.ID+"/tool-calls/"+toolCallID+"/approve", "")
 	if apply.Code != http.StatusOK {
 		t.Fatalf("expected approve 200, got %d: %s\nfile:%q", apply.Code, apply.Body.String(), mustReadFile(t, filepath.Join(root, "example.txt")))
 	}
-	detail = waitForAgentDetail(t, server, ws.ID, task.ID, "done")
+	detail = waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "done")
 	if detail.ToolCalls[0].Status != "finished" {
 		t.Fatalf("expected finished tool call, got %+v", detail.ToolCalls[0])
+	}
+	if len(detail.Events) != 0 {
+		t.Fatalf("finished runs should not replay historical events, got %+v", detail.Events)
+	}
+	if !hasMessage(detail.Messages, "assistant", "Fake provider completed.") {
+		t.Fatalf("expected assistant message in conversation detail, got %+v", detail.Messages)
 	}
 	if got := mustReadFile(t, filepath.Join(root, "example.txt")); got != "after\n" {
 		t.Fatalf("expected approved patch to apply, got %q", got)
 	}
 }
 
-func TestAgentTaskHandlersValidateInputAndProvider(t *testing.T) {
+func TestWorkspaceEventsDoesNotReplayHistoricalEvents(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	seedExampleFile(t, root)
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	conversation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{"title":"Fix bug"}`)
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+	var created struct {
+		Message messageResponse `json:"message"`
+		Run     agent.Run       `json:"run"`
+	}
+	mustDecode(t, response, &created)
+	detail := waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "waiting_tool_approval")
+	if len(detail.Events) == 0 {
+		t.Fatal("test setup expected stored run events")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+ws.ID+"/events", nil).WithContext(ctx)
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(recorder, req)
+		close(done)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("events stream did not close after request cancellation")
+	}
+	if body := recorder.Body.String(); body != "" {
+		t.Fatalf("expected no historical SSE replay, got %q", body)
+	}
+}
+
+func TestConversationRunHandlersValidateInputAndProvider(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	server := newTestServer(t, root)
 	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
 	var ws workspace.Workspace
 	mustDecode(t, create, &ws)
 
+	conversation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{"title":"Fix bug"}`)
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+
 	for name, testCase := range map[string]struct {
 		body string
 		code string
 	}{
-		"empty prompt": {`{"prompt":"","model":"gpt-5.5","reasoningEffort":"medium"}`, "empty_prompt"},
-		"bad model":    {`{"prompt":"fix","model":"bad","reasoningEffort":"medium"}`, "invalid_model"},
-		"bad effort":   {`{"prompt":"fix","model":"gpt-5.5","reasoningEffort":"none"}`, "invalid_reasoning_effort"},
+		"empty prompt": {`{"content":"","model":"gpt-5.5","reasoningEffort":"medium"}`, "empty_prompt"},
+		"bad model":    {`{"content":"fix","model":"bad","reasoningEffort":"medium"}`, "invalid_model"},
+		"bad effort":   {`{"content":"fix","model":"gpt-5.5","reasoningEffort":"none"}`, "invalid_reasoning_effort"},
 	} {
-		response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks", testCase.body)
+		response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", testCase.body)
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("%s: expected 400, got %d: %s", name, response.Code, response.Body.String())
 		}
@@ -390,7 +463,9 @@ func TestAgentTaskHandlersValidateInputAndProvider(t *testing.T) {
 	unavailable := newTestServerWithAgentProvider(t, root, filepath.Join(t.TempDir(), "patchpilot.db"), fakeHealthChecker{}, unavailableAgentProvider{})
 	create = request(unavailable, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
 	mustDecode(t, create, &ws)
-	response := request(unavailable, http.MethodPost, "/api/workspaces/"+ws.ID+"/agent/tasks", `{"prompt":"fix","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	conversation = request(unavailable, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{"title":"Fix bug"}`)
+	mustDecode(t, conversation, &createdConversation)
+	response := request(unavailable, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix","model":"gpt-5.5","reasoningEffort":"medium"}`)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", response.Code, response.Body.String())
 	}
@@ -712,32 +787,42 @@ func newAuthenticatedTestServer(t *testing.T, allowedRoot, adminToken string) ht
 	return NewServerWithAuth(manager, fileService, gitClient, run, store, hub, agentManager, authService, store).Routes()
 }
 
-func waitForAgentDetail(t *testing.T, handler http.Handler, workspaceID, taskID, status string) agent.Detail {
+type conversationDetailResponse struct {
+	Conversation conversationResponse `json:"conversation"`
+	Events       []agent.RunEvent     `json:"events"`
+	Messages     []messageResponse    `json:"messages"`
+	Runs         []agent.Run          `json:"runs"`
+	ToolCalls    []agent.ToolCall     `json:"toolCalls"`
+}
+
+func waitForConversationDetail(t *testing.T, handler http.Handler, workspaceID, conversationID, runID, status string) conversationDetailResponse {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		response := request(handler, http.MethodGet, "/api/workspaces/"+workspaceID+"/agent/tasks/"+taskID, "")
+		response := request(handler, http.MethodGet, "/api/workspaces/"+workspaceID+"/conversations/"+conversationID, "")
 		if response.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 		}
-		var detail agent.Detail
+		var detail conversationDetailResponse
 		mustDecode(t, response, &detail)
-		if detail.Task.Status == status {
-			return detail
+		for _, run := range detail.Runs {
+			if run.ID == runID && run.Status == status {
+				return detail
+			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("task did not reach %s", status)
-	return agent.Detail{}
+	t.Fatalf("run did not reach %s", status)
+	return conversationDetailResponse{}
 }
 
-func getAgentDetail(t *testing.T, handler http.Handler, workspaceID, taskID string) agent.Detail {
+func getConversationDetail(t *testing.T, handler http.Handler, workspaceID, conversationID string) conversationDetailResponse {
 	t.Helper()
-	response := request(handler, http.MethodGet, "/api/workspaces/"+workspaceID+"/agent/tasks/"+taskID, "")
+	response := request(handler, http.MethodGet, "/api/workspaces/"+workspaceID+"/conversations/"+conversationID, "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 	}
-	var detail agent.Detail
+	var detail conversationDetailResponse
 	mustDecode(t, response, &detail)
 	return detail
 }
@@ -770,6 +855,15 @@ func mustDecode(t *testing.T, response *httptest.ResponseRecorder, target any) {
 	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+}
+
+func hasMessage(messages []messageResponse, role, content string) bool {
+	for _, message := range messages {
+		if message.Role == role && message.Content == content {
+			return true
+		}
+	}
+	return false
 }
 
 func mustMkdirAll(t *testing.T, path string) {

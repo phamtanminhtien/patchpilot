@@ -45,20 +45,23 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if !store.db.Migrator().HasTable(&CommandOutputRecord{}) {
 		t.Fatal("expected command_output table to be migrated")
 	}
-	if !store.db.Migrator().HasTable(&AgentTaskRecord{}) {
-		t.Fatal("expected agent_tasks table to be migrated")
+	if !store.db.Migrator().HasTable(&ConversationRecord{}) {
+		t.Fatal("expected conversations table to be migrated")
 	}
-	if !store.db.Migrator().HasTable(&AgentTaskEventRecord{}) {
-		t.Fatal("expected agent_task_events table to be migrated")
+	if !store.db.Migrator().HasTable(&MessageRecord{}) {
+		t.Fatal("expected messages table to be migrated")
+	}
+	if !store.db.Migrator().HasTable(&AgentRunRecord{}) {
+		t.Fatal("expected agent_runs table to be migrated")
+	}
+	if !store.db.Migrator().HasTable(&AgentRunEventRecord{}) {
+		t.Fatal("expected agent_run_events table to be migrated")
 	}
 	if !store.db.Migrator().HasTable(&AgentToolCallRecord{}) {
 		t.Fatal("expected agent_tool_calls table to be migrated")
 	}
 	if !store.db.Migrator().HasTable(&AuthSessionRecord{}) {
 		t.Fatal("expected auth_sessions table to be migrated")
-	}
-	if !store.db.Migrator().HasTable(&SessionRecord{}) {
-		t.Fatal("expected sessions table to be migrated")
 	}
 	if !store.db.Migrator().HasTable(&PortRecord{}) {
 		t.Fatal("expected ports table to be migrated")
@@ -71,8 +74,8 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if err := store.db.First(&version, "key = ?", schemaVersionKey).Error; err != nil {
 		t.Fatalf("expected schema version metadata: %v", err)
 	}
-	if version.Value != "1" {
-		t.Fatalf("expected schema version 1, got %q", version.Value)
+	if version.Value != "2" {
+		t.Fatalf("expected schema version 2, got %q", version.Value)
 	}
 }
 

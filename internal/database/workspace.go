@@ -74,7 +74,7 @@ func (s *Store) DeleteWorkspaceMetadata(ctx context.Context, workspaceID string)
 		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&FileIndexRecord{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentTaskEventRecord{}).Error; err != nil {
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentRunEventRecord{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentToolCallRecord{}).Error; err != nil {
@@ -102,10 +102,13 @@ func (s *Store) DeleteWorkspaceMetadata(ctx context.Context, workspaceID string)
 		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&GitSnapshotRecord{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&SessionRecord{}).Error; err != nil {
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&MessageRecord{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentTaskRecord{}).Error; err != nil {
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentRunRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&ConversationRecord{}).Error; err != nil {
 			return err
 		}
 		return tx.Where("id = ?", workspaceID).Delete(&WorkspaceRecord{}).Error

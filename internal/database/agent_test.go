@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestAgentTaskRepositoryPersistsEventsAndTools(t *testing.T) {
+func TestAgentRunRepositoryPersistsEventsAndTools(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(filepath.Join(t.TempDir(), "patchpilot.db"))
 	if err != nil {
@@ -20,48 +20,49 @@ func TestAgentTaskRepositoryPersistsEventsAndTools(t *testing.T) {
 	}()
 
 	createdAt := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
-	task, err := store.CreateAgentTask(ctx, AgentTaskRecord{
-		WorkspaceID:     "ws_1",
-		Prompt:          "fix bug",
-		Model:           "gpt-5.5",
-		ReasoningEffort: "medium",
-		Status:          "queued",
-		CreatedAt:       createdAt,
-		UpdatedAt:       createdAt,
+	run, err := store.CreateAgentRun(ctx, AgentRunRecord{
+		WorkspaceID:      "ws_1",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+		Status:           "queued",
+		CreatedAt:        createdAt,
+		UpdatedAt:        createdAt,
 	})
 	if err != nil {
-		t.Fatalf("CreateAgentTask returned error: %v", err)
+		t.Fatalf("CreateAgentRun returned error: %v", err)
 	}
-	if task.ID == "" || task.Model != "gpt-5.5" || task.ReasoningEffort != "medium" {
-		t.Fatalf("unexpected task: %+v", task)
+	if run.ID == "" || run.Model != "gpt-5.5" || run.ReasoningEffort != "medium" {
+		t.Fatalf("unexpected run: %+v", run)
 	}
 
 	startedAt := createdAt.Add(time.Second)
-	task, err = store.UpdateAgentTask(ctx, "ws_1", task.ID, map[string]any{
+	run, err = store.UpdateAgentRun(ctx, "ws_1", "conv_1", run.ID, map[string]any{
 		"status":     "running",
 		"started_at": startedAt,
 		"summary":    "inspect",
 	})
 	if err != nil {
-		t.Fatalf("UpdateAgentTask returned error: %v", err)
+		t.Fatalf("UpdateAgentRun returned error: %v", err)
 	}
-	if task.Status != "running" || task.Summary != "inspect" || task.StartedAt == nil {
-		t.Fatalf("unexpected updated task: %+v", task)
+	if run.Status != "running" || run.Summary != "inspect" || run.StartedAt == nil {
+		t.Fatalf("unexpected updated run: %+v", run)
 	}
 
-	event, err := store.CreateAgentTaskEvent(ctx, AgentTaskEventRecord{
+	event, err := store.CreateAgentRunEvent(ctx, AgentRunEventRecord{
 		WorkspaceID: "ws_1",
-		TaskID:      task.ID,
+		RunID:       run.ID,
 		Type:        "agent.delta",
 		PayloadJSON: `{"text":"hello"}`,
 		CreatedAt:   startedAt.Add(time.Millisecond),
 	})
 	if err != nil {
-		t.Fatalf("CreateAgentTaskEvent returned error: %v", err)
+		t.Fatalf("CreateAgentRunEvent returned error: %v", err)
 	}
-	events, err := store.ListAgentTaskEvents(ctx, "ws_1", task.ID)
+	events, err := store.ListAgentRunEvents(ctx, "ws_1", run.ID)
 	if err != nil {
-		t.Fatalf("ListAgentTaskEvents returned error: %v", err)
+		t.Fatalf("ListAgentRunEvents returned error: %v", err)
 	}
 	if len(events) != 1 || events[0].ID != event.ID {
 		t.Fatalf("unexpected events: %+v", events)
@@ -69,7 +70,7 @@ func TestAgentTaskRepositoryPersistsEventsAndTools(t *testing.T) {
 
 	call, err := store.CreateAgentToolCall(ctx, AgentToolCallRecord{
 		WorkspaceID:    "ws_1",
-		TaskID:         task.ID,
+		RunID:          run.ID,
 		BatchID:        "batch_1",
 		Sequence:       0,
 		ProviderCallID: "call_1",
@@ -83,7 +84,7 @@ func TestAgentTaskRepositoryPersistsEventsAndTools(t *testing.T) {
 		t.Fatalf("CreateAgentToolCall returned error: %v", err)
 	}
 	finishedAt := startedAt.Add(time.Second)
-	call, err = store.FinishAgentToolCall(ctx, "ws_1", task.ID, call.ID, "finished", `{"ok":true}`, finishedAt)
+	call, err = store.FinishAgentToolCall(ctx, "ws_1", run.ID, call.ID, "finished", `{"ok":true}`, finishedAt)
 	if err != nil {
 		t.Fatalf("FinishAgentToolCall returned error: %v", err)
 	}
@@ -92,7 +93,7 @@ func TestAgentTaskRepositoryPersistsEventsAndTools(t *testing.T) {
 	}
 
 	approved := "approved"
-	call, err = store.UpdateAgentToolCall(ctx, "ws_1", task.ID, call.ID, map[string]any{
+	call, err = store.UpdateAgentToolCall(ctx, "ws_1", run.ID, call.ID, map[string]any{
 		"status":   "approved",
 		"decision": approved,
 	})
@@ -102,7 +103,7 @@ func TestAgentTaskRepositoryPersistsEventsAndTools(t *testing.T) {
 	if call.Status != "approved" || call.Decision == nil || *call.Decision != approved {
 		t.Fatalf("unexpected updated call: %+v", call)
 	}
-	loaded, err := store.GetAgentToolCall(ctx, "ws_1", task.ID, call.ID)
+	loaded, err := store.GetAgentToolCall(ctx, "ws_1", run.ID, call.ID)
 	if err != nil {
 		t.Fatalf("GetAgentToolCall returned error: %v", err)
 	}

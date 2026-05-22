@@ -1,6 +1,6 @@
-export * from "./agent";
 export * from "./auth";
 export * from "./commands";
+export * from "./conversations";
 export * from "./errors";
 export * from "./files";
 export * from "./git";

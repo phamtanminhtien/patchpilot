@@ -9,17 +9,37 @@ const workspace = {
   updatedAt: "2026-05-20T00:00:00Z",
 };
 
-const task = {
+const conversation = {
+  createdAt: "2026-05-20T00:00:00Z",
+  id: "conv_1",
+  lastMessageAt: "2026-05-20T00:00:00Z",
+  title: "Finish product smoke test",
+  updatedAt: "2026-05-20T00:00:00Z",
+  workspaceId: "ws_1",
+};
+
+const message = {
+  content: "Finish product smoke test",
+  conversationId: "conv_1",
+  createdAt: "2026-05-20T00:00:00Z",
+  id: "msg_1",
+  role: "user",
+  runId: "run_1",
+  workspaceId: "ws_1",
+};
+
+const run = {
+  conversationId: "conv_1",
   createdAt: "2026-05-20T00:00:00Z",
   error: null,
   finishedAt: null,
-  id: "task_1",
+  id: "run_1",
   model: "gpt-5.5",
-  prompt: "Finish product smoke test",
   reasoningEffort: "medium",
   startedAt: "2026-05-20T00:00:00Z",
   status: "waiting_tool_approval",
   summary: "",
+  triggerMessageId: "msg_1",
   updatedAt: "2026-05-20T00:00:00Z",
   workspaceId: "ws_1",
 };
@@ -39,7 +59,7 @@ const toolCall = {
   sequence: 0,
   startedAt: null,
   status: "waiting_approval",
-  taskId: "task_1",
+  runId: "run_1",
   workspaceId: "ws_1",
 };
 
@@ -51,15 +71,9 @@ test("signs in and opens a recent workspace in Vibe Mode", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.getByRole("button", { name: /patchpilot/i }).click();
 
+  await expect(page.getByLabel("Ask AI")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: /What should we build/i }),
-  ).toBeVisible();
-  await expect(
-    page
-      .getByRole("button", {
-        name: /Finish product smoke test gpt-5\.5/,
-      })
-      .first(),
+    page.getByRole("heading", { name: "Finish product smoke test" }),
   ).toBeVisible();
   await expect(page.getByText("apply_patch", { exact: true })).toBeVisible();
 });
@@ -291,27 +305,29 @@ async function mockPatchPilotApi(
       return;
     }
 
-    if (path === "/api/workspaces/ws_1/agent/tasks" && method === "GET") {
-      await json(route, { tasks: [task] });
+    if (path === "/api/workspaces/ws_1/conversations" && method === "GET") {
+      await json(route, { conversations: [conversation] });
       return;
     }
 
     if (
-      path === "/api/workspaces/ws_1/agent/tasks/task_1" &&
+      path === "/api/workspaces/ws_1/conversations/conv_1" &&
       method === "GET"
     ) {
       await json(route, {
+        conversation,
         events: [
           {
             createdAt: "2026-05-20T00:00:00Z",
             id: "event_1",
             payload: toolCall,
-            taskId: "task_1",
+            runId: "run_1",
             type: "agent.approval_required",
             workspaceId: "ws_1",
           },
         ],
-        task,
+        messages: [message],
+        runs: [run],
         toolCalls: [toolCall],
       });
       return;
