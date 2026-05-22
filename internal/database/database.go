@@ -57,6 +57,31 @@ func (FileIndexRecord) TableName() string {
 	return "file_index"
 }
 
+type AuthSessionRecord struct {
+	ID          string    `gorm:"primaryKey;column:id"`
+	SessionHash string    `gorm:"column:session_hash;not null;uniqueIndex"`
+	CreatedAt   time.Time `gorm:"column:created_at;not null"`
+	LastSeenAt  time.Time `gorm:"column:last_seen_at;not null;index"`
+	ExpiresAt   time.Time `gorm:"column:expires_at;not null;index"`
+}
+
+func (AuthSessionRecord) TableName() string {
+	return "auth_sessions"
+}
+
+type SessionRecord struct {
+	ID          string    `gorm:"primaryKey;column:id"`
+	WorkspaceID string    `gorm:"column:workspace_id;not null;index"`
+	Title       string    `gorm:"column:title;not null"`
+	Mode        string    `gorm:"column:mode;not null"`
+	CreatedAt   time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt   time.Time `gorm:"column:updated_at;not null;index"`
+}
+
+func (SessionRecord) TableName() string {
+	return "sessions"
+}
+
 type CommandRecord struct {
 	ID          string     `gorm:"primaryKey;column:id"`
 	WorkspaceID string     `gorm:"column:workspace_id;not null;index"`
@@ -142,6 +167,35 @@ func (PatchRecord) TableName() string {
 	return "patches"
 }
 
+type PortRecord struct {
+	ID          string     `gorm:"primaryKey;column:id"`
+	WorkspaceID string     `gorm:"column:workspace_id;not null;index"`
+	ProcessID   *string    `gorm:"column:process_id;index"`
+	Port        int        `gorm:"column:port;not null;index"`
+	Status      string     `gorm:"column:status;not null;index"`
+	ExposedPath *string    `gorm:"column:exposed_path"`
+	CreatedAt   time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt   time.Time  `gorm:"column:updated_at;not null;index"`
+	ClosedAt    *time.Time `gorm:"column:closed_at"`
+}
+
+func (PortRecord) TableName() string {
+	return "ports"
+}
+
+type GitSnapshotRecord struct {
+	ID          string    `gorm:"primaryKey;column:id"`
+	WorkspaceID string    `gorm:"column:workspace_id;not null;index"`
+	PatchID     *string   `gorm:"column:patch_id;index"`
+	CommitSHA   *string   `gorm:"column:commit_sha;index"`
+	StatusJSON  string    `gorm:"column:status_json;not null"`
+	CreatedAt   time.Time `gorm:"column:created_at;not null;index"`
+}
+
+func (GitSnapshotRecord) TableName() string {
+	return "git_snapshots"
+}
+
 type CommandOutputRecord struct {
 	ID        string    `gorm:"primaryKey;column:id"`
 	CommandID string    `gorm:"column:command_id;not null;index"`
@@ -193,7 +247,7 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Metadata{}, &WorkspaceRecord{}, &FileIndexRecord{}, &AgentTaskRecord{}, &AgentTaskEventRecord{}, &AgentToolCallRecord{}, &PatchRecord{}, &CommandRecord{}, &CommandOutputRecord{})
+	return s.db.AutoMigrate(&Metadata{}, &WorkspaceRecord{}, &FileIndexRecord{}, &AuthSessionRecord{}, &SessionRecord{}, &AgentTaskRecord{}, &AgentTaskEventRecord{}, &AgentToolCallRecord{}, &PatchRecord{}, &CommandRecord{}, &CommandOutputRecord{}, &PortRecord{}, &GitSnapshotRecord{})
 }
 
 func (s *Store) enableForeignKeys() error {
@@ -244,6 +298,137 @@ func (s *Store) TouchWorkspace(ctx context.Context, id string, updatedAt time.Ti
 		return WorkspaceRecord{}, err
 	}
 	return s.GetWorkspace(ctx, id)
+}
+
+func (s *Store) DeleteWorkspaceMetadata(ctx context.Context, workspaceID string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&FileIndexRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentTaskEventRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentToolCallRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&PatchRecord{}).Error; err != nil {
+			return err
+		}
+		var commands []CommandRecord
+		if err := tx.Where("workspace_id = ?", workspaceID).Find(&commands).Error; err != nil {
+			return err
+		}
+		commandIDs := make([]string, 0, len(commands))
+		for _, command := range commands {
+			commandIDs = append(commandIDs, command.ID)
+		}
+		if len(commandIDs) > 0 {
+			if err := tx.Where("command_id IN ?", commandIDs).Delete(&CommandOutputRecord{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&CommandRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&PortRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&GitSnapshotRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&SessionRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentTaskRecord{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", workspaceID).Delete(&WorkspaceRecord{}).Error
+	})
+}
+
+func (s *Store) CreateAuthSession(ctx context.Context, session AuthSessionRecord) (AuthSessionRecord, error) {
+	if session.ID == "" {
+		id, err := newPrefixedID("auth_")
+		if err != nil {
+			return AuthSessionRecord{}, err
+		}
+		session.ID = id
+	}
+	now := time.Now().UTC()
+	if session.CreatedAt.IsZero() {
+		session.CreatedAt = now
+	}
+	if session.LastSeenAt.IsZero() {
+		session.LastSeenAt = session.CreatedAt
+	}
+	if err := s.db.WithContext(ctx).Create(&session).Error; err != nil {
+		return AuthSessionRecord{}, err
+	}
+	return session, nil
+}
+
+func (s *Store) GetAuthSessionByHash(ctx context.Context, sessionHash string, now time.Time) (AuthSessionRecord, error) {
+	var session AuthSessionRecord
+	if err := s.db.WithContext(ctx).First(&session, "session_hash = ? AND expires_at > ?", sessionHash, now.UTC()).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return AuthSessionRecord{}, ErrNotFound
+		}
+		return AuthSessionRecord{}, err
+	}
+	if err := s.db.WithContext(ctx).Model(&AuthSessionRecord{}).
+		Where("id = ?", session.ID).
+		Update("last_seen_at", now.UTC()).Error; err != nil {
+		return AuthSessionRecord{}, err
+	}
+	session.LastSeenAt = now.UTC()
+	return session, nil
+}
+
+func (s *Store) DeleteAuthSessionByHash(ctx context.Context, sessionHash string) error {
+	return s.db.WithContext(ctx).Where("session_hash = ?", sessionHash).Delete(&AuthSessionRecord{}).Error
+}
+
+func (s *Store) UpsertSession(ctx context.Context, session SessionRecord) (SessionRecord, error) {
+	if session.ID == "" {
+		id, err := newPrefixedID("sess_")
+		if err != nil {
+			return SessionRecord{}, err
+		}
+		session.ID = id
+	}
+	now := time.Now().UTC()
+	if session.CreatedAt.IsZero() {
+		session.CreatedAt = now
+	}
+	session.UpdatedAt = now
+	var existing SessionRecord
+	err := s.db.WithContext(ctx).First(&existing, "workspace_id = ?", session.WorkspaceID).Error
+	if err == nil {
+		if err := s.db.WithContext(ctx).Model(&SessionRecord{}).
+			Where("id = ?", existing.ID).
+			Updates(map[string]any{"title": session.Title, "mode": session.Mode, "updated_at": session.UpdatedAt}).Error; err != nil {
+			return SessionRecord{}, err
+		}
+		return s.GetSession(ctx, existing.ID)
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return SessionRecord{}, err
+	}
+	if err := s.db.WithContext(ctx).Create(&session).Error; err != nil {
+		return SessionRecord{}, err
+	}
+	return session, nil
+}
+
+func (s *Store) GetSession(ctx context.Context, sessionID string) (SessionRecord, error) {
+	var session SessionRecord
+	if err := s.db.WithContext(ctx).First(&session, "id = ?", sessionID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return SessionRecord{}, ErrNotFound
+		}
+		return SessionRecord{}, err
+	}
+	return session, nil
 }
 
 func (s *Store) ReplaceFileIndex(ctx context.Context, workspaceID string, entries []FileIndexRecord) error {
@@ -420,6 +605,26 @@ func (s *Store) ListPatches(ctx context.Context, workspaceID, taskID string) ([]
 	return patches, nil
 }
 
+func (s *Store) GetPatch(ctx context.Context, workspaceID, patchID string) (PatchRecord, error) {
+	var patch PatchRecord
+	if err := s.db.WithContext(ctx).First(&patch, "workspace_id = ? AND id = ?", workspaceID, patchID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return PatchRecord{}, ErrNotFound
+		}
+		return PatchRecord{}, err
+	}
+	return patch, nil
+}
+
+func (s *Store) UpdatePatch(ctx context.Context, workspaceID, patchID string, updates map[string]any) (PatchRecord, error) {
+	if err := s.db.WithContext(ctx).Model(&PatchRecord{}).
+		Where("workspace_id = ? AND id = ?", workspaceID, patchID).
+		Updates(updates).Error; err != nil {
+		return PatchRecord{}, err
+	}
+	return s.GetPatch(ctx, workspaceID, patchID)
+}
+
 func (s *Store) CreateCommand(ctx context.Context, command CommandRecord) (CommandRecord, error) {
 	if command.ID == "" {
 		id, err := newPrefixedID("cmd_")
@@ -533,6 +738,94 @@ func (s *Store) ListCommandOutput(ctx context.Context, commandID string) ([]Comm
 		return nil, err
 	}
 	return output, nil
+}
+
+func (s *Store) UpsertDetectedPort(ctx context.Context, port PortRecord) (PortRecord, bool, error) {
+	now := time.Now().UTC()
+	if port.CreatedAt.IsZero() {
+		port.CreatedAt = now
+	}
+	port.UpdatedAt = now
+	var existing PortRecord
+	err := s.db.WithContext(ctx).First(&existing, "workspace_id = ? AND port = ?", port.WorkspaceID, port.Port).Error
+	if err == nil {
+		status := port.Status
+		if port.Status == "detected" && (existing.Status == "exposed" || existing.ExposedPath != nil) {
+			status = existing.Status
+			if status == "closed" {
+				status = "exposed"
+			}
+		}
+		updates := map[string]any{
+			"status":     status,
+			"updated_at": port.UpdatedAt,
+			"closed_at":  nil,
+		}
+		if port.ProcessID != nil {
+			updates["process_id"] = port.ProcessID
+		}
+		if err := s.db.WithContext(ctx).Model(&PortRecord{}).
+			Where("id = ?", existing.ID).
+			Updates(updates).Error; err != nil {
+			return PortRecord{}, false, err
+		}
+		updated, err := s.GetPort(ctx, port.WorkspaceID, port.Port)
+		return updated, false, err
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return PortRecord{}, false, err
+	}
+	if port.ID == "" {
+		id, err := newPrefixedID("port_")
+		if err != nil {
+			return PortRecord{}, false, err
+		}
+		port.ID = id
+	}
+	if err := s.db.WithContext(ctx).Create(&port).Error; err != nil {
+		return PortRecord{}, false, err
+	}
+	return port, true, nil
+}
+
+func (s *Store) ListPorts(ctx context.Context, workspaceID string) ([]PortRecord, error) {
+	var ports []PortRecord
+	if err := s.db.WithContext(ctx).
+		Where("workspace_id = ?", workspaceID).
+		Order("port ASC").
+		Find(&ports).Error; err != nil {
+		return nil, err
+	}
+	return ports, nil
+}
+
+func (s *Store) GetPort(ctx context.Context, workspaceID string, port int) (PortRecord, error) {
+	var record PortRecord
+	if err := s.db.WithContext(ctx).First(&record, "workspace_id = ? AND port = ?", workspaceID, port).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return PortRecord{}, ErrNotFound
+		}
+		return PortRecord{}, err
+	}
+	return record, nil
+}
+
+func (s *Store) ExposePort(ctx context.Context, workspaceID string, port int, exposedPath string) (PortRecord, error) {
+	if err := s.db.WithContext(ctx).Model(&PortRecord{}).
+		Where("workspace_id = ? AND port = ?", workspaceID, port).
+		Updates(map[string]any{"status": "exposed", "exposed_path": exposedPath, "updated_at": time.Now().UTC()}).Error; err != nil {
+		return PortRecord{}, err
+	}
+	return s.GetPort(ctx, workspaceID, port)
+}
+
+func (s *Store) MarkPortClosed(ctx context.Context, workspaceID string, port int, closedAt time.Time) (PortRecord, error) {
+	if err := s.db.WithContext(ctx).Model(&PortRecord{}).
+		Where("workspace_id = ? AND port = ?", workspaceID, port).
+		Updates(map[string]any{"status": "closed", "closed_at": closedAt.UTC(), "updated_at": closedAt.UTC()}).Error; err != nil {
+		return PortRecord{}, err
+	}
+	return s.GetPort(ctx, workspaceID, port)
 }
 
 func newPrefixedID(prefix string) (string, error) {

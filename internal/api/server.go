@@ -5,29 +5,37 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/phamtanminhtien/patchpilot/internal/agent"
+	"github.com/phamtanminhtien/patchpilot/internal/auth"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
 	"github.com/phamtanminhtien/patchpilot/internal/events"
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
 	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
+	"github.com/phamtanminhtien/patchpilot/internal/ports"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
 	"github.com/phamtanminhtien/patchpilot/internal/workspace"
 )
 
 type Server struct {
-	workspaces *workspace.Manager
-	files      *filestore.Service
-	git        *gitrepo.Client
-	runner     *runner.Runner
-	store      *database.Store
-	events     *events.Hub
-	agent      *agent.Manager
-	health     HealthChecker
+	workspaces  *workspace.Manager
+	files       *filestore.Service
+	git         *gitrepo.Client
+	runner      *runner.Runner
+	store       *database.Store
+	events      *events.Hub
+	agent       *agent.Manager
+	auth        *auth.Service
+	health      HealthChecker
+	ports       ports.ListenerScanner
+	backendAddr string
 }
 
 type HealthChecker interface {
@@ -35,10 +43,18 @@ type HealthChecker interface {
 }
 
 func NewServer(workspaces *workspace.Manager, files *filestore.Service, git *gitrepo.Client, runner *runner.Runner, store *database.Store, hub *events.Hub, agentManager *agent.Manager, health HealthChecker) *Server {
+	return NewServerWithAuth(workspaces, files, git, runner, store, hub, agentManager, nil, health)
+}
+
+func NewServerWithAuth(workspaces *workspace.Manager, files *filestore.Service, git *gitrepo.Client, runner *runner.Runner, store *database.Store, hub *events.Hub, agentManager *agent.Manager, authService *auth.Service, health HealthChecker) *Server {
 	if hub == nil {
 		hub = events.NewHub()
 	}
-	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, store: store, events: hub, agent: agentManager, health: health}
+	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, store: store, events: hub, agent: agentManager, auth: authService, health: health, ports: ports.NewListenerScanner()}
+}
+
+func (s *Server) SetBackendAddr(addr string) {
+	s.backendAddr = strings.TrimSpace(addr)
 }
 
 func (s *Server) Routes() http.Handler {
@@ -48,9 +64,13 @@ func (s *Server) Routes() http.Handler {
 func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.healthCheck)
+	mux.HandleFunc("POST /api/auth/login", s.login)
+	mux.Handle("GET /api/auth/session", s.requireAuth(http.HandlerFunc(s.getSession)))
+	mux.Handle("POST /api/auth/logout", s.requireAuth(http.HandlerFunc(s.logout)))
 	mux.HandleFunc("POST /api/workspaces", s.createWorkspace)
 	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}", s.getWorkspace)
+	mux.HandleFunc("DELETE /api/workspaces/{workspaceId}", s.deleteWorkspace)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files", s.listFiles)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files/index", s.listFileIndex)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/files/index/refresh", s.refreshFileIndex)
@@ -66,16 +86,23 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/tasks", s.listAgentTasks)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/tasks/{taskId}", s.getAgentTask)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/tasks/{taskId}/cancel", s.cancelAgentTask)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/patches/{patchId}", s.getPatch)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/patches/{patchId}/apply", s.applyPatch)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/patches/{patchId}/reject", s.rejectPatch)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/patches/{patchId}/revert", s.revertPatch)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes", s.listProcesses)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes/{processId}", s.getProcess)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/processes/{processId}/stop", s.stopProcess)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/ports", s.listPorts)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/ports/{port}/expose", s.exposePort)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/events", s.workspaceEvents)
+	mux.HandleFunc("GET /workspaces/{workspaceId}/ports/{port}/proxy/{path...}", s.proxyPort)
 	if staticDir != "" {
 		mux.HandleFunc("GET /", serveStatic(staticDir))
 		mux.HandleFunc("HEAD /", serveStatic(staticDir))
 	}
-	return mux
+	return s.authenticatedRoutes(mux)
 }
 
 func serveStatic(staticDir string) http.HandlerFunc {
@@ -92,6 +119,38 @@ func serveStatic(staticDir string) http.HandlerFunc {
 		}
 		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
 	}
+}
+
+func (s *Server) authenticatedRoutes(next http.Handler) http.Handler {
+	if s.auth == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPublicRoute(r) || (!strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/workspaces/")) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		s.requireAuth(next).ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.auth == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, err := s.auth.ValidateRequest(r.Context(), r, time.Now().UTC()); err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication is required", nil)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isPublicRoute(r *http.Request) bool {
+	return (r.Method == http.MethodGet && r.URL.Path == "/api/health") ||
+		(r.Method == http.MethodPost && r.URL.Path == "/api/auth/login")
 }
 
 func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +178,59 @@ type createAgentTaskRequest struct {
 	ReasoningEffort string `json:"reasoningEffort"`
 }
 
+type loginRequest struct {
+	Token string `json:"token"`
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "Authentication is unavailable", nil)
+		return
+	}
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	rawToken, session, err := s.auth.Login(r.Context(), req.Token, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidToken) {
+			writeError(w, http.StatusUnauthorized, "invalid_auth_token", "Invalid admin token", nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "login_failed", "Login failed", nil)
+		return
+	}
+	auth.SetSessionCookie(w, rawToken, session.ExpiresAt, auth.SecureCookie(r))
+	writeJSON(w, http.StatusOK, map[string]any{"session": session})
+}
+
+func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "Authentication is unavailable", nil)
+		return
+	}
+	session, err := s.auth.ValidateRequest(r.Context(), r, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication is required", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": session})
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "Authentication is unavailable", nil)
+		return
+	}
+	if err := s.auth.Logout(r.Context(), r); err != nil {
+		writeError(w, http.StatusInternalServerError, "logout_failed", "Logout failed", nil)
+		return
+	}
+	auth.ClearSessionCookie(w, auth.SecureCookie(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 type gitStageRequest struct {
 	Paths []string `json:"paths"`
 }
@@ -139,10 +251,13 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeWorkspaceError(w, err)
 		return
 	}
+	s.publishWorkspaceState(ws.ID, "workspace.indexing", ws)
 	if err := s.refreshWorkspaceIndex(r.Context(), ws); err != nil {
 		writeIndexRefreshError(w, err)
 		return
 	}
+	s.restoreWorkspaceSession(r.Context(), ws, "vibe")
+	s.publishWorkspaceState(ws.ID, "workspace.ready", ws)
 	writeJSON(w, http.StatusCreated, ws)
 }
 
@@ -160,11 +275,26 @@ func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.publishWorkspaceState(ws.ID, "workspace.indexing", ws)
 	if err := s.refreshWorkspaceIndex(r.Context(), ws); err != nil {
 		writeIndexRefreshError(w, err)
 		return
 	}
+	s.restoreWorkspaceSession(r.Context(), ws, "vibe")
+	s.publishWorkspaceState(ws.ID, "workspace.ready", ws)
 	writeJSON(w, http.StatusOK, ws)
+}
+
+func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := s.workspaces.Delete(r.Context(), ws.ID); err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
@@ -215,10 +345,12 @@ func (s *Server) refreshFileIndex(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.publishWorkspaceState(ws.ID, "workspace.indexing", ws)
 	if err := s.refreshWorkspaceIndex(r.Context(), ws); err != nil {
 		writeIndexRefreshError(w, err)
 		return
 	}
+	s.publishWorkspaceState(ws.ID, "workspace.ready", ws)
 	entries, err := s.workspaces.FileIndex(r.Context(), ws.ID)
 	if err != nil {
 		writeWorkspaceError(w, err)
@@ -297,6 +429,7 @@ func (s *Server) gitStage(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err, "git_stage_failed", "Git stage failed")
 		return
 	}
+	s.publishGitChanged(r.Context(), ws)
 	writeJSON(w, http.StatusOK, status)
 }
 
@@ -315,6 +448,7 @@ func (s *Server) gitUnstage(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err, "git_unstage_failed", "Git unstage failed")
 		return
 	}
+	s.publishGitChanged(r.Context(), ws)
 	writeJSON(w, http.StatusOK, status)
 }
 
@@ -333,6 +467,7 @@ func (s *Server) gitDiscard(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err, "git_discard_failed", "Git discard failed")
 		return
 	}
+	s.publishGitChanged(r.Context(), ws)
 	writeJSON(w, http.StatusOK, status)
 }
 
@@ -351,6 +486,7 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err, "git_commit_failed", "Git commit failed")
 		return
 	}
+	s.publishGitChanged(r.Context(), ws)
 	writeJSON(w, http.StatusOK, commit)
 }
 
@@ -429,6 +565,107 @@ func (s *Server) cancelAgentTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+func (s *Server) getPatch(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	patch, err := s.store.GetPatch(r.Context(), ws.ID, r.PathValue("patchId"))
+	if err != nil {
+		writePatchError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"patch": agent.PatchFromRecord(patch)})
+}
+
+func (s *Server) applyPatch(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	patch, err := s.store.GetPatch(r.Context(), ws.ID, r.PathValue("patchId"))
+	if err != nil {
+		writePatchError(w, err)
+		return
+	}
+	if !patchIsProposed(patch.Status) {
+		writeError(w, http.StatusConflict, "invalid_patch_status", "Only proposed patches can be applied", map[string]any{"status": patch.Status})
+		return
+	}
+	if err := s.git.ApplyPatch(r.Context(), ws.RootPath, patch.Diff, gitrepo.ApplyForward); err != nil {
+		_, _ = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "failed"})
+		writeGitError(w, err, "patch_apply_failed", "Patch could not be applied")
+		return
+	}
+	now := time.Now().UTC()
+	patch, err = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "applied", "applied_at": now})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "patch_update_failed", "Patch status could not be updated", nil)
+		return
+	}
+	publicPatch := agent.PatchFromRecord(patch)
+	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.applied", Payload: publicPatch})
+	s.publishGitChanged(r.Context(), ws)
+	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
+}
+
+func (s *Server) rejectPatch(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	patch, err := s.store.GetPatch(r.Context(), ws.ID, r.PathValue("patchId"))
+	if err != nil {
+		writePatchError(w, err)
+		return
+	}
+	if !patchIsProposed(patch.Status) {
+		writeError(w, http.StatusConflict, "invalid_patch_status", "Only proposed patches can be rejected", map[string]any{"status": patch.Status})
+		return
+	}
+	patch, err = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "rejected"})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "patch_update_failed", "Patch status could not be updated", nil)
+		return
+	}
+	publicPatch := agent.PatchFromRecord(patch)
+	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.rejected", Payload: publicPatch})
+	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
+}
+
+func (s *Server) revertPatch(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	patch, err := s.store.GetPatch(r.Context(), ws.ID, r.PathValue("patchId"))
+	if err != nil {
+		writePatchError(w, err)
+		return
+	}
+	if patch.Status != "applied" {
+		writeError(w, http.StatusConflict, "invalid_patch_status", "Only applied patches can be reverted", map[string]any{"status": patch.Status})
+		return
+	}
+	if err := s.git.ApplyPatch(r.Context(), ws.RootPath, patch.Diff, gitrepo.ApplyReverse); err != nil {
+		writeGitError(w, err, "patch_revert_failed", "Patch could not be reverted")
+		return
+	}
+	patch, err = s.store.UpdatePatch(r.Context(), ws.ID, patch.ID, map[string]any{"status": "reverted"})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "patch_update_failed", "Patch status could not be updated", nil)
+		return
+	}
+	publicPatch := agent.PatchFromRecord(patch)
+	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "patch.reverted", Payload: publicPatch})
+	s.publishGitChanged(r.Context(), ws)
+	writeJSON(w, http.StatusOK, map[string]any{"patch": publicPatch})
+}
+
+func patchIsProposed(status string) bool {
+	return status == "proposed" || status == "created"
 }
 
 func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
@@ -543,6 +780,81 @@ func (s *Server) stopProcess(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, commandResponseFromRecord(command))
 }
 
+func (s *Server) listPorts(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	s.refreshPortStates(r.Context(), ws.ID)
+	records, err := s.store.ListPorts(r.Context(), ws.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "port_list_failed", "Ports could not be listed", nil)
+		return
+	}
+	response := make([]portResponse, 0, len(records))
+	for _, record := range records {
+		response = append(response, s.portResponseFromRecord(r, record))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ports": response})
+}
+
+func (s *Server) exposePort(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	port, ok := portFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if _, err := s.store.GetPort(r.Context(), ws.ID, port); err != nil {
+		writePortError(w, err)
+		return
+	}
+	if !ports.Reachable(r.Context(), port) {
+		s.markPortClosed(r.Context(), ws.ID, port)
+		writeError(w, http.StatusBadGateway, "port_unreachable", "Port is not accepting local connections", nil)
+		return
+	}
+	exposedPath := fmt.Sprintf("/workspaces/%s/ports/%d/proxy/", ws.ID, port)
+	record, err := s.store.ExposePort(r.Context(), ws.ID, port, exposedPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "port_expose_failed", "Port could not be exposed", nil)
+		return
+	}
+	response := s.portResponseFromRecord(r, record)
+	s.events.Publish(events.Event{WorkspaceID: ws.ID, Type: "port.exposed", Payload: response})
+	writeJSON(w, http.StatusOK, map[string]any{"port": response})
+}
+
+func (s *Server) proxyPort(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	port, ok := portFromRequest(w, r)
+	if !ok {
+		return
+	}
+	record, err := s.store.GetPort(r.Context(), ws.ID, port)
+	if err != nil {
+		writePortError(w, err)
+		return
+	}
+	if record.Status != "exposed" {
+		writeError(w, http.StatusConflict, "port_not_exposed", "Port is not exposed", nil)
+		return
+	}
+	host, reachable := ports.ReachableHost(r.Context(), port)
+	if !reachable {
+		s.markPortClosed(r.Context(), ws.ID, port)
+		writeError(w, http.StatusBadGateway, "port_unreachable", "Port is not accepting local connections", nil)
+		return
+	}
+	prefix := fmt.Sprintf("/workspaces/%s/ports/%d/proxy", ws.ID, port)
+	http.StripPrefix(prefix, ports.NewProxyForHost(host, port)).ServeHTTP(w, r)
+}
+
 func (s *Server) workspaceEvents(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {
@@ -577,13 +889,15 @@ func (s *Server) workspaceEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) commandHooks(workspaceID, commandID string) runner.Hooks {
+	scanCtx, stopScanning := context.WithCancel(context.Background())
 	return runner.Hooks{
-		OnStarted: func() {
+		OnStarted: func(pid int) {
 			startedAt := time.Now().UTC()
 			command, err := s.store.MarkCommandRunning(context.Background(), workspaceID, commandID, startedAt)
 			if err == nil {
 				s.publishProcessStarted(command)
 			}
+			go s.pollListeningPorts(scanCtx, workspaceID, commandID, pid)
 		},
 		OnOutput: func(stream, chunk string) {
 			output, err := s.store.AppendCommandOutput(context.Background(), database.CommandOutputRecord{
@@ -600,12 +914,98 @@ func (s *Server) commandHooks(workspaceID, commandID string) runner.Hooks {
 			}
 		},
 		OnFinished: func(result runner.FinishResult) {
+			stopScanning()
 			finishedAt := time.Now().UTC()
 			command, err := s.store.FinishCommand(context.Background(), workspaceID, commandID, result.Status, result.ExitCode, finishedAt)
 			if err == nil {
 				s.publishProcessExited(command)
 			}
 		},
+	}
+}
+
+func (s *Server) pollListeningPorts(ctx context.Context, workspaceID, commandID string, pid int) {
+	s.detectListeningPorts(ctx, workspaceID, commandID, pid)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.detectListeningPorts(ctx, workspaceID, commandID, pid)
+		}
+	}
+}
+
+func (s *Server) detectListeningPorts(ctx context.Context, workspaceID, commandID string, pid int) {
+	detectedPorts, err := s.ports.ListeningPorts(ctx, pid)
+	if err != nil {
+		return
+	}
+	for _, detectedPort := range detectedPorts {
+		processID := commandID
+		record, created, err := s.store.UpsertDetectedPort(ctx, database.PortRecord{
+			WorkspaceID: workspaceID,
+			ProcessID:   &processID,
+			Port:        detectedPort,
+			Status:      "detected",
+		})
+		if err != nil {
+			continue
+		}
+		eventType := "port.opened"
+		if !created && record.Status == "exposed" {
+			eventType = "port.exposed"
+		}
+		s.events.Publish(events.Event{
+			WorkspaceID: workspaceID,
+			Type:        eventType,
+			Payload:     s.portResponseFromRecord(nil, record),
+		})
+	}
+}
+
+func (s *Server) markPortClosed(ctx context.Context, workspaceID string, port int) {
+	record, err := s.store.MarkPortClosed(ctx, workspaceID, port, time.Now().UTC())
+	if err != nil {
+		return
+	}
+	s.events.Publish(events.Event{
+		WorkspaceID: workspaceID,
+		Type:        "port.closed",
+		Payload:     s.portResponseFromRecord(nil, record),
+	})
+}
+
+func (s *Server) refreshPortStates(ctx context.Context, workspaceID string) {
+	records, err := s.store.ListPorts(ctx, workspaceID)
+	if err != nil {
+		return
+	}
+	for _, record := range records {
+		if ports.Reachable(ctx, record.Port) {
+			if record.ExposedPath != nil {
+				updated, err := s.store.ExposePort(ctx, workspaceID, record.Port, *record.ExposedPath)
+				if err == nil && record.Status != updated.Status {
+					s.events.Publish(events.Event{WorkspaceID: workspaceID, Type: "port.exposed", Payload: s.portResponseFromRecord(nil, updated)})
+				}
+				continue
+			}
+			updated, _, err := s.store.UpsertDetectedPort(ctx, database.PortRecord{
+				WorkspaceID: workspaceID,
+				ProcessID:   record.ProcessID,
+				Port:        record.Port,
+				Status:      "detected",
+			})
+			if err == nil && record.Status != updated.Status {
+				s.events.Publish(events.Event{WorkspaceID: workspaceID, Type: "port.opened", Payload: s.portResponseFromRecord(nil, updated)})
+			}
+			continue
+		}
+		if record.Status == "exposed" || record.Status == "detected" {
+			s.markPortClosed(ctx, workspaceID, record.Port)
+		}
 	}
 }
 
@@ -686,6 +1086,34 @@ func (s *Server) publishProcessExited(command database.CommandRecord) {
 	})
 }
 
+func (s *Server) publishGitChanged(ctx context.Context, ws workspace.Workspace) {
+	status, err := s.git.Status(ctx, ws.RootPath)
+	if err != nil {
+		return
+	}
+	s.events.Publish(events.Event{
+		WorkspaceID: ws.ID,
+		Type:        "git.changed",
+		Payload:     status,
+	})
+}
+
+func (s *Server) publishWorkspaceState(workspaceID, eventType string, ws workspace.Workspace) {
+	s.events.Publish(events.Event{
+		WorkspaceID: workspaceID,
+		Type:        eventType,
+		Payload:     ws,
+	})
+}
+
+func (s *Server) restoreWorkspaceSession(ctx context.Context, ws workspace.Workspace, mode string) {
+	_, _ = s.store.UpsertSession(ctx, database.SessionRecord{
+		WorkspaceID: ws.ID,
+		Title:       ws.Name,
+		Mode:        mode,
+	})
+}
+
 func (s *Server) workspaceFromRequest(w http.ResponseWriter, r *http.Request) (workspace.Workspace, bool) {
 	ws, err := s.workspaces.Get(r.Context(), r.PathValue("workspaceId"))
 	if err != nil {
@@ -714,6 +1142,19 @@ type commandOutputResponse struct {
 	Stream    string    `json:"stream"`
 	Chunk     string    `json:"chunk"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+type portResponse struct {
+	ID          string     `json:"id"`
+	WorkspaceID string     `json:"workspaceId"`
+	ProcessID   *string    `json:"processId"`
+	Port        int        `json:"port"`
+	Status      string     `json:"status"`
+	ExposedPath *string    `json:"exposedPath"`
+	ExposedURL  *string    `json:"exposedUrl"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	ClosedAt    *time.Time `json:"closedAt"`
 }
 
 func commandResponseFromRecord(record database.CommandRecord) commandResponse {
@@ -752,6 +1193,99 @@ func outputResponsesFromRecords(records []database.CommandOutputRecord) []comman
 		output = append(output, outputResponseFromRecord(record))
 	}
 	return output
+}
+
+func (s *Server) portResponseFromRecord(r *http.Request, record database.PortRecord) portResponse {
+	var exposedURL *string
+	if record.ExposedPath != nil {
+		url := s.exposedURL(r, *record.ExposedPath)
+		exposedURL = &url
+	}
+	return portResponse{
+		ID:          record.ID,
+		WorkspaceID: record.WorkspaceID,
+		ProcessID:   record.ProcessID,
+		Port:        record.Port,
+		Status:      record.Status,
+		ExposedPath: record.ExposedPath,
+		ExposedURL:  exposedURL,
+		CreatedAt:   record.CreatedAt,
+		UpdatedAt:   record.UpdatedAt,
+		ClosedAt:    record.ClosedAt,
+	}
+}
+
+func (s *Server) exposedURL(r *http.Request, path string) string {
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return s.backendOrigin(r) + path
+}
+
+func (s *Server) backendOrigin(r *http.Request) string {
+	scheme := "http"
+	requestHost := ""
+	if r != nil {
+		requestHost = r.Host
+	}
+	if r != nil && r.TLS != nil {
+		scheme = "https"
+	}
+	if r != nil {
+		if proto := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])); proto == "http" || proto == "https" {
+			scheme = proto
+		}
+	}
+	host := requestHost
+	if s.backendAddr != "" {
+		host = backendHostForRequest(requestHost, s.backendAddr)
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return scheme + "://" + host
+}
+
+func backendHostForRequest(requestHost, backendAddr string) string {
+	backendHost, backendPort := splitHostPort(backendAddr)
+	if backendPort == "" {
+		return requestHost
+	}
+	if backendHost == "" || backendHost == "0.0.0.0" || backendHost == "::" {
+		backendHost = hostName(requestHost)
+	}
+	if backendHost == "" {
+		backendHost = "127.0.0.1"
+	}
+	return net.JoinHostPort(backendHost, backendPort)
+}
+
+func splitHostPort(value string) (string, string) {
+	host, port, err := net.SplitHostPort(value)
+	if err == nil {
+		return strings.Trim(host, "[]"), port
+	}
+	if strings.HasPrefix(value, ":") {
+		return "", strings.TrimPrefix(value, ":")
+	}
+	return value, ""
+}
+
+func hostName(value string) string {
+	host, _, err := net.SplitHostPort(value)
+	if err == nil {
+		return strings.Trim(host, "[]")
+	}
+	return strings.Trim(value, "[]")
+}
+
+func portFromRequest(w http.ResponseWriter, r *http.Request) (int, bool) {
+	port, err := strconv.Atoi(r.PathValue("port"))
+	if err != nil || port < 1 || port > 65535 {
+		writeError(w, http.StatusBadRequest, "invalid_port", "Port must be between 1 and 65535", nil)
+		return 0, false
+	}
+	return port, true
 }
 
 func writeWorkspaceError(w http.ResponseWriter, err error) {
@@ -807,6 +1341,24 @@ func writeProcessError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "process_not_found", "Process not found", nil)
 	default:
 		writeError(w, http.StatusInternalServerError, "process_failed", "Process request failed", nil)
+	}
+}
+
+func writePatchError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, database.ErrNotFound):
+		writeError(w, http.StatusNotFound, "patch_not_found", "Patch not found", nil)
+	default:
+		writeError(w, http.StatusInternalServerError, "patch_request_failed", "Patch request failed", nil)
+	}
+}
+
+func writePortError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, database.ErrNotFound):
+		writeError(w, http.StatusNotFound, "port_not_found", "Port not found", nil)
+	default:
+		writeError(w, http.StatusInternalServerError, "port_request_failed", "Port request failed", nil)
 	}
 }
 

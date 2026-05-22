@@ -1,8 +1,16 @@
-import { GitCommit, Loader2, MonitorUp, Play, RefreshCw } from "lucide-react";
+import {
+  ExternalLink,
+  GitCommit,
+  Loader2,
+  MonitorUp,
+  Play,
+  RefreshCw,
+  RotateCw,
+} from "lucide-react";
 import type { FormEvent } from "react";
 
-import type { FileIndexEntry } from "@/shared/api";
-import { Button, cn } from "@/shared/ui";
+import type { FileIndexEntry, Port } from "@/shared/api";
+import { Button, cn, StatusPill } from "@/shared/ui";
 
 import { ErrorState } from "../components/error-state";
 import { SidebarHint } from "../components/sidebar-hint";
@@ -38,11 +46,18 @@ export function WorkspaceSidebar({
   onGitCommitMessageChange,
   onGitCommitSubmit,
   onFileIndexRefresh,
+  onPortExpose,
   onPathSelect,
   onStagedChangesUnstage,
+  ports,
+  portsError,
   selectedPath,
   workspace,
   workspaceError,
+  portExposeError,
+  isExposingPort,
+  isLoadingPorts,
+  exposingPort,
 }: {
   activePanel: WorkspacePanel;
   files: FileIndexEntry[];
@@ -57,6 +72,9 @@ export function WorkspaceSidebar({
   isGitCommitPending: boolean;
   isFilesLoading: boolean;
   isGitLoading: boolean;
+  isExposingPort: boolean;
+  isLoadingPorts: boolean;
+  exposingPort?: number;
   isRefreshingFiles: boolean;
   isStagingChanges: boolean;
   isUnstagingChanges: boolean;
@@ -65,8 +83,12 @@ export function WorkspaceSidebar({
   onGitCommitMessageChange: (value: string) => void;
   onGitCommitSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onFileIndexRefresh: () => void;
+  onPortExpose: (port: number) => void;
   onPathSelect: (path: string) => void;
   onStagedChangesUnstage: (paths: string[]) => void;
+  ports: Port[];
+  portsError?: string;
+  portExposeError?: string;
   selectedPath: string;
   workspace?: {
     name: string;
@@ -132,10 +154,14 @@ export function WorkspaceSidebar({
         ) : null}
 
         {activePanel === "preview" ? (
-          <SidebarHint
-            icon={<MonitorUp aria-hidden="true" className="size-4" />}
-            message="Preview controls will connect to detected ports once port APIs are available."
-            title="Preview"
+          <PreviewServerList
+            error={portsError}
+            exposeError={portExposeError}
+            exposingPort={exposingPort}
+            isExposing={isExposingPort}
+            isLoading={isLoadingPorts}
+            onExpose={onPortExpose}
+            ports={ports}
           />
         ) : null}
       </div>
@@ -203,6 +229,149 @@ function GitCommitBox({
 
 function stagedGitPathCount(changes: GitChange[]) {
   return selectStagedGitPaths(visibleGitChanges(changes)).length;
+}
+
+function PreviewServerList({
+  error,
+  exposeError,
+  exposingPort,
+  isExposing,
+  isLoading,
+  onExpose,
+  ports,
+}: {
+  error?: string;
+  exposeError?: string;
+  exposingPort?: number;
+  isExposing: boolean;
+  isLoading: boolean;
+  onExpose: (port: number) => void;
+  ports: Port[];
+}) {
+  return (
+    <section className="grid gap-2 pb-2">
+      <div className="grid min-h-11 items-center gap-2 px-2 pb-1">
+        <div className="min-w-0">
+          <h3 className="text-ink truncate text-xs font-semibold">
+            Detected servers
+          </h3>
+          <p className="text-muted text-xs">
+            {ports.length} {ports.length === 1 ? "port" : "ports"}
+          </p>
+        </div>
+      </div>
+
+      <div className="px-2">
+        {exposeError ? <ErrorState message={exposeError} /> : null}
+      </div>
+
+      {isLoading ? (
+        <SidebarHint
+          icon={<MonitorUp aria-hidden="true" className="size-4" />}
+          message="Loading detected ports."
+          title="Preview"
+        />
+      ) : null}
+
+      {!isLoading && ports.length === 0 ? (
+        <SidebarHint
+          icon={<MonitorUp aria-hidden="true" className="size-4" />}
+          message={error ?? "Run a dev command to detect a local preview port."}
+          title="Preview"
+        />
+      ) : null}
+
+      {ports.length > 0 ? (
+        <div className="grid">
+          {ports.map((port) => (
+            <PortRow
+              isPending={isExposing && exposingPort === port.port}
+              key={port.id}
+              onExpose={onExpose}
+              port={port}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function PortRow({
+  isPending,
+  onExpose,
+  port,
+}: {
+  isPending: boolean;
+  onExpose: (port: number) => void;
+  port: Port;
+}) {
+  const description =
+    port.status === "exposed"
+      ? (port.exposedUrl ?? "Ready to open")
+      : port.status === "closed"
+        ? "Port closed before preview was opened."
+        : "Detected and ready to expose.";
+
+  return (
+    <div className="hover:bg-hover grid min-h-14 grid-cols-[minmax(0,1fr)_4.75rem] items-center gap-2 px-3 py-2">
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              "h-3 w-1 shrink-0",
+              port.status === "exposed"
+                ? "bg-accent"
+                : port.status === "closed"
+                  ? "bg-warning"
+                  : "bg-hover",
+            )}
+          />
+          <span className="text-ink truncate text-xs font-semibold">
+            localhost:{port.port}
+          </span>
+        </div>
+        <div className="mt-1 flex min-w-0 items-center gap-2">
+          <StatusPill
+            className="min-h-5 rounded-sm px-1.5 shadow-none"
+            status={port.status}
+          />
+          <span className="text-muted truncate text-xs">{description}</span>
+        </div>
+      </div>
+
+      {port.status === "exposed" && port.exposedUrl ? (
+        <Button
+          asChild
+          className="text-accent min-h-8 px-2 shadow-none"
+          size="small"
+          variant="action"
+        >
+          <a href={port.exposedUrl} rel="noreferrer" target="_blank">
+            <ExternalLink aria-hidden="true" className="size-3.5" />
+            Open
+          </a>
+        </Button>
+      ) : (
+        <Button
+          icon={
+            port.status === "closed" ? (
+              <RotateCw className={isPending ? "animate-spin" : undefined} />
+            ) : (
+              <ExternalLink />
+            )
+          }
+          onClick={() => onExpose(port.port)}
+          className="min-h-8 w-full px-2 shadow-none"
+          size="small"
+          type="button"
+          variant={port.status === "closed" ? "action" : "primary"}
+        >
+          {port.status === "closed" ? "Retry" : "Expose"}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 function WorkspaceSidebarHeader({

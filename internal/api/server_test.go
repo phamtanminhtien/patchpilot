@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/phamtanminhtien/patchpilot/internal/agent"
+	"github.com/phamtanminhtien/patchpilot/internal/auth"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
 	"github.com/phamtanminhtien/patchpilot/internal/events"
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
@@ -29,6 +30,30 @@ type fakeHealthChecker struct {
 
 func (f fakeHealthChecker) Ping(context.Context) error {
 	return f.err
+}
+
+func TestExposedURLUsesBackendPort(t *testing.T) {
+	server := &Server{}
+	server.SetBackendAddr("127.0.0.1:8080")
+	request := httptest.NewRequest(http.MethodPost, "http://localhost:5173/api/workspaces/ws_1/ports/3000/expose", nil)
+
+	got := server.exposedURL(request, "/workspaces/ws_1/ports/3000/proxy/")
+	want := "http://127.0.0.1:8080/workspaces/ws_1/ports/3000/proxy/"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestExposedURLKeepsRequestHostForWildcardBackendAddr(t *testing.T) {
+	server := &Server{}
+	server.SetBackendAddr("0.0.0.0:8080")
+	request := httptest.NewRequest(http.MethodPost, "http://dev.example.test:5173/api/workspaces/ws_1/ports/3000/expose", nil)
+
+	got := server.exposedURL(request, "/workspaces/ws_1/ports/3000/proxy/")
+	want := "http://dev.example.test:8080/workspaces/ws_1/ports/3000/proxy/"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
 }
 
 type fakeAgentProvider struct{}
@@ -81,6 +106,30 @@ func TestHealthCheckReturnsUnavailableWhenDatabaseFails(t *testing.T) {
 	mustDecode(t, response, &body)
 	if body["error"]["code"] != "database_unavailable" {
 		t.Fatalf("unexpected error body: %+v", body)
+	}
+}
+
+func TestAuthHandlersProtectWorkspaceRoutes(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	server := newAuthenticatedTestServer(t, root, "secret")
+
+	unauthorized := request(server, http.MethodGet, "/api/workspaces", "")
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", unauthorized.Code, unauthorized.Body.String())
+	}
+
+	login := request(server, http.MethodPost, "/api/auth/login", `{"token":"secret"}`)
+	if login.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", login.Code, login.Body.String())
+	}
+	cookies := login.Result().Cookies()
+	if len(cookies) == 0 || cookies[0].Name != auth.CookieName {
+		t.Fatalf("expected session cookie, got %+v", cookies)
+	}
+
+	authorized := requestWithCookies(server, http.MethodGet, "/api/workspaces", "", cookies)
+	if authorized.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", authorized.Code, authorized.Body.String())
 	}
 }
 
@@ -597,6 +646,33 @@ func newTestServerWithAgentProvider(t *testing.T, allowedRoot string, dbPath str
 	return NewServer(manager, fileService, gitClient, run, store, hub, agentManager, health).Routes()
 }
 
+func newAuthenticatedTestServer(t *testing.T, allowedRoot, adminToken string) http.Handler {
+	t.Helper()
+	store, err := database.Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("database.Open returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	})
+	gitClient := gitrepo.NewClient()
+	manager, err := workspace.NewManager([]string{allowedRoot}, store, gitClient)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	fileService := filestore.NewService()
+	run := runner.NewRunner()
+	hub := events.NewHub()
+	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, fakeAgentProvider{})
+	authService, err := auth.NewService(adminToken, store)
+	if err != nil {
+		t.Fatalf("NewService returned error: %v", err)
+	}
+	return NewServerWithAuth(manager, fileService, gitClient, run, store, hub, agentManager, authService, store).Routes()
+}
+
 func waitForAgentDetail(t *testing.T, handler http.Handler, workspaceID, taskID, status string) agent.Detail {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -620,6 +696,19 @@ func request(handler http.Handler, method, path, body string) *httptest.Response
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func requestWithCookies(handler http.Handler, method, path, body string, cookies []*http.Cookie) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
 	}
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)

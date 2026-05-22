@@ -12,6 +12,16 @@ export interface HealthResponse {
   status: "ok";
 }
 
+export interface AuthSession {
+  expiresAt: string;
+  id: string;
+  lastSeenAt: string;
+}
+
+export interface AuthSessionResponse {
+  session: AuthSession;
+}
+
 export interface Workspace {
   createdAt: string;
   id: string;
@@ -183,7 +193,10 @@ export interface AgentTaskEvent {
     | "agent.tool.finished"
     | "agent.approval_required"
     | "agent.task.status_changed"
-    | "patch.created";
+    | "patch.created"
+    | "patch.applied"
+    | "patch.rejected"
+    | "patch.reverted";
   workspaceId: string;
 }
 
@@ -212,6 +225,31 @@ export interface AgentPatch {
   workspaceId: string;
 }
 
+export interface PatchResponse {
+  patch: AgentPatch;
+}
+
+export interface Port {
+  closedAt?: string | null;
+  createdAt: string;
+  exposedPath?: string | null;
+  exposedUrl?: string | null;
+  id: string;
+  port: number;
+  processId?: string | null;
+  status: "detected" | "exposed" | "closed";
+  updatedAt: string;
+  workspaceId: string;
+}
+
+export interface PortListResponse {
+  ports: Port[];
+}
+
+export interface PortResponse {
+  port: Port;
+}
+
 export interface AgentTaskDetail {
   events: AgentTaskEvent[];
   patches: AgentPatch[];
@@ -223,6 +261,14 @@ export interface WorkspaceEvent {
   createdAt: string;
   id: string;
   payload: unknown;
-  type: CommandEvent["type"] | AgentTaskEvent["type"];
+  type:
+    | CommandEvent["type"]
+    | AgentTaskEvent["type"]
+    | "workspace.indexing"
+    | "workspace.ready"
+    | "git.changed"
+    | "port.opened"
+    | "port.exposed"
+    | "port.closed";
   workspaceId: string;
 }

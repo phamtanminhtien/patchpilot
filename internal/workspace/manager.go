@@ -151,6 +151,13 @@ func (m *Manager) List(ctx context.Context) ([]Workspace, error) {
 	return workspaces, nil
 }
 
+func (m *Manager) Delete(ctx context.Context, workspaceID string) error {
+	if _, err := m.Get(ctx, workspaceID); err != nil {
+		return err
+	}
+	return m.store.DeleteWorkspaceMetadata(ctx, workspaceID)
+}
+
 func (m *Manager) ReplaceFileIndex(ctx context.Context, workspaceID string, entries []FileIndexEntry) error {
 	if _, err := m.Get(ctx, workspaceID); err != nil {
 		return err

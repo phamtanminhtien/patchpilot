@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { Command, CommandOutput } from "@/shared/api";
+import type { Command, CommandOutput, Port } from "@/shared/api";
 import { cn } from "@/shared/ui";
 
 import { LoadingState } from "../components/loading-state";
@@ -12,6 +12,7 @@ export function WorkspaceBottomPanel({
   activeCommand,
   commandOutput,
   isGitLoading,
+  previewPorts,
   selectedPath,
 }: {
   activeCommand: Command | null;
@@ -19,6 +20,7 @@ export function WorkspaceBottomPanel({
   commandOutput: CommandOutput[];
   gitRawStatus?: string;
   isGitLoading: boolean;
+  previewPorts: Port[];
   selectedPath: string;
 }) {
   return (
@@ -63,12 +65,26 @@ export function WorkspaceBottomPanel({
 
         {activePanel === "preview" ? (
           <p className="text-muted text-xs">
-            No detected port API is connected in this MVP slice.
+            {previewPorts.length > 0
+              ? previewSummary(previewPorts)
+              : "Run a dev command to detect a local preview port."}
           </p>
         ) : null}
       </div>
     </section>
   );
+}
+
+function previewSummary(ports: Port[]) {
+  const exposed = ports.filter((port) => port.status === "exposed").length;
+  const detected = ports.length - exposed;
+  if (exposed > 0 && detected > 0) {
+    return `${exposed} exposed, ${detected} waiting.`;
+  }
+  if (exposed > 0) {
+    return `${exposed} exposed preview ${exposed === 1 ? "port" : "ports"}.`;
+  }
+  return `${ports.length} detected ${ports.length === 1 ? "port" : "ports"} waiting to expose.`;
 }
 
 function latestOutput(output: CommandOutput[]) {

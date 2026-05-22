@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Check,
   ChevronDown,
   FolderOpen,
   Loader2,
@@ -14,6 +15,8 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  Undo2,
+  X,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
@@ -23,17 +26,21 @@ import { AppShell } from "@/app/app-shell";
 import { useThemePreference } from "@/app/theme";
 import {
   type AgentModel,
+  type AgentPatch,
   type AgentReasoningEffort,
   type AgentTask,
   type AgentTaskDetail,
   type AgentTaskEvent,
   apiErrorMessage,
+  applyPatch,
   createAgentTask,
   createWorkspace,
   getAgentTask,
   getWorkspace,
   listAgentTasks,
   listWorkspaces,
+  rejectPatch,
+  revertPatch,
   type WorkspaceEvent,
 } from "@/shared/api";
 import {
@@ -120,6 +127,21 @@ export function VibePage() {
     },
   });
 
+  const patchApplyMutation = useMutation({
+    mutationFn: (patchId: string) => applyPatch(workspaceId, patchId),
+    onSuccess: (patch) => updatePatchCache(queryClient, workspaceId, patch),
+  });
+
+  const patchRejectMutation = useMutation({
+    mutationFn: (patchId: string) => rejectPatch(workspaceId, patchId),
+    onSuccess: (patch) => updatePatchCache(queryClient, workspaceId, patch),
+  });
+
+  const patchRevertMutation = useMutation({
+    mutationFn: (patchId: string) => revertPatch(workspaceId, patchId),
+    onSuccess: (patch) => updatePatchCache(queryClient, workspaceId, patch),
+  });
+
   const workspace = workspaceQuery.data;
   const error = createWorkspaceMutation.error ?? workspaceQuery.error;
 
@@ -175,6 +197,9 @@ export function VibePage() {
     source.addEventListener("agent.approval_required", handleAgentEvent);
     source.addEventListener("agent.task.status_changed", handleAgentEvent);
     source.addEventListener("patch.created", handleAgentEvent);
+    source.addEventListener("patch.applied", handleAgentEvent);
+    source.addEventListener("patch.rejected", handleAgentEvent);
+    source.addEventListener("patch.reverted", handleAgentEvent);
     return () => {
       source.close();
     };
@@ -185,6 +210,7 @@ export function VibePage() {
     () => taskDetailQuery.data?.events ?? [],
     [taskDetailQuery.data?.events],
   );
+  const taskPatches = taskDetailQuery.data?.patches ?? [];
 
   function handleTaskSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -376,14 +402,36 @@ export function VibePage() {
 
             <AgentTaskThread
               activeTask={activeTask}
+              applyError={
+                patchApplyMutation.error
+                  ? apiErrorMessage(patchApplyMutation.error)
+                  : undefined
+              }
               createError={
                 createTaskMutation.error
                   ? apiErrorMessage(createTaskMutation.error)
                   : undefined
               }
               events={taskEvents}
+              isApplying={patchApplyMutation.isPending}
               isLoading={tasksQuery.isPending || taskDetailQuery.isPending}
+              isRejecting={patchRejectMutation.isPending}
+              isReverting={patchRevertMutation.isPending}
+              onPatchApply={(patchId) => patchApplyMutation.mutate(patchId)}
+              onPatchReject={(patchId) => patchRejectMutation.mutate(patchId)}
+              onPatchRevert={(patchId) => patchRevertMutation.mutate(patchId)}
               onSelectTask={setActiveTaskId}
+              patches={taskPatches}
+              rejectError={
+                patchRejectMutation.error
+                  ? apiErrorMessage(patchRejectMutation.error)
+                  : undefined
+              }
+              revertError={
+                patchRevertMutation.error
+                  ? apiErrorMessage(patchRevertMutation.error)
+                  : undefined
+              }
               tasks={tasksQuery.data?.tasks ?? []}
               workspaceRoot={workspace?.rootPath}
             />
@@ -451,18 +499,38 @@ function SelectControl({
 
 function AgentTaskThread({
   activeTask,
+  applyError,
   createError,
   events,
+  isApplying,
   isLoading,
+  isRejecting,
+  isReverting,
+  onPatchApply,
+  onPatchReject,
+  onPatchRevert,
   onSelectTask,
+  patches,
+  rejectError,
+  revertError,
   tasks,
   workspaceRoot,
 }: {
   activeTask?: AgentTask;
+  applyError?: string;
   createError?: string;
   events: AgentTaskEvent[];
+  isApplying: boolean;
   isLoading: boolean;
+  isRejecting: boolean;
+  isReverting: boolean;
+  onPatchApply: (patchId: string) => void;
+  onPatchReject: (patchId: string) => void;
+  onPatchRevert: (patchId: string) => void;
   onSelectTask: (taskId: string) => void;
+  patches: AgentPatch[];
+  rejectError?: string;
+  revertError?: string;
   tasks: AgentTask[];
   workspaceRoot?: string;
 }) {
@@ -536,6 +604,21 @@ function AgentTaskThread({
               {activeTask.generatedPatch ? (
                 <TaskBlock label="Patch created" text={activeTask.summary} />
               ) : null}
+              {patches.map((patch) => (
+                <PatchReview
+                  applyError={applyError}
+                  isApplying={isApplying}
+                  isRejecting={isRejecting}
+                  isReverting={isReverting}
+                  key={patch.id}
+                  onApply={() => onPatchApply(patch.id)}
+                  onReject={() => onPatchReject(patch.id)}
+                  onRevert={() => onPatchRevert(patch.id)}
+                  patch={patch}
+                  rejectError={rejectError}
+                  revertError={revertError}
+                />
+              ))}
               {activeTask.error ? (
                 <p className="text-warning text-sm font-medium">
                   {activeTask.error}
@@ -558,6 +641,90 @@ function TaskBlock({ label, text }: { label: string; text: string }) {
     <div className="bg-hover grid gap-1 rounded-sm p-3">
       <p className="text-muted text-xs font-semibold">{label}</p>
       <p className="text-ink text-sm whitespace-pre-wrap">{text}</p>
+    </div>
+  );
+}
+
+function PatchReview({
+  applyError,
+  isApplying,
+  isRejecting,
+  isReverting,
+  onApply,
+  onReject,
+  onRevert,
+  patch,
+  rejectError,
+  revertError,
+}: {
+  applyError?: string;
+  isApplying: boolean;
+  isRejecting: boolean;
+  isReverting: boolean;
+  onApply: () => void;
+  onReject: () => void;
+  onRevert: () => void;
+  patch: AgentPatch;
+  rejectError?: string;
+  revertError?: string;
+}) {
+  const canDecide = patch.status === "created" || patch.status === "proposed";
+  const canRevert = patch.status === "applied";
+  const error = applyError ?? rejectError ?? revertError;
+
+  return (
+    <div className="bg-panel grid min-w-0 gap-3 rounded-md p-3 shadow-sm">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-ink truncate text-sm font-semibold">
+            Patch {patch.id}
+          </p>
+          <p className="text-muted text-xs">{patch.status}</p>
+        </div>
+        <StatusPill status={patch.status} />
+      </div>
+      {patch.summary ? (
+        <p className="text-muted text-sm whitespace-pre-wrap">
+          {patch.summary}
+        </p>
+      ) : null}
+      <pre className="bg-hover text-ink max-h-64 overflow-auto rounded-sm p-3 text-xs whitespace-pre-wrap">
+        {patch.diff}
+      </pre>
+      {error ? (
+        <p className="text-warning text-sm font-medium">{error}</p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          disabled={!canDecide || isApplying}
+          icon={<Check />}
+          onClick={onApply}
+          size="small"
+          type="button"
+        >
+          Apply patch
+        </Button>
+        <Button
+          disabled={!canDecide || isRejecting}
+          icon={<X />}
+          onClick={onReject}
+          size="small"
+          type="button"
+          variant="secondary"
+        >
+          Reject
+        </Button>
+        <Button
+          disabled={!canRevert || isReverting}
+          icon={<Undo2 />}
+          onClick={onRevert}
+          size="small"
+          type="button"
+          variant="secondary"
+        >
+          Revert
+        </Button>
+      </div>
     </div>
   );
 }
@@ -608,6 +775,26 @@ function upsertTask(
   );
 }
 
+function updatePatchCache(
+  queryClient: QueryClient,
+  workspaceId: string,
+  patch: AgentPatch,
+) {
+  queryClient.setQueryData<AgentTaskDetail>(
+    ["agent-task", workspaceId, patch.taskId],
+    (current) =>
+      current
+        ? {
+            ...current,
+            patches: [
+              patch,
+              ...current.patches.filter((item) => item.id !== patch.id),
+            ],
+          }
+        : current,
+  );
+}
+
 function appendTaskEvent(events: AgentTaskEvent[], event: WorkspaceEvent) {
   if (events.some((item) => item.id === event.id) || !isAgentTaskEvent(event)) {
     return events;
@@ -628,13 +815,16 @@ function appendTaskEvent(events: AgentTaskEvent[], event: WorkspaceEvent) {
 function isAgentTaskEvent(event: WorkspaceEvent): event is WorkspaceEvent & {
   type: AgentTaskEvent["type"];
 } {
-  return event.type.startsWith("agent.") || event.type === "patch.created";
+  return event.type.startsWith("agent.") || event.type.startsWith("patch.");
 }
 
 function eventTaskId(event: WorkspaceEvent) {
   const payload = event.payload as Record<string, unknown>;
   if (typeof payload.taskId === "string") {
     return payload.taskId;
+  }
+  if (typeof payload.id === "string" && payload.id.startsWith("patch_")) {
+    return typeof payload.taskId === "string" ? payload.taskId : "";
   }
   if (typeof payload.id === "string" && payload.id.startsWith("task_")) {
     return payload.id;

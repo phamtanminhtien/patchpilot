@@ -40,6 +40,7 @@ Create a local `.env` file:
 ```dotenv
 PATCHPILOT_ADDR=127.0.0.1:8080
 PATCHPILOT_ALLOWED_ROOTS=/absolute/path/to/repos
+PATCHPILOT_ADMIN_TOKEN=choose-a-local-admin-token
 PATCHPILOT_OPENAI_API_KEY=your-openai-or-compatible-key
 # PATCHPILOT_OPENAI_BASE_URL=https://api.openai.com/v1
 # PATCHPILOT_DATA_DIR=/absolute/path/to/app-data
@@ -51,6 +52,7 @@ PATCHPILOT_OPENAI_API_KEY=your-openai-or-compatible-key
 Important variables:
 
 - `PATCHPILOT_ALLOWED_ROOTS`: OS path-list of directories that may be opened as workspaces.
+- `PATCHPILOT_ADMIN_TOKEN`: required single-user login secret.
 - `PATCHPILOT_OPENAI_API_KEY`: backend-only provider secret used by AI tasks.
 - `PATCHPILOT_OPENAI_BASE_URL`: optional OpenAI-compatible base URL. Defaults to `https://api.openai.com/v1`.
 - `PATCHPILOT_ADDR`: backend listen address. Defaults to `127.0.0.1:8080`.

@@ -56,6 +56,7 @@ export function WorkspacePage() {
             commandOutput={controller.command.output}
             gitRawStatus={controller.git.rawStatus}
             isGitLoading={controller.git.isLoading}
+            previewPorts={controller.preview.ports}
             selectedPath={selectedPath}
           />
         }
@@ -80,9 +81,12 @@ export function WorkspacePage() {
             gitLastCommitHash={controller.git.lastCommitHash}
             gitStageError={controller.git.stageError}
             isDiscardingChanges={controller.git.isDiscardingChanges}
+            isExposingPort={controller.preview.isExposing}
             isFilesLoading={controller.files.isLoading}
             isGitCommitPending={controller.git.isCommitPending}
             isGitLoading={controller.git.isLoading}
+            isLoadingPorts={controller.preview.isLoading}
+            exposingPort={controller.preview.exposingPort}
             isRefreshingFiles={controller.files.isRefreshing}
             isStagingChanges={controller.git.isStagingChanges}
             isUnstagingChanges={controller.git.isUnstagingChanges}
@@ -92,7 +96,11 @@ export function WorkspacePage() {
             onGitCommitMessageChange={controller.git.onCommitMessageChange}
             onGitCommitSubmit={controller.git.onCommitSubmit}
             onPathSelect={controller.workspace.onPathSelect}
+            onPortExpose={controller.preview.onExpose}
             onStagedChangesUnstage={controller.git.onStagedChangesUnstage}
+            portExposeError={controller.preview.exposeError}
+            ports={controller.preview.ports}
+            portsError={controller.preview.error}
             selectedPath={selectedPath}
             workspace={controller.workspace.data}
             workspaceError={controller.workspace.error}

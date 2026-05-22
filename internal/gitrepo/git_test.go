@@ -359,6 +359,31 @@ func TestMethodsRejectNonRepositoryAndNestedRoot(t *testing.T) {
 	}
 }
 
+func TestApplyPatchValidatesAndReverts(t *testing.T) {
+	root := initGitRepo(t)
+	configureCommitter(t, root)
+	if err := os.WriteFile(filepath.Join(root, "app.txt"), []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	run(t, root, "git", "add", "app.txt")
+	run(t, root, "git", "commit", "-m", "initial")
+	diff := "diff --git a/app.txt b/app.txt\nindex 3e75765..3367afd 100644\n--- a/app.txt\n+++ b/app.txt\n@@ -1 +1 @@\n-old\n+new\n"
+	client := NewClient()
+
+	if err := client.ApplyPatch(context.Background(), root, diff, ApplyForward); err != nil {
+		t.Fatalf("ApplyPatch forward returned error: %v", err)
+	}
+	if content := readFile(t, root, "app.txt"); content != "new\n" {
+		t.Fatalf("expected applied content, got %q", content)
+	}
+	if err := client.ApplyPatch(context.Background(), root, diff, ApplyReverse); err != nil {
+		t.Fatalf("ApplyPatch reverse returned error: %v", err)
+	}
+	if content := readFile(t, root, "app.txt"); content != "old\n" {
+		t.Fatalf("expected reverted content, got %q", content)
+	}
+}
+
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -386,4 +411,13 @@ func run(t *testing.T, dir, name string, args ...string) {
 	if err != nil {
 		t.Fatalf("%s %v failed: %v\n%s", name, args, err, output)
 	}
+}
+
+func readFile(t *testing.T, root, relPath string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(root, relPath))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	return string(content)
 }

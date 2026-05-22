@@ -65,8 +65,8 @@ func TestManagerCreatesTaskAndStoresPatch(t *testing.T) {
 	if detail.Task.Model != "gpt-5.5" || detail.Task.ReasoningEffort != "medium" {
 		t.Fatalf("unexpected task selections: %+v", detail.Task)
 	}
-	if len(detail.Patches) != 1 || detail.Patches[0].Status != "created" {
-		t.Fatalf("expected created patch, got %+v", detail.Patches)
+	if len(detail.Patches) != 1 || detail.Patches[0].Status != "proposed" {
+		t.Fatalf("expected proposed patch, got %+v", detail.Patches)
 	}
 	events, err := store.ListAgentTaskEvents(ctx, "ws_1", task.ID)
 	if err != nil {

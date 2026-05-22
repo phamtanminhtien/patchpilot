@@ -17,6 +17,7 @@ const (
 
 type Config struct {
 	Addr          string
+	AdminToken    string
 	AllowedRoots  []string
 	DataDir       string
 	DBPath        string
@@ -93,6 +94,7 @@ func LoadFromEnv(cwd string, home string, getenv func(string) string) (Config, e
 
 	return Config{
 		Addr:          addr,
+		AdminToken:    strings.TrimSpace(getenv("PATCHPILOT_ADMIN_TOKEN")),
 		AllowedRoots:  allowedRoots,
 		DataDir:       dataDir,
 		DBPath:        dbPath,

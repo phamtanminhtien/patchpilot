@@ -73,6 +73,7 @@ func TestRunnerStreamsStdoutStderrAndExitCode(t *testing.T) {
 	runner := NewRunner()
 	var chunks []string
 	finished := make(chan FinishResult, 1)
+	started := make(chan int, 1)
 
 	err := runner.Start(RunSpec{
 		ID:          "cmd_1",
@@ -80,6 +81,9 @@ func TestRunnerStreamsStdoutStderrAndExitCode(t *testing.T) {
 		Command:     "go test ./...",
 		Cwd:         filepath.Join("testdata", "success"),
 	}, Hooks{
+		OnStarted: func(pid int) {
+			started <- pid
+		},
 		OnOutput: func(stream, chunk string) {
 			chunks = append(chunks, stream+":"+chunk)
 		},
@@ -91,6 +95,10 @@ func TestRunnerStreamsStdoutStderrAndExitCode(t *testing.T) {
 		t.Fatalf("Start returned error: %v", err)
 	}
 
+	pid := waitForStarted(t, started)
+	if pid <= 0 {
+		t.Fatalf("expected positive process pid, got %d", pid)
+	}
 	result := waitForFinish(t, finished)
 	if result.Status != "exited" || result.ExitCode == nil || *result.ExitCode != 0 {
 		t.Fatalf("unexpected result: %+v", result)
@@ -148,6 +156,17 @@ func TestRunnerStopsRunningCommand(t *testing.T) {
 	result := waitForFinish(t, finished)
 	if result.Status != "stopped" {
 		t.Fatalf("expected stopped result, got %+v", result)
+	}
+}
+
+func waitForStarted(t *testing.T, started <-chan int) int {
+	t.Helper()
+	select {
+	case pid := <-started:
+		return pid
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for command start")
+		return 0
 	}
 }
 

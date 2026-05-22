@@ -75,7 +75,7 @@ Token rules:
 - Mobile first: every primary workflow must fit and work at 320px width.
 - iPad should support split or two-column layouts only when both columns remain useful.
 - Desktop can show denser workspace controls, but must not become VS Code parity.
-- Workflow screens lock the app shell to the full viewport width and height; document/body scrolling and overscroll are disabled, while panels, lists, diffs, command output, preview frames, and other overflow-prone regions scroll internally when needed without scroll chaining or rubber-band overscroll.
+- Workflow screens lock the app shell to the full viewport width and height; document/body scrolling and overscroll are disabled, while panels, lists, diffs, command output, and other overflow-prone regions scroll internally when needed without scroll chaining or rubber-band overscroll.
 - Primary actions must be at least 44px tall.
 - Fixed-format controls must have stable dimensions so icons, labels, counters, loading states, and hover states do not shift layout.
 - Text must wrap or truncate intentionally. No uncontrolled overflow, especially for paths, command output labels, branch names, and patch filenames.

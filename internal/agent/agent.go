@@ -294,7 +294,7 @@ func (m *Manager) run(workspaceID, workspaceRoot, taskID string) {
 			TaskID:      task.ID,
 			Diff:        task.GeneratedPatch,
 			Summary:     task.Summary,
-			Status:      "created",
+			Status:      "proposed",
 		})
 		if err == nil {
 			publicPatch := PatchFromRecord(patch)

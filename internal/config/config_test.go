@@ -50,6 +50,8 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 			return "0.0.0.0:9090"
 		case "PATCHPILOT_ALLOWED_ROOTS":
 			return firstRoot + string(os.PathListSeparator) + secondRoot
+		case "PATCHPILOT_ADMIN_TOKEN":
+			return "admin-secret"
 		case "PATCHPILOT_DB_PATH":
 			return dbPath
 		case "PATCHPILOT_STATIC_DIR":
@@ -72,6 +74,9 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 	}
 	if len(cfg.AllowedRoots) != 2 || cfg.AllowedRoots[0] != firstRoot || cfg.AllowedRoots[1] != secondRoot {
 		t.Fatalf("unexpected allowed roots: %+v", cfg.AllowedRoots)
+	}
+	if cfg.AdminToken != "admin-secret" {
+		t.Fatalf("unexpected admin token: %q", cfg.AdminToken)
 	}
 	if cfg.DBPath != dbPath {
 		t.Fatalf("unexpected db path: %q", cfg.DBPath)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/phamtanminhtien/patchpilot/internal/agent"
 	"github.com/phamtanminhtien/patchpilot/internal/api"
+	"github.com/phamtanminhtien/patchpilot/internal/auth"
 	"github.com/phamtanminhtien/patchpilot/internal/config"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
 	"github.com/phamtanminhtien/patchpilot/internal/events"
@@ -59,9 +60,14 @@ func run(cfg config.Config, logger *zap.Logger) error {
 	if err != nil {
 		return err
 	}
+	authService, err := auth.NewService(cfg.AdminToken, store)
+	if err != nil {
+		return err
+	}
 	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, agent.NewOpenAIProvider(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL))
 
-	server := api.NewServer(workspaces, fileService, gitClient, run, store, hub, agentManager, store)
+	server := api.NewServerWithAuth(workspaces, fileService, gitClient, run, store, hub, agentManager, authService, store)
+	server.SetBackendAddr(cfg.Addr)
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           server.RoutesWithStatic(cfg.StaticDir),

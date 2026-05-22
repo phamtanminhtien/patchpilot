@@ -15,3 +15,7 @@ export async function listWorkspaces(): Promise<WorkspaceListResponse> {
   const response = await apiClient.get<WorkspaceListResponse>("/workspaces");
   return response.data;
 }
+
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+  await apiClient.delete(`/workspaces/${workspaceId}`);
+}

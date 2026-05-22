@@ -11,24 +11,28 @@ import {
   apiErrorMessage,
   type Command,
   type CommandDetail,
-  type CommandEvent,
   type CommandListResponse,
   commitGitChanges,
   createWorkspace,
   discardGitChanges,
+  exposePort,
   getGitDiff,
   getGitStatus,
   getProcess,
   getWorkspace,
   listFileIndex,
+  listPorts,
   listProcesses,
   listWorkspaces,
+  type Port,
+  type PortListResponse,
   queueCommand,
   readFile,
   refreshFileIndex,
   stageGitFiles,
   stopProcess,
   unstageGitFiles,
+  type WorkspaceEvent,
 } from "@/shared/api";
 
 import {
@@ -155,6 +159,12 @@ export function useWorkspaceController({
     queryKey: ["workspace-processes", workspaceId],
   });
 
+  const portsQuery = useQuery({
+    enabled: workspaceId.length > 0 && panel === "preview",
+    queryFn: () => listPorts(workspaceId),
+    queryKey: ["workspace-ports", workspaceId],
+  });
+
   const selectedCommandId =
     selectedCommand.workspaceId === workspaceId
       ? selectedCommand.commandId
@@ -205,6 +215,13 @@ export function useWorkspaceController({
     mutationFn: (processId: string) => stopProcess(workspaceId, processId),
     onSuccess: (command) => {
       updateCommandCache(queryClient, workspaceId, command);
+    },
+  });
+
+  const exposePortMutation = useMutation({
+    mutationFn: (port: number) => exposePort(workspaceId, port),
+    onSuccess: (port) => {
+      updatePortCache(queryClient, workspaceId, port);
     },
   });
 
@@ -284,7 +301,22 @@ export function useWorkspaceController({
       withCredentials: true,
     });
     const handleEvent = (message: MessageEvent<string>) => {
-      const event = JSON.parse(message.data) as CommandEvent;
+      const event = JSON.parse(message.data) as WorkspaceEvent;
+      if (
+        event.type === "port.opened" ||
+        event.type === "port.exposed" ||
+        event.type === "port.closed"
+      ) {
+        updatePortCache(queryClient, workspaceId, event.payload as Port);
+        return;
+      }
+      if (event.type === "git.changed") {
+        queryClient.setQueryData(
+          ["workspace-git-status", workspaceId],
+          event.payload,
+        );
+        return;
+      }
       if (event.type === "command.output") {
         const output = event.payload as CommandDetail["output"][number];
         queryClient.setQueryData<CommandDetail>(
@@ -302,6 +334,10 @@ export function useWorkspaceController({
     source.addEventListener("process.started", handleEvent);
     source.addEventListener("process.exited", handleEvent);
     source.addEventListener("command.output", handleEvent);
+    source.addEventListener("port.opened", handleEvent);
+    source.addEventListener("port.exposed", handleEvent);
+    source.addEventListener("port.closed", handleEvent);
+    source.addEventListener("git.changed", handleEvent);
     return () => {
       source.close();
     };
@@ -467,6 +503,17 @@ export function useWorkspaceController({
         : undefined,
       unstagedPathCount: unstagedGitPaths.length,
     },
+    preview: {
+      error: portsQuery.error ? apiErrorMessage(portsQuery.error) : undefined,
+      exposeError: exposePortMutation.error
+        ? apiErrorMessage(exposePortMutation.error)
+        : undefined,
+      exposingPort: exposePortMutation.variables,
+      isExposing: exposePortMutation.isPending,
+      isLoading: portsQuery.isPending,
+      onExpose: (port: number) => exposePortMutation.mutate(port),
+      ports: portsQuery.data?.ports ?? [],
+    },
     starter: {
       createError: createWorkspaceMutation.error
         ? apiErrorMessage(createWorkspaceMutation.error)
@@ -516,5 +563,21 @@ function updateCommandCache(
             command,
           }
         : current,
+  );
+}
+
+function updatePortCache(
+  queryClient: QueryClient,
+  workspaceId: string,
+  port: Port,
+) {
+  queryClient.setQueryData<PortListResponse>(
+    ["workspace-ports", workspaceId],
+    (current) => ({
+      ports: [
+        port,
+        ...(current?.ports.filter((item) => item.id !== port.id) ?? []),
+      ].sort((a, b) => a.port - b.port),
+    }),
   );
 }

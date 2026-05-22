@@ -35,6 +35,13 @@ type Commit struct {
 	Hash string `json:"hash"`
 }
 
+type ApplyDirection string
+
+const (
+	ApplyForward ApplyDirection = "forward"
+	ApplyReverse ApplyDirection = "reverse"
+)
+
 func NewClient() *Client {
 	return &Client{}
 }
@@ -164,6 +171,26 @@ func (c *Client) Commit(ctx context.Context, root, message string, relPaths []st
 		return Commit{}, err
 	}
 	return Commit{Hash: strings.TrimSpace(hash)}, nil
+}
+
+func (c *Client) ApplyPatch(ctx context.Context, root, diff string, direction ApplyDirection) error {
+	if err := validateRepositoryRoot(ctx, root); err != nil {
+		return err
+	}
+	if strings.TrimSpace(diff) == "" {
+		return ErrInvalidPath
+	}
+	checkArgs := []string{"apply", "--check"}
+	applyArgs := []string{"apply"}
+	if direction == ApplyReverse {
+		checkArgs = append(checkArgs, "--reverse")
+		applyArgs = append(applyArgs, "--reverse")
+	}
+	if _, err := runGitWithInput(ctx, root, diff, checkArgs...); err != nil {
+		return err
+	}
+	_, err := runGitWithInput(ctx, root, diff, applyArgs...)
+	return err
 }
 
 func (c *Client) discardPath(ctx context.Context, root, cleanPath string) error {
@@ -343,4 +370,22 @@ func runGitCommand(ctx context.Context, root string, args ...string) (string, in
 		return stdout.String(), exitCode, fmt.Errorf("%w: git %v: %w", ErrGitFailed, args, err)
 	}
 	return stdout.String(), 0, nil
+}
+
+func runGitWithInput(ctx context.Context, root, input string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader(input)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return stdout.String(), fmt.Errorf("%w: git %v: %w: %s", ErrGitFailed, args, err, strings.TrimSpace(stderr.String()))
+		}
+		return stdout.String(), fmt.Errorf("%w: git %v: %w", ErrGitFailed, args, err)
+	}
+	return stdout.String(), nil
 }

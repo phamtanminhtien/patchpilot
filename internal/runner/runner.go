@@ -41,7 +41,7 @@ type FinishResult struct {
 
 type Hooks struct {
 	OnOutput   func(stream, chunk string)
-	OnStarted  func()
+	OnStarted  func(pid int)
 	OnFinished func(FinishResult)
 }
 
@@ -140,7 +140,7 @@ func (r *Runner) run(ctx context.Context, commandID, cwd string, parts []string,
 		return
 	}
 	if hooks.OnStarted != nil {
-		hooks.OnStarted()
+		hooks.OnStarted(cmd.Process.Pid)
 	}
 
 	var readers sync.WaitGroup
