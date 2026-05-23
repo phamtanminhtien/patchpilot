@@ -513,15 +513,25 @@ func TestCommandHandlersConfirmAndBlockBySafety(t *testing.T) {
 	if confirmationBody["error"]["code"] != "confirmation_required" {
 		t.Fatalf("unexpected confirmation body: %+v", confirmationBody)
 	}
-
-	blocked := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"rm -rf dist"}`)
-	if blocked.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", blocked.Code, blocked.Body.String())
+	if _, ok := confirmationBody["error"]["details"].(map[string]any)["decision"]; !ok {
+		t.Fatalf("expected confirmation decision details, got %+v", confirmationBody)
 	}
-	var blockedBody map[string]map[string]any
-	mustDecode(t, blocked, &blockedBody)
-	if blockedBody["error"]["code"] != "blocked_command" {
-		t.Fatalf("unexpected blocked body: %+v", blockedBody)
+
+	for _, command := range []string{"rm -rf dist", "pnpm test > out.txt", "go test ../other"} {
+		t.Run(command, func(t *testing.T) {
+			blocked := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"`+command+`"}`)
+			if blocked.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", blocked.Code, blocked.Body.String())
+			}
+			var blockedBody map[string]map[string]any
+			mustDecode(t, blocked, &blockedBody)
+			if blockedBody["error"]["code"] != "blocked_command" {
+				t.Fatalf("unexpected blocked body: %+v", blockedBody)
+			}
+			if _, ok := blockedBody["error"]["details"].(map[string]any)["decision"]; !ok {
+				t.Fatalf("expected blocked decision details, got %+v", blockedBody)
+			}
+		})
 	}
 }
 

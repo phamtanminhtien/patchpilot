@@ -19,11 +19,18 @@ func TestClassifyRejectsEmptyCommand(t *testing.T) {
 func TestClassifyAllowsCommonProjectCommands(t *testing.T) {
 	for _, command := range []string{
 		"git status",
+		"git diff",
+		"git log",
 		"pnpm test",
 		"pnpm --dir web build",
 		"npm run lint",
+		"yarn --dir web test",
+		"bun run build",
 		"go test ./...",
+		"go build ./...",
 		"python3 -m pytest",
+		"cargo test",
+		"make dev",
 	} {
 		t.Run(command, func(t *testing.T) {
 			decision, err := Classify(command)
@@ -38,24 +45,48 @@ func TestClassifyAllowsCommonProjectCommands(t *testing.T) {
 }
 
 func TestClassifyRequiresConfirmationForUnknownCommands(t *testing.T) {
-	decision, err := Classify("node scripts/check.js")
-	if err != nil {
-		t.Fatalf("Classify returned error: %v", err)
-	}
-	if decision.Level != SafetyNeedsConfirmation {
-		t.Fatalf("expected needs_confirmation, got %+v", decision)
+	for _, command := range []string{
+		"node scripts/check.js",
+		"pnpm exec tsc",
+		"git show HEAD",
+	} {
+		t.Run(command, func(t *testing.T) {
+			decision, err := Classify(command)
+			if err != nil {
+				t.Fatalf("Classify returned error: %v", err)
+			}
+			if decision.Level != SafetyNeedsConfirmation {
+				t.Fatalf("expected needs_confirmation, got %+v", decision)
+			}
+			if len(decision.Parts) == 0 || decision.Reason == "" {
+				t.Fatalf("expected decision details, got %+v", decision)
+			}
+		})
 	}
 }
 
-func TestClassifyBlocksDestructiveAndShellCommands(t *testing.T) {
+func TestClassifyBlocksDestructivePathAndShellCommands(t *testing.T) {
 	for _, command := range []string{
 		"rm -rf dist",
+		"rm -fr dist",
 		"git reset --hard",
 		"git clean -fd",
 		"sudo make test",
+		"su root",
 		"chmod -R 777 .",
+		"chown -R user .",
 		"pnpm test && rm -rf dist",
+		"pnpm test || true",
+		"pnpm test; rm dist",
+		"pnpm test | tee out.txt",
+		"pnpm test > out.txt",
+		"pnpm test < input.txt",
+		"echo `date`",
+		"echo $(date)",
+		"pnpm test\nrm -rf dist",
 		"pnpm --dir ../other test",
+		"go test ../other",
+		"go test /tmp/project",
 		"/bin/ls",
 	} {
 		t.Run(command, func(t *testing.T) {
