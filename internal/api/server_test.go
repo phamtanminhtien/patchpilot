@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +55,73 @@ func TestExposedURLKeepsRequestHostForWildcardBackendAddr(t *testing.T) {
 	want := "http://dev.example.test:8080/workspaces/ws_1/ports/3000/proxy/"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestPortHandlersListExposeAndMarkClosed(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	fixture := newServerFixture(t, root, fakeAgentProvider{})
+	handler := fixture.server.Routes()
+	create := request(handler, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+	port := listener.Addr().(*net.TCPAddr).Port
+	processID := "cmd_1"
+	if _, _, err := fixture.store.UpsertDetectedPort(context.Background(), database.PortRecord{
+		WorkspaceID: ws.ID,
+		ProcessID:   &processID,
+		Port:        port,
+		Status:      "detected",
+	}); err != nil {
+		t.Fatalf("UpsertDetectedPort returned error: %v", err)
+	}
+
+	list := request(handler, http.MethodGet, "/api/workspaces/"+ws.ID+"/ports", "")
+	if list.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", list.Code, list.Body.String())
+	}
+	var listBody struct {
+		Ports []portResponse `json:"ports"`
+	}
+	mustDecode(t, list, &listBody)
+	if len(listBody.Ports) != 1 || listBody.Ports[0].Port != port || listBody.Ports[0].Status != "detected" {
+		t.Fatalf("unexpected port list: %+v", listBody.Ports)
+	}
+
+	expose := request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/ports/"+listener.Addr().(*net.TCPAddr).String()+"/expose", "")
+	if expose.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid port 400, got %d: %s", expose.Code, expose.Body.String())
+	}
+
+	expose = request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/ports/"+strconv.Itoa(port)+"/expose", "")
+	if expose.Code != http.StatusOK {
+		t.Fatalf("expected expose 200, got %d: %s", expose.Code, expose.Body.String())
+	}
+	var exposeBody struct {
+		Port portResponse `json:"port"`
+	}
+	mustDecode(t, expose, &exposeBody)
+	if exposeBody.Port.Status != "exposed" || exposeBody.Port.ExposedURL == nil || !strings.Contains(*exposeBody.Port.ExposedURL, "/proxy/") {
+		t.Fatalf("unexpected exposed port body: %+v", exposeBody)
+	}
+
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	closed := request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/ports/"+strconv.Itoa(port)+"/expose", "")
+	if closed.Code != http.StatusBadGateway {
+		t.Fatalf("expected closed port 502, got %d: %s", closed.Code, closed.Body.String())
+	}
+	var closedBody map[string]map[string]any
+	mustDecode(t, closed, &closedBody)
+	if closedBody["error"]["code"] != "port_unreachable" {
+		t.Fatalf("unexpected closed port body: %+v", closedBody)
 	}
 }
 
@@ -155,6 +224,13 @@ func TestAuthHandlersProtectWorkspaceRoutes(t *testing.T) {
 	if login.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", login.Code, login.Body.String())
 	}
+	var loginBody struct {
+		Session auth.Session `json:"session"`
+	}
+	mustDecode(t, login, &loginBody)
+	if !strings.HasPrefix(loginBody.Session.ID, "auth_") || loginBody.Session.ExpiresAt.IsZero() {
+		t.Fatalf("unexpected login body: %+v", loginBody)
+	}
 	cookies := login.Result().Cookies()
 	if len(cookies) == 0 || cookies[0].Name != auth.CookieName {
 		t.Fatalf("expected session cookie, got %+v", cookies)
@@ -163,6 +239,36 @@ func TestAuthHandlersProtectWorkspaceRoutes(t *testing.T) {
 	authorized := requestWithCookies(server, http.MethodGet, "/api/workspaces", "", cookies)
 	if authorized.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", authorized.Code, authorized.Body.String())
+	}
+
+	session := requestWithCookies(server, http.MethodGet, "/api/auth/session", "", cookies)
+	if session.Code != http.StatusOK {
+		t.Fatalf("expected session 200, got %d: %s", session.Code, session.Body.String())
+	}
+	var sessionBody struct {
+		Session auth.Session `json:"session"`
+	}
+	mustDecode(t, session, &sessionBody)
+	if sessionBody.Session.ID != loginBody.Session.ID {
+		t.Fatalf("expected same session %q, got %+v", loginBody.Session.ID, sessionBody)
+	}
+
+	logout := requestWithCookies(server, http.MethodPost, "/api/auth/logout", "", cookies)
+	if logout.Code != http.StatusOK {
+		t.Fatalf("expected logout 200, got %d: %s", logout.Code, logout.Body.String())
+	}
+	var logoutBody map[string]string
+	mustDecode(t, logout, &logoutBody)
+	if logoutBody["status"] != "ok" {
+		t.Fatalf("unexpected logout body: %+v", logoutBody)
+	}
+	if cleared := logout.Result().Cookies(); len(cleared) == 0 || cleared[0].Name != auth.CookieName || cleared[0].MaxAge >= 0 {
+		t.Fatalf("expected cleared session cookie, got %+v", cleared)
+	}
+
+	afterLogout := requestWithCookies(server, http.MethodGet, "/api/auth/session", "", cookies)
+	if afterLogout.Code != http.StatusUnauthorized {
+		t.Fatalf("expected session 401 after logout, got %d: %s", afterLogout.Code, afterLogout.Body.String())
 	}
 }
 
@@ -178,6 +284,26 @@ func TestCreateWorkspaceReturnsWorkspace(t *testing.T) {
 	mustDecode(t, response, &body)
 	if !strings.HasPrefix(body["id"].(string), "ws_") {
 		t.Fatalf("expected ws_ ID, got %+v", body)
+	}
+
+	get := request(server, http.MethodGet, "/api/workspaces/"+body["id"].(string), "")
+	if get.Code != http.StatusOK {
+		t.Fatalf("expected get 200, got %d: %s", get.Code, get.Body.String())
+	}
+
+	deleted := request(server, http.MethodDelete, "/api/workspaces/"+body["id"].(string), "")
+	if deleted.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d: %s", deleted.Code, deleted.Body.String())
+	}
+	var deletedBody map[string]string
+	mustDecode(t, deleted, &deletedBody)
+	if deletedBody["status"] != "deleted" {
+		t.Fatalf("unexpected delete body: %+v", deletedBody)
+	}
+
+	missing := request(server, http.MethodGet, "/api/workspaces/"+body["id"].(string), "")
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("expected missing workspace 404, got %d: %s", missing.Code, missing.Body.String())
 	}
 }
 
@@ -407,6 +533,13 @@ func TestToolApprovalAppliesPatchAndRemovedPatchEndpointsAreGone(t *testing.T) {
 	apply := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/runs/"+created.Run.ID+"/tool-calls/"+toolCallID+"/approve", "")
 	if apply.Code != http.StatusOK {
 		t.Fatalf("expected approve 200, got %d: %s\nfile:%q", apply.Code, apply.Body.String(), mustReadFile(t, filepath.Join(root, "example.txt")))
+	}
+	var applyBody struct {
+		ToolCall agent.ToolCall `json:"toolCall"`
+	}
+	mustDecode(t, apply, &applyBody)
+	if applyBody.ToolCall.ID != toolCallID || applyBody.ToolCall.Decision == nil || *applyBody.ToolCall.Decision != "approved" {
+		t.Fatalf("unexpected approve body: %+v", applyBody)
 	}
 	detail = waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "done")
 	if detail.Conversation.HasRunningRun {
