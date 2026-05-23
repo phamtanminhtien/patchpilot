@@ -187,6 +187,24 @@ GET  /workspaces/:workspaceId/ports/:port/proxy/*
 GET  /api/workspaces/:workspaceId/events
 ```
 
+Large REST lists support cursor pagination with `limit` and `cursor`. The
+default `limit` is `50`; the max is `100`, and larger or non-positive limits
+return `400 invalid_limit`. Cursors are opaque strings from the previous
+response. Invalid cursors return `400 invalid_cursor`. Paginated responses keep
+their existing array field and add optional `nextCursor`.
+
+Paginated endpoints:
+
+- `GET /api/workspaces`: newest-first by `updatedAt`, then `id`.
+- `GET /api/workspaces/:workspaceId/files/index`: ascending by `path`.
+- `GET /api/workspaces/:workspaceId/search`: ascending by `path`, `kind`, then
+  line.
+- `GET /api/workspaces/:workspaceId/conversations`: newest-first by
+  `lastMessageAt`, `updatedAt`, then `id`.
+- `GET /api/workspaces/:workspaceId/processes`: newest-first by `createdAt`,
+  then `id`.
+- `GET /api/workspaces/:workspaceId/ports`: ascending by port number.
+
 Response contracts:
 
 - REST errors: `{ "error": { "code": "snake_case", "message": "...", "details": {} } }`.
@@ -202,13 +220,13 @@ Response contracts:
   workspace object. Invalid roots return `400 invalid_workspace_root`,
   disallowed roots return `400 workspace_root_not_allowed`, and non-Git roots
   return `400 not_git_repository`.
-- Workspace list returns `{"workspaces":[]}` newest-first. Workspace get returns
-  one workspace object and refreshes the file index. Workspace delete removes
-  PatchPilot metadata for that workspace and returns `{"status":"deleted"}`.
-  Unknown workspace IDs return `404 workspace_not_found`.
+- Workspace list returns `{"workspaces":[],"nextCursor":"..."}` newest-first.
+  Workspace get returns one workspace object and refreshes the file index.
+  Workspace delete removes PatchPilot metadata for that workspace and returns
+  `{"status":"deleted"}`. Unknown workspace IDs return `404 workspace_not_found`.
 - Files list: `{"entries":[]}` for a workspace-relative directory.
-- File index: `{"entries":[]}` with workspace-relative `path`, `size`,
-  `modifiedAt`; refresh rebuilds and returns the same shape.
+- File index: `{"entries":[],"nextCursor":"..."}` with workspace-relative
+  `path`, `size`, `modifiedAt`; refresh rebuilds and returns the same shape.
 - File read: `{"path":"...","content":"..."}` for readable text files up to
   1 MiB.
 - File write accepts `{"path":"...","content":"..."}` for an existing readable
@@ -220,11 +238,12 @@ Response contracts:
   Missing files return `404 path_not_found`; rejected writes use the standard
   error envelope. Successful writes refresh the file index and publish current
   Git status through `git.changed`.
-- Search: `{"results":[]}` for filename/content matches.
+- Search: `{"results":[],"nextCursor":"..."}` for filename/content matches.
 - File APIs ignore `.git`, `node_modules`, and `build`, skip symlinks and files
   over 1 MiB; direct invalid reads return the standard error envelope.
 - Conversation create/update accept `{"title":"..."}`.
-- Conversation list: `{"conversations":[]}` newest-first by last activity.
+- Conversation list: `{"conversations":[],"nextCursor":"..."}` newest-first by
+  last activity.
 - Conversation detail:
   `{"conversation":{...},"messages":[],"runs":[],"toolCalls":[]}`.
 - Message create accepts
@@ -261,11 +280,13 @@ Response contracts:
 - Commands accept `{"command":"...","confirmed":false}`; safe commands return
   `202`, risky commands return `409 confirmation_required`, blocked commands
   return `400 blocked_command`.
-- Process list returns `{"processes":[]}` newest-first; process detail returns
-  `{"command":{...},"output":[]}` with latest output replay.
+- Process list returns `{"processes":[],"nextCursor":"..."}` newest-first;
+  process detail returns `{"command":{...},"output":[]}` with latest output
+  replay.
 - Process stop stops running commands; finished commands return current state.
-- Port list refreshes current reachability and returns `{"ports":[]}` with
-  detected, exposed, and closed ports. Port expose accepts no body and returns
+- Port list refreshes current reachability and returns
+  `{"ports":[],"nextCursor":"..."}` with detected, exposed, and closed ports.
+  Port expose accepts no body and returns
   `{"port":{...}}` with `exposedPath` and same-origin `exposedUrl`. Closed or
   unreachable ports return `502 port_unreachable` and are marked closed. Unknown
   ports return `404 port_not_found`; invalid port path values return

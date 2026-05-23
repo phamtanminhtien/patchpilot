@@ -1,5 +1,10 @@
 import { apiClient } from "./client";
-import type { Command, CommandDetail, CommandListResponse } from "./types";
+import type {
+  Command,
+  CommandDetail,
+  CommandListResponse,
+  PaginationParams,
+} from "./types";
 
 export async function queueCommand(
   workspaceId: string,
@@ -15,9 +20,11 @@ export async function queueCommand(
 
 export async function listProcesses(
   workspaceId: string,
+  params?: PaginationParams,
 ): Promise<CommandListResponse> {
   const response = await apiClient.get<CommandListResponse>(
     `/workspaces/${workspaceId}/processes`,
+    { params },
   );
   return response.data;
 }

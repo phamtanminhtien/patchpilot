@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -289,12 +290,22 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
+	pagination, ok := paginationFromRequest(w, r)
+	if !ok {
+		return
+	}
 	workspaces, err := s.workspaces.List(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "workspace_list_failed", "Workspaces could not be listed", nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"workspaces": workspaces})
+	page, nextCursor, ok := paginateItems(w, workspaces, pagination, func(ws workspace.Workspace) string {
+		return ws.ID
+	})
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workspaces": page, "nextCursor": nextCursor})
 }
 
 func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -381,12 +392,22 @@ func (s *Server) listFileIndex(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	pagination, ok := paginationFromRequest(w, r)
+	if !ok {
+		return
+	}
 	entries, err := s.workspaces.FileIndex(r.Context(), ws.ID)
 	if err != nil {
 		writeWorkspaceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+	page, nextCursor, ok := paginateItems(w, entries, pagination, func(entry workspace.FileIndexEntry) string {
+		return entry.Path
+	})
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": page, "nextCursor": nextCursor})
 }
 
 func (s *Server) refreshFileIndex(w http.ResponseWriter, r *http.Request) {
@@ -413,12 +434,22 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	pagination, ok := paginationFromRequest(w, r)
+	if !ok {
+		return
+	}
 	results, err := s.files.Search(ws.RootPath, r.URL.Query().Get("q"))
 	if err != nil {
 		writeFileError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+	page, nextCursor, ok := paginateItems(w, results, pagination, func(result filestore.SearchResult) string {
+		return fmt.Sprintf("%s\x00%s\x00%d", result.Path, result.Kind, result.Line)
+	})
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": page, "nextCursor": nextCursor})
 }
 
 func (s *Server) refreshWorkspaceIndex(ctx context.Context, ws workspace.Workspace) error {
@@ -596,6 +627,10 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	pagination, ok := paginationFromRequest(w, r)
+	if !ok {
+		return
+	}
 	conversations, err := s.store.ListConversations(r.Context(), ws.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "conversation_list_failed", "Conversations could not be listed", nil)
@@ -605,7 +640,13 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	for _, conversation := range conversations {
 		out = append(out, conversationResponseFromRecord(conversation))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"conversations": out})
+	page, nextCursor, ok := paginateItems(w, out, pagination, func(conversation conversationResponse) string {
+		return conversation.ID
+	})
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conversations": page, "nextCursor": nextCursor})
 }
 
 func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
@@ -836,6 +877,10 @@ func (s *Server) listProcesses(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	pagination, ok := paginationFromRequest(w, r)
+	if !ok {
+		return
+	}
 	commands, err := s.store.ListCommands(r.Context(), ws.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "process_list_failed", "Processes could not be listed", nil)
@@ -845,7 +890,13 @@ func (s *Server) listProcesses(w http.ResponseWriter, r *http.Request) {
 	for _, command := range commands {
 		response = append(response, commandResponseFromRecord(command))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"processes": response})
+	page, nextCursor, ok := paginateItems(w, response, pagination, func(command commandResponse) string {
+		return command.ID
+	})
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"processes": page, "nextCursor": nextCursor})
 }
 
 func (s *Server) getProcess(w http.ResponseWriter, r *http.Request) {
@@ -903,6 +954,10 @@ func (s *Server) listPorts(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	pagination, ok := paginationFromRequest(w, r)
+	if !ok {
+		return
+	}
 	s.refreshPortStates(r.Context(), ws.ID)
 	records, err := s.store.ListPorts(r.Context(), ws.ID)
 	if err != nil {
@@ -913,7 +968,13 @@ func (s *Server) listPorts(w http.ResponseWriter, r *http.Request) {
 	for _, record := range records {
 		response = append(response, s.portResponseFromRecord(r, record))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ports": response})
+	page, nextCursor, ok := paginateItems(w, response, pagination, func(port portResponse) string {
+		return strconv.Itoa(port.Port)
+	})
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ports": page, "nextCursor": nextCursor})
 }
 
 func (s *Server) exposePort(w http.ResponseWriter, r *http.Request) {
@@ -1626,6 +1687,80 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+const (
+	defaultPageLimit = 50
+	maxPageLimit     = 100
+)
+
+type paginationRequest struct {
+	Limit  int
+	Cursor string
+}
+
+func paginationFromRequest(w http.ResponseWriter, r *http.Request) (paginationRequest, bool) {
+	limit := defaultPageLimit
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > maxPageLimit {
+			writeError(w, http.StatusBadRequest, "invalid_limit", "Limit must be between 1 and 100", nil)
+			return paginationRequest{}, false
+		}
+		limit = parsed
+	}
+	return paginationRequest{Limit: limit, Cursor: strings.TrimSpace(r.URL.Query().Get("cursor"))}, true
+}
+
+func paginateItems[T any](w http.ResponseWriter, items []T, pagination paginationRequest, key func(T) string) ([]T, *string, bool) {
+	start := 0
+	if pagination.Cursor != "" {
+		cursorKey, err := decodeCursor(pagination.Cursor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_cursor", "Cursor is invalid", nil)
+			return nil, nil, false
+		}
+		found := false
+		for index, item := range items {
+			if key(item) == cursorKey {
+				start = index + 1
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeError(w, http.StatusBadRequest, "invalid_cursor", "Cursor is invalid", nil)
+			return nil, nil, false
+		}
+	}
+	if start >= len(items) {
+		return []T{}, nil, true
+	}
+	end := start + pagination.Limit
+	if end > len(items) {
+		end = len(items)
+	}
+	var nextCursor *string
+	if end < len(items) {
+		cursor := encodeCursor(key(items[end-1]))
+		nextCursor = &cursor
+	}
+	return items[start:end], nextCursor, true
+}
+
+func encodeCursor(value string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
+}
+
+func decodeCursor(value string) (string, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return "", err
+	}
+	if len(decoded) == 0 {
+		return "", errors.New("empty cursor")
+	}
+	return string(decoded), nil
 }
 
 func writeSSE(w http.ResponseWriter, event events.Event) {
