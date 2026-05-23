@@ -63,7 +63,9 @@ const toolCall = {
   workspaceId: "ws_1",
 };
 
-test("signs in and opens a recent workspace in Vibe Mode", async ({ page }) => {
+test("signs in and opens a recent workspace to a new Vibe chat", async ({
+  page,
+}) => {
   await mockPatchPilotApi(page);
   await page.goto("/vibe");
 
@@ -73,10 +75,7 @@ test("signs in and opens a recent workspace in Vibe Mode", async ({ page }) => {
 
   await expect(page.getByLabel("Ask AI")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Finish product smoke test" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Waiting approval docs/product-release-checklist.md"),
+    page.getByRole("heading", { name: "PatchPilot conversation" }),
   ).toBeVisible();
 });
 

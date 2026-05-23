@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type * as NuqsModule from "nuqs";
 import type * as ReactModule from "react";
@@ -166,10 +172,16 @@ describe("VibePage", () => {
     });
     renderVibe("/vibe?workspaceId=ws_1");
 
-    expect(await screen.findByLabelText("Ask AI")).toBeEnabled();
+    const promptInput = await screen.findByLabelText("Ask AI");
+    await waitFor(() => {
+      expect(promptInput).toBeEnabled();
+    });
     expect(await screen.findByText("Fix the failing test")).toBeInTheDocument();
+    const timeline = screen.getByRole("region", {
+      name: "Conversation timeline",
+    });
     expect(
-      screen.queryByRole("region", { name: "Conversation timeline" }),
+      within(timeline).queryByText("Fix the failing test"),
     ).not.toBeInTheDocument();
     expect(getConversation).not.toHaveBeenCalled();
   });
@@ -225,7 +237,7 @@ describe("VibePage", () => {
     const timeline = await screen.findByRole("region", {
       name: "Conversation timeline",
     });
-    await screen.findByText("Fix the failing test");
+    await within(timeline).findByText("Fix the failing test");
     await waitFor(() => {
       expect(scrollIntoView).toHaveBeenCalled();
     });
@@ -279,7 +291,7 @@ describe("VibePage", () => {
     const timeline = await screen.findByRole("region", {
       name: "Conversation timeline",
     });
-    await screen.findByText("Fix the failing test");
+    await within(timeline).findByText("Fix the failing test");
     await waitFor(() => {
       expect(scrollIntoView).toHaveBeenCalled();
     });
@@ -354,7 +366,7 @@ describe("VibePage", () => {
     const timeline = await screen.findByRole("region", {
       name: "Conversation timeline",
     });
-    await screen.findByText("Fix the failing test");
+    await within(timeline).findByText("Fix the failing test");
     await waitFor(() => {
       expect(scrollIntoView).toHaveBeenCalled();
     });
