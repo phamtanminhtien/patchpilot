@@ -1,4 +1,4 @@
-import { Code2, Info, MoreHorizontal, PanelLeft } from "lucide-react";
+import { Code2, MoreHorizontal } from "lucide-react";
 import { type ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -21,7 +21,7 @@ export function VibeWorkspaceLayout({
     <main className="bg-canvas grid h-screen min-h-0 w-full overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
       {sidebar}
 
-      <section className="grid min-h-0 min-w-0 grid-rows-[3.5rem_minmax(0,1fr)_auto]">
+      <section className="grid min-h-0 min-w-0 grid-rows-[3.5rem_minmax(0,1fr)]">
         <header className="border-line/30 bg-canvas flex min-w-0 items-center justify-between border-b px-4">
           <div className="flex min-w-0 items-center gap-2">
             <h1 className="text-ink truncate text-sm font-semibold">{title}</h1>
@@ -47,28 +47,20 @@ export function VibeWorkspaceLayout({
                 Workspace
               </Link>
             </Button>
-            <Button
-              aria-label="Conversation info"
-              icon={<Info />}
-              size="icon"
-              type="button"
-              variant="action"
-            />
-            <Button
-              aria-label="Toggle sidebar"
-              icon={<PanelLeft />}
-              size="icon"
-              type="button"
-              variant="action"
-            />
           </div>
         </header>
 
-        <div className="min-h-0 min-w-0 overflow-auto px-4 py-4">
-          {children}
-        </div>
+        <div className="relative min-h-0 min-w-0">
+          <div className="absolute inset-0 min-w-0 overflow-auto px-4 pt-4 pb-48 sm:pb-52">
+            {children}
+          </div>
 
-        {composer}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
+            <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+              {composer}
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   );

@@ -3,7 +3,6 @@ import {
   Code2,
   FolderOpen,
   MessageSquarePlus,
-  PanelLeft,
   Search,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -41,14 +40,7 @@ export function VibeConversationSidebar({
 
   return (
     <aside className="bg-panel hidden min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-5 px-1.5 py-4 md:grid">
-      <div className="flex items-center gap-2 px-1">
-        <span className="bg-warning size-3 rounded-full" />
-        <span className="bg-focus size-3 rounded-full" />
-        <span className="bg-accent size-3 rounded-full" />
-        <span className="text-muted ml-4">
-          <PanelLeft aria-hidden="true" className="size-4" />
-        </span>
-      </div>
+      <div className=""></div>
 
       <nav className="grid gap-1" aria-label="Vibe navigation">
         {navItems.map((item) => (
