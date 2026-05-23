@@ -31,7 +31,7 @@ Backend:
 Frontend:
 
 - Node.js 24.x LTS, pnpm 10.x, TypeScript 5.x, React 19.x, Vite 8.x.
-- React Router 7.x, TanStack Query 5.x, Axios 1.x, nuqs 2.x, Zustand 5.x, Radix UI primitives, CodeMirror 6, `lucide-react`.
+- React Router 7.x, TanStack Query 5.x, Axios 1.x, nuqs 2.x, Zustand 5.x, Radix UI primitives, CodeMirror 6, `lucide-react`, `react-markdown`, `react-syntax-highlighter`, `remark-gfm`.
 - Tailwind CSS 4.x via `@tailwindcss/vite`; Vitest, React Testing Library, Playwright.
 - No competing app framework, state store other than Zustand, non-Radix UI framework, CSS Modules, xterm.js, WebSocket, direct `fetch` for frontend API calls, or generated SVG primary UI.
 
@@ -136,7 +136,7 @@ SSE:
 - Components must use CSS variables through Tailwind theme tokens; no hardcoded hex/rgb/hsl values, raw palette utilities, or ad hoc spacing/radius values in components.
 - Shared UI primitives in `web/src/shared/ui`; components use Tailwind utilities and may wrap Radix primitives.
 - Repeated classes become shared primitives.
-- No feature global CSS, CSS Modules, Tailwind CDN, or `@apply` for component styling.
+- No feature global CSS, CSS Modules, Tailwind CDN, or `@apply` for component styling, except shared Markdown renderer styles under `web/src/shared/styles/global.css`.
 - Inline styles/arbitrary Tailwind values only for dynamic values, locked tokens, measured constraints, or third-party needs.
 - Third-party CSS overrides live in `web/src/shared/styles`.
 

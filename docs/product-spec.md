@@ -72,6 +72,10 @@ Provider settings:
 
 - Backend-controlled tools enforce path, secret, ignore, and size checks.
 - Vibe sends `model` and `reasoningEffort` with each user message.
+- Vibe renders assistant text as Markdown with GitHub-flavored Markdown support;
+  raw HTML in messages is escaped.
+- Markdown fenced code blocks show syntax highlighting, language context, and a
+  copy action for the raw code.
 - Initial models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`; default `gpt-5.5`.
 - Initial reasoning: `low`, `medium`, `high`, `xhigh`; default `medium`.
 - `PATCHPILOT_OPENAI_API_KEY` is backend-only.

@@ -332,6 +332,62 @@ describe("VibePage", () => {
       tool.compareDocumentPosition(final) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+
+  it("renders assistant markdown code blocks with language labels and copy", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const markdownMessage = {
+      ...message,
+      content:
+        "## Done\n\n- Updated **tests**\n\n1. Run `pnpm test`\n\n```ts\nconst value: string = \"ok\";\n```\n\n```go\npackage main\n```\n\n```dockerfile\nFROM node:24\n```\n\n<script>alert('x')</script>",
+      id: "msg_2",
+      role: "assistant" as const,
+      runId: "run_1",
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message, markdownMessage],
+      runs: [{ ...run, status: "done", summary: markdownMessage.content }],
+      toolCalls: [],
+    });
+    const { container } = renderVibe("/vibe?workspaceId=ws_1");
+
+    expect(
+      await screen.findByRole("heading", { name: "Done" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Updated")).toBeInTheDocument();
+    expect(screen.getByText("pnpm test")).toBeInTheDocument();
+    expect(container.querySelector("ul")).toBeInTheDocument();
+    expect(container.querySelector("ol")).toBeInTheDocument();
+    expect(screen.getByText("TypeScript")).toBeInTheDocument();
+    expect(screen.getByText("go")).toBeInTheDocument();
+    expect(screen.getByText("Dockerfile")).toBeInTheDocument();
+    expect(
+      container.querySelector(".pp-code-block__language img"),
+    ).toBeInTheDocument();
+    const dockerIcon = screen
+      .getByText("Dockerfile")
+      .closest(".pp-code-block__language")
+      ?.querySelector("img");
+    expect(dockerIcon).toHaveAttribute("src", "/icons/file_type_docker.svg");
+    expect(container.querySelector(".token.keyword")).toBeInTheDocument();
+    const copyButtons = screen.getAllByRole("button", { name: "Copy code" });
+    expect(copyButtons[0]).toBeInTheDocument();
+    await user.click(copyButtons[0] as HTMLElement);
+    expect(writeText).toHaveBeenCalledWith('const value: string = "ok";');
+    expect(
+      await screen.findByRole("button", { name: "Copied code" }),
+    ).toBeInTheDocument();
+    expect(container.querySelector("script")).not.toBeInTheDocument();
+  });
 });
 
 const toolCall = {
@@ -369,7 +425,7 @@ function renderVibe(initialEntry: string) {
     },
   });
 
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[initialEntry]}>

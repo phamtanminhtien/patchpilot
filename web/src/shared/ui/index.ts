@@ -1,6 +1,7 @@
 export * from "./button";
 export * from "./class-name";
 export * from "./hover-card";
+export * from "./markdown";
 export * from "./section";
 export * from "./select";
 export * from "./starter-screen";
