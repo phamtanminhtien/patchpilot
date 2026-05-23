@@ -2,6 +2,7 @@ export * from "./button";
 export * from "./class-name";
 export * from "./hover-card";
 export * from "./section";
+export * from "./select";
 export * from "./starter-screen";
 export * from "./status-pill";
 export * from "./surface";

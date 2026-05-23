@@ -39,10 +39,10 @@ export function VibeConversationSidebar({
   ];
 
   return (
-    <aside className="bg-panel hidden min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-5 px-1.5 py-4 md:grid">
+    <aside className="bg-panel hidden min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-5 py-4 md:grid">
       <div className=""></div>
 
-      <nav className="grid gap-1" aria-label="Vibe navigation">
+      <nav className="grid gap-1 px-1.5" aria-label="Vibe navigation">
         {navItems.map((item) => (
           <button
             className="text-muted hover:bg-hover hover:text-ink flex min-h-9 min-w-0 cursor-pointer items-center gap-2 rounded-full px-3 text-left text-sm transition"
@@ -61,7 +61,7 @@ export function VibeConversationSidebar({
       <div className="grid min-h-0 gap-4 overflow-hidden">
         <div
           aria-label="Agent conversations"
-          className="min-h-0 min-w-0 overflow-auto"
+          className="min-h-0 min-w-0 overflow-auto px-1.5"
           role="region"
         >
           {conversations.length === 0 ? (
