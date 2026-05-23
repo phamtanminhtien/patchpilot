@@ -137,7 +137,11 @@ flowchart LR
   Repo --> Git
 ```
 
-SQLite stores conversations, messages, agent runs, events, tool calls, commands, command output, ports, and Git snapshots. Source files remain on disk in the workspace repo.
+SQLite stores conversations, messages, agent runs, events, tool calls, commands,
+command output, ports, and Git snapshots. Conversation records also persist a
+conversation-level active-run flag so the Vibe sidebar can show in-flight work
+without listing runs for every conversation. Source files remain on disk in the
+workspace repo.
 
 ## Agent Tool Flow
 

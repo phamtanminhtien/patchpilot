@@ -1,4 +1,10 @@
-import { ArrowUp, ChevronDown, Loader2, ShieldCheck } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronDown,
+  Loader2,
+  ShieldCheck,
+  Square,
+} from "lucide-react";
 import { type FormEvent } from "react";
 
 import type { AgentModel, AgentReasoningEffort } from "@/shared/api";
@@ -7,23 +13,29 @@ import { Button, Select } from "@/shared/ui";
 import { agentModels, reasoningEfforts } from "../vibe-options";
 
 export function Composer({
+  activeRun,
   error,
   isPending,
+  isStopping,
   model,
   onModelChange,
   onPromptChange,
   onReasoningEffortChange,
+  onStop,
   onSubmit,
   prompt,
   reasoningEffort,
   workspaceReady,
 }: {
+  activeRun: boolean;
   error?: string;
   isPending: boolean;
+  isStopping: boolean;
   model: AgentModel;
   onModelChange: (model: AgentModel) => void;
   onPromptChange: (prompt: string) => void;
   onReasoningEffortChange: (effort: AgentReasoningEffort) => void;
+  onStop: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   prompt: string;
   reasoningEffort: AgentReasoningEffort;
@@ -71,20 +83,25 @@ export function Composer({
               value={reasoningEffort}
             />
             <Button
-              aria-label="Start run"
+              aria-label={activeRun ? "Stop run" : "Start run"}
               disabled={
-                !workspaceReady || prompt.trim().length === 0 || isPending
+                activeRun
+                  ? isStopping
+                  : !workspaceReady || prompt.trim().length === 0 || isPending
               }
               icon={
-                isPending ? (
+                isPending || isStopping ? (
                   <Loader2 className="size-4! animate-spin" />
+                ) : activeRun ? (
+                  <Square className="size-4!" />
                 ) : (
                   <ArrowUp className="size-4!" />
                 )
               }
               className="size-8 shrink-0 rounded-md"
+              onClick={activeRun ? onStop : undefined}
               size="icon"
-              type="submit"
+              type={activeRun ? "button" : "submit"}
             />
           </div>
         </div>

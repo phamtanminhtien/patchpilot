@@ -48,6 +48,9 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if !store.db.Migrator().HasTable(&ConversationRecord{}) {
 		t.Fatal("expected conversations table to be migrated")
 	}
+	if !store.db.Migrator().HasColumn(&ConversationRecord{}, "has_running_run") {
+		t.Fatal("expected has_running_run column on conversations table")
+	}
 	if !store.db.Migrator().HasTable(&MessageRecord{}) {
 		t.Fatal("expected messages table to be migrated")
 	}
@@ -74,8 +77,8 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if err := store.db.First(&version, "key = ?", schemaVersionKey).Error; err != nil {
 		t.Fatalf("expected schema version metadata: %v", err)
 	}
-	if version.Value != "3" {
-		t.Fatalf("expected schema version 3, got %q", version.Value)
+	if version.Value != "4" {
+		t.Fatalf("expected schema version 4, got %q", version.Value)
 	}
 }
 

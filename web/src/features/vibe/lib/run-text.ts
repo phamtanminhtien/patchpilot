@@ -23,13 +23,46 @@ export function titleFromPrompt(prompt: string) {
   return prompt.length > 80 ? `${prompt.slice(0, 77)}...` : prompt;
 }
 
+export function transientAssistantEvent(
+  runId: string,
+  text: string,
+): AgentRunEvent {
+  return {
+    createdAt: new Date().toISOString(),
+    id: `evt_transient_${runId}`,
+    payload: { runId, text },
+    runId,
+    type: "agent.delta",
+    workspaceId: "",
+  };
+}
+
 export function assistantTextFromEvents(events: AgentRunEvent[]) {
-  return events
-    .filter((event) => event.type === "agent.delta")
-    .map((event) => {
-      const payload = event.payload as Record<string, unknown>;
-      return typeof payload.text === "string" ? payload.text.trim() : "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
+  return assistantTextFromEventsAfter(events, "");
+}
+
+export function assistantTextFromEventsAfter(
+  events: AgentRunEvent[],
+  afterCreatedAt: string,
+) {
+  let text = "";
+  for (const event of events) {
+    if (
+      event.type !== "agent.delta" &&
+      event.type !== "agent.output.snapshot"
+    ) {
+      continue;
+    }
+    if (afterCreatedAt.length > 0 && event.createdAt <= afterCreatedAt) {
+      continue;
+    }
+    const payload = event.payload as Record<string, unknown>;
+    const eventText = typeof payload.text === "string" ? payload.text : "";
+    if (event.type === "agent.output.snapshot") {
+      text = eventText;
+      continue;
+    }
+    text += eventText;
+  }
+  return text;
 }

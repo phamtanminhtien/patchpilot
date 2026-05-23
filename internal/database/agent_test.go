@@ -20,6 +20,16 @@ func TestAgentRunRepositoryPersistsEventsAndTools(t *testing.T) {
 	}()
 
 	createdAt := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	conversation, err := store.CreateConversation(ctx, ConversationRecord{
+		ID:          "conv_1",
+		WorkspaceID: "ws_1",
+		Title:       "Tracked",
+		CreatedAt:   createdAt,
+		UpdatedAt:   createdAt,
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation returned error: %v", err)
+	}
 	run, err := store.CreateAgentRun(ctx, AgentRunRecord{
 		WorkspaceID:      "ws_1",
 		ConversationID:   "conv_1",
@@ -36,6 +46,13 @@ func TestAgentRunRepositoryPersistsEventsAndTools(t *testing.T) {
 	if run.ID == "" || run.Model != "gpt-5.5" || run.ReasoningEffort != "medium" {
 		t.Fatalf("unexpected run: %+v", run)
 	}
+	conversation, err = store.GetConversation(ctx, "ws_1", conversation.ID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if !conversation.HasRunningRun {
+		t.Fatalf("expected conversation to be marked active, got %+v", conversation)
+	}
 
 	startedAt := createdAt.Add(time.Second)
 	run, err = store.UpdateAgentRun(ctx, "ws_1", "conv_1", run.ID, map[string]any{
@@ -48,6 +65,32 @@ func TestAgentRunRepositoryPersistsEventsAndTools(t *testing.T) {
 	}
 	if run.Status != "running" || run.Summary != "inspect" || run.StartedAt == nil {
 		t.Fatalf("unexpected updated run: %+v", run)
+	}
+	conversation, err = store.GetConversation(ctx, "ws_1", conversation.ID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if !conversation.HasRunningRun {
+		t.Fatalf("expected running conversation to stay active, got %+v", conversation)
+	}
+
+	finishedAt := startedAt.Add(2 * time.Second)
+	run, err = store.UpdateAgentRun(ctx, "ws_1", "conv_1", run.ID, map[string]any{
+		"status":      "done",
+		"finished_at": finishedAt,
+	})
+	if err != nil {
+		t.Fatalf("UpdateAgentRun done returned error: %v", err)
+	}
+	if run.Status != "done" || run.FinishedAt == nil {
+		t.Fatalf("unexpected terminal run: %+v", run)
+	}
+	conversation, err = store.GetConversation(ctx, "ws_1", conversation.ID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if conversation.HasRunningRun {
+		t.Fatalf("expected done conversation to clear active flag, got %+v", conversation)
 	}
 
 	event, err := store.CreateAgentRunEvent(ctx, AgentRunEventRecord{
@@ -83,7 +126,7 @@ func TestAgentRunRepositoryPersistsEventsAndTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAgentToolCall returned error: %v", err)
 	}
-	finishedAt := startedAt.Add(time.Second)
+	finishedAt = startedAt.Add(time.Second)
 	call, err = store.FinishAgentToolCall(ctx, "ws_1", run.ID, call.ID, "finished", `{"ok":true}`, finishedAt)
 	if err != nil {
 		t.Fatalf("FinishAgentToolCall returned error: %v", err)
@@ -109,5 +152,77 @@ func TestAgentRunRepositoryPersistsEventsAndTools(t *testing.T) {
 	}
 	if loaded.ID != call.ID {
 		t.Fatalf("unexpected loaded call: %+v", loaded)
+	}
+}
+
+func TestUpdateAgentRunKeepsConversationActiveWhileAnotherRunIsActive(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	}()
+
+	conversation, err := store.CreateConversation(ctx, ConversationRecord{
+		ID:          "conv_1",
+		WorkspaceID: "ws_1",
+		Title:       "Tracked",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation returned error: %v", err)
+	}
+	firstRun, err := store.CreateAgentRun(ctx, AgentRunRecord{
+		WorkspaceID:      "ws_1",
+		ConversationID:   conversation.ID,
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+		Status:           "queued",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentRun first returned error: %v", err)
+	}
+	secondRun, err := store.CreateAgentRun(ctx, AgentRunRecord{
+		WorkspaceID:      "ws_1",
+		ConversationID:   conversation.ID,
+		TriggerMessageID: "msg_2",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+		Status:           "running",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentRun second returned error: %v", err)
+	}
+
+	if _, err := store.UpdateAgentRun(ctx, "ws_1", conversation.ID, firstRun.ID, map[string]any{
+		"status":      "done",
+		"finished_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpdateAgentRun first done returned error: %v", err)
+	}
+	conversation, err = store.GetConversation(ctx, "ws_1", conversation.ID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if !conversation.HasRunningRun {
+		t.Fatalf("expected second active run to keep flag true, got %+v", conversation)
+	}
+
+	if _, err := store.UpdateAgentRun(ctx, "ws_1", conversation.ID, secondRun.ID, map[string]any{
+		"status":      "canceled",
+		"finished_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpdateAgentRun second canceled returned error: %v", err)
+	}
+	conversation, err = store.GetConversation(ctx, "ws_1", conversation.ID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if conversation.HasRunningRun {
+		t.Fatalf("expected no active runs after terminal transitions, got %+v", conversation)
 	}
 }

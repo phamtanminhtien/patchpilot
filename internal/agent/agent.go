@@ -52,6 +52,7 @@ const (
 	StatusWaitingToolApproval RunStatus = "waiting_tool_approval"
 	StatusDone                RunStatus = "done"
 	StatusFailed              RunStatus = "failed"
+	StatusCanceled            RunStatus = "canceled"
 )
 
 const (
@@ -183,10 +184,14 @@ type runRuntime struct {
 	runID               string
 	triggerMessageID    string
 	prompt              string
+	ctx                 context.Context
+	cancel              context.CancelFunc
 	contextSummary      string
 	conversationContext []ProviderMessage
 	history             []ProviderHistoryItem
 	pendingBatch        string
+	activeCommands      map[string]struct{}
+	draftText           strings.Builder
 }
 
 func NewManager(store *database.Store, files *filestore.Service, git *gitrepo.Client, run *runner.Runner, hub *events.Hub, provider Provider) *Manager {
@@ -224,7 +229,18 @@ func (m *Manager) Create(ctx context.Context, workspaceID, workspaceRoot string,
 		return Run{}, err
 	}
 	publicRun := RunFromRecord(run)
-	runtime := &runRuntime{workspaceID: workspaceID, workspaceRoot: workspaceRoot, conversationID: input.ConversationID, runID: run.ID, triggerMessageID: input.TriggerMessageID, prompt: input.Prompt}
+	runCtx, cancel := context.WithCancel(context.Background())
+	runtime := &runRuntime{
+		workspaceID:      workspaceID,
+		workspaceRoot:    workspaceRoot,
+		conversationID:   input.ConversationID,
+		runID:            run.ID,
+		triggerMessageID: input.TriggerMessageID,
+		prompt:           input.Prompt,
+		ctx:              runCtx,
+		cancel:           cancel,
+		activeCommands:   map[string]struct{}{},
+	}
 	m.setRuntime(runtime)
 	go m.run(runtime)
 	return publicRun, nil
@@ -265,23 +281,59 @@ func (m *Manager) Detail(ctx context.Context, workspaceID, conversationID, runID
 	}, nil
 }
 
+func (m *Manager) DraftText(runID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runtime := m.runtimes[runID]
+	if runtime == nil {
+		return ""
+	}
+	return runtime.draftText.String()
+}
+
 func (m *Manager) Cancel(ctx context.Context, workspaceID, conversationID, runID string) (Run, error) {
-	now := time.Now().UTC()
-	run, err := m.store.UpdateAgentRun(ctx, workspaceID, conversationID, runID, map[string]any{
-		"status":      string(StatusFailed),
-		"error":       "Run was cancelled",
-		"finished_at": now,
-	})
+	current, err := m.store.GetAgentRun(ctx, workspaceID, conversationID, runID)
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
 			return Run{}, ErrRunNotFound
 		}
 		return Run{}, err
 	}
+	if isTerminalStatus(current.Status) {
+		return RunFromRecord(current), nil
+	}
+	if runtime := m.runtime(runID); runtime != nil {
+		runtime.cancel()
+		m.stopRuntimeCommands(runtime)
+	}
+	m.cancelActiveToolCalls(ctx, workspaceID, runID)
+	now := time.Now().UTC()
+	run, err := m.store.UpdateAgentRun(ctx, workspaceID, conversationID, runID, map[string]any{
+		"status":      string(StatusCanceled),
+		"finished_at": now,
+	})
+	if err != nil {
+		return Run{}, err
+	}
 	m.deleteRuntime(runID)
 	publicRun := RunFromRecord(run)
 	_ = m.publish(ctx, publicRun, "agent.run.status_changed", publicRun)
 	return publicRun, nil
+}
+
+func (m *Manager) cancelActiveToolCalls(ctx context.Context, workspaceID, runID string) {
+	calls, err := m.store.ListAgentToolCalls(ctx, workspaceID, runID)
+	if err != nil {
+		return
+	}
+	finished := time.Now().UTC()
+	output := openToolJSON(map[string]string{"status": "canceled"})
+	for _, call := range calls {
+		switch call.Status {
+		case ToolStatusPending, ToolStatusApproved, ToolStatusRunning:
+			_, _ = m.store.FinishAgentToolCall(ctx, workspaceID, runID, call.ID, ToolStatusFailed, output, finished)
+		}
+	}
 }
 
 func (m *Manager) ApproveToolCall(ctx context.Context, workspaceID, runID, toolCallID string) (ToolCall, error) {
@@ -324,7 +376,7 @@ func (m *Manager) decideToolCall(ctx context.Context, workspaceID, runID, toolCa
 }
 
 func (m *Manager) run(runtime *runRuntime) {
-	ctx := context.Background()
+	ctx := runtime.ctx
 	startedAt := time.Now().UTC()
 	record, err := m.store.UpdateAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID, map[string]any{
 		"status":     string(StatusRunning),
@@ -344,7 +396,7 @@ func (m *Manager) run(runtime *runRuntime) {
 }
 
 func (m *Manager) resume(runtime *runRuntime) {
-	ctx := context.Background()
+	ctx := runtime.ctx
 	record, err := m.store.UpdateAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID, map[string]any{
 		"status": string(StatusRunning),
 	})
@@ -380,7 +432,11 @@ func (m *Manager) prepareConversationContext(ctx context.Context, run Run, runti
 	}
 	context := buildConversationContext(conversation, messages, runtime.triggerMessageID)
 	if len(context.SummarizeRecords) > 0 {
-		_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": "Summarizing earlier conversation context."})
+		m.events.Publish(events.Event{
+			WorkspaceID: run.WorkspaceID,
+			Type:        "agent.delta",
+			Payload:     map[string]string{"runId": run.ID, "text": "Summarizing earlier conversation context."},
+		})
 		summary, err := m.provider.Summarize(ctx, SummaryRequest{
 			Run:             run,
 			ExistingSummary: context.Summary,
@@ -413,6 +469,7 @@ func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 			return
 		}
 		run := RunFromRecord(record)
+		m.resetDraftText(runtime)
 		result, err := m.provider.Generate(ctx, ProviderRequest{
 			Run:                 run,
 			Prompt:              runtime.prompt,
@@ -422,19 +479,21 @@ func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 			History:             runtime.history,
 		}, m.stream(run))
 		if err != nil {
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				return
+			}
 			m.fail(ctx, run, err)
 			return
 		}
 		if strings.TrimSpace(result.Text) != "" {
 			runtime.history = append(runtime.history, ProviderHistoryItem{Type: "text", Text: result.Text})
-			_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": result.Text})
 		}
 		if len(result.ToolCalls) == 0 {
 			now := time.Now().UTC()
 			summary := strings.TrimSpace(result.Text)
 			if summary != "" {
 				runID := runtime.runID
-				_, _ = m.store.CreateMessage(ctx, database.MessageRecord{
+				message, _ := m.store.CreateMessage(ctx, database.MessageRecord{
 					WorkspaceID:    runtime.workspaceID,
 					ConversationID: runtime.conversationID,
 					Role:           "assistant",
@@ -442,7 +501,11 @@ func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 					RunID:          &runID,
 					CreatedAt:      now,
 				})
+				if message.ID != "" {
+					_ = m.publish(ctx, run, "conversation.message.created", messageEventPayload(message))
+				}
 			}
+			m.resetDraftText(runtime)
 			record, err = m.store.UpdateAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID, map[string]any{
 				"status":      string(StatusDone),
 				"summary":     summary,
@@ -456,13 +519,17 @@ func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 		}
 		if strings.TrimSpace(result.Text) != "" {
 			runID := runtime.runID
-			_, _ = m.store.CreateMessage(ctx, database.MessageRecord{
+			message, _ := m.store.CreateMessage(ctx, database.MessageRecord{
 				WorkspaceID:    runtime.workspaceID,
 				ConversationID: runtime.conversationID,
 				Role:           "assistant",
 				Content:        strings.TrimSpace(result.Text),
 				RunID:          &runID,
 			})
+			if message.ID != "" {
+				_ = m.publish(ctx, run, "conversation.message.created", messageEventPayload(message))
+			}
+			m.resetDraftText(runtime)
 		}
 		waiting, results, err := m.prepareOrExecuteBatch(ctx, run, runtime, result.ToolCalls)
 		if err != nil {
@@ -549,7 +616,10 @@ func (m *Manager) executeBatch(ctx context.Context, run Run, runtime *runRuntime
 		if err == nil {
 			_ = m.publish(ctx, run, "agent.tool.started", ToolCallFromRecord(updated))
 		}
-		output, execErr := m.executeTool(ctx, runtime.workspaceRoot, record)
+		output, execErr := m.executeTool(ctx, runtime, record)
+		if errors.Is(execErr, context.Canceled) || ctx.Err() != nil {
+			return results
+		}
 		status := ToolStatusFinished
 		if execErr != nil {
 			status = ToolStatusFailed
@@ -607,7 +677,8 @@ func (m *Manager) prepareToolRequest(ctx context.Context, workspaceRoot string, 
 	}
 }
 
-func (m *Manager) executeTool(ctx context.Context, workspaceRoot string, record database.AgentToolCallRecord) (string, error) {
+func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record database.AgentToolCallRecord) (string, error) {
+	workspaceRoot := runtime.workspaceRoot
 	switch record.Name {
 	case "list_files":
 		var args struct {
@@ -685,7 +756,7 @@ func (m *Manager) executeTool(ctx context.Context, workspaceRoot string, record 
 		}
 		return openToolJSON(diff), nil
 	case "run_command":
-		return m.executeCommandTool(record, workspaceRoot)
+		return m.executeCommandTool(ctx, runtime, record)
 	case "apply_patch":
 		var args struct {
 			Diff    string `json:"diff"`
@@ -704,7 +775,7 @@ func (m *Manager) executeTool(ctx context.Context, workspaceRoot string, record 
 	}
 }
 
-func (m *Manager) executeCommandTool(record database.AgentToolCallRecord, workspaceRoot string) (string, error) {
+func (m *Manager) executeCommandTool(ctx context.Context, runtime *runRuntime, record database.AgentToolCallRecord) (string, error) {
 	var args struct {
 		Command string `json:"command"`
 	}
@@ -727,7 +798,7 @@ func (m *Manager) executeCommandTool(record database.AgentToolCallRecord, worksp
 		ID:          record.ID,
 		WorkspaceID: record.WorkspaceID,
 		Command:     args.Command,
-		Cwd:         workspaceRoot,
+		Cwd:         runtime.workspaceRoot,
 	}, runner.Hooks{
 		OnOutput: func(_, chunk string) {
 			if output.Len() < 1024*1024 {
@@ -741,7 +812,15 @@ func (m *Manager) executeCommandTool(record database.AgentToolCallRecord, worksp
 	if err != nil {
 		return "", err
 	}
-	result := <-done
+	m.addRuntimeCommand(runtime, record.ID)
+	defer m.removeRuntimeCommand(runtime, record.ID)
+	var result runner.FinishResult
+	select {
+	case <-ctx.Done():
+		m.runner.Stop(record.ID)
+		return "", context.Canceled
+	case result = <-done:
+	}
 	return openToolJSON(map[string]any{"status": result.Status, "exitCode": result.ExitCode, "output": output.String()}), nil
 }
 
@@ -769,6 +848,9 @@ func callsForBatch(calls []database.AgentToolCallRecord, batchID string) []datab
 }
 
 func (m *Manager) fail(ctx context.Context, run Run, failure error) {
+	if errors.Is(failure, context.Canceled) || ctx.Err() != nil {
+		return
+	}
 	message := failure.Error()
 	now := time.Now().UTC()
 	record, err := m.store.UpdateAgentRun(ctx, run.WorkspaceID, run.ConversationID, run.ID, map[string]any{
@@ -810,10 +892,15 @@ func (m *Manager) publish(ctx context.Context, run Run, eventType string, payloa
 
 func (m *Manager) stream(run Run) Stream {
 	return streamFunc(func(ctx context.Context, text string) {
-		if strings.TrimSpace(text) == "" {
+		if text == "" {
 			return
 		}
-		_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": text})
+		m.appendDraftText(run.ID, text)
+		m.events.Publish(events.Event{
+			WorkspaceID: run.WorkspaceID,
+			Type:        "agent.delta",
+			Payload:     map[string]string{"runId": run.ID, "text": text},
+		})
 	})
 }
 
@@ -839,6 +926,65 @@ func (m *Manager) deleteRuntime(runID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.runtimes, runID)
+}
+
+func (m *Manager) appendDraftText(runID, text string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runtime := m.runtimes[runID]
+	if runtime == nil {
+		return
+	}
+	runtime.draftText.WriteString(text)
+}
+
+func (m *Manager) resetDraftText(runtime *runRuntime) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runtime.draftText.Reset()
+}
+
+func (m *Manager) addRuntimeCommand(runtime *runRuntime, commandID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runtime.activeCommands[commandID] = struct{}{}
+}
+
+func (m *Manager) removeRuntimeCommand(runtime *runRuntime, commandID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(runtime.activeCommands, commandID)
+}
+
+func (m *Manager) stopRuntimeCommands(runtime *runRuntime) {
+	m.mu.Lock()
+	commandIDs := make([]string, 0, len(runtime.activeCommands))
+	for commandID := range runtime.activeCommands {
+		commandIDs = append(commandIDs, commandID)
+	}
+	m.mu.Unlock()
+	for _, commandID := range commandIDs {
+		m.runner.Stop(commandID)
+	}
+}
+
+func isTerminalStatus(status string) bool {
+	return status == string(StatusDone) || status == string(StatusFailed) || status == string(StatusCanceled)
+}
+
+func messageEventPayload(message database.MessageRecord) map[string]any {
+	payload := map[string]any{
+		"id":             message.ID,
+		"workspaceId":    message.WorkspaceID,
+		"conversationId": message.ConversationID,
+		"role":           message.Role,
+		"content":        message.Content,
+		"createdAt":      message.CreatedAt,
+	}
+	if message.RunID != nil {
+		payload["runId"] = *message.RunID
+	}
+	return payload
 }
 
 func isSecretPath(relPath string) bool {

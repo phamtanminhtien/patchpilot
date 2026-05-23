@@ -22,6 +22,7 @@ type testProvider struct {
 	mu              sync.Mutex
 	err             error
 	summary         string
+	streamDeltas    []string
 	turns           []ProviderResult
 	seen            []ProviderRequest
 	summaryRequests []SummaryRequest
@@ -39,10 +40,20 @@ func (p *testProvider) Generate(ctx context.Context, request ProviderRequest, st
 		return ProviderResult{}, p.err
 	}
 	if len(p.turns) == 0 {
+		for _, delta := range p.streamDeltas {
+			if stream != nil {
+				stream.Delta(ctx, delta)
+			}
+		}
 		return ProviderResult{Text: "done", Done: true}, nil
 	}
 	turn := p.turns[0]
 	p.turns = p.turns[1:]
+	for _, delta := range p.streamDeltas {
+		if stream != nil {
+			stream.Delta(ctx, delta)
+		}
+	}
 	return turn, nil
 }
 
@@ -71,6 +82,30 @@ func (unconfiguredProvider) Generate(context.Context, ProviderRequest, Stream) (
 
 func (unconfiguredProvider) Summarize(context.Context, SummaryRequest) (string, error) {
 	return "", ErrProviderUnavailable
+}
+
+type blockingTestProvider struct {
+	delta string
+	done  chan struct{}
+}
+
+func (p blockingTestProvider) Configured() bool {
+	return true
+}
+
+func (p blockingTestProvider) Generate(ctx context.Context, request ProviderRequest, stream Stream) (ProviderResult, error) {
+	if stream != nil {
+		stream.Delta(ctx, p.delta)
+	}
+	if p.done != nil {
+		close(p.done)
+	}
+	<-ctx.Done()
+	return ProviderResult{}, ctx.Err()
+}
+
+func (p blockingTestProvider) Summarize(context.Context, SummaryRequest) (string, error) {
+	return "fake summary", nil
 }
 
 func TestManagerCreatesApprovalRequiredPatchTool(t *testing.T) {
@@ -119,6 +154,92 @@ func TestManagerCreatesApprovalRequiredPatchTool(t *testing.T) {
 	if !hasAgentMessage(messages, "assistant", "I will inspect and prepare the patch.") {
 		t.Fatalf("expected assistant progress message, got %+v", messages)
 	}
+	conversation, err := store.GetConversation(context.Background(), "ws_1", run.ConversationID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if !conversation.HasRunningRun {
+		t.Fatalf("expected waiting approval conversation to stay active, got %+v", conversation)
+	}
+}
+
+func TestManagerPublishesTransientDeltaWithoutStoringIt(t *testing.T) {
+	root := initAgentGitRepo(t)
+	provider := &testProvider{streamDeltas: []string{"hel", "lo"}}
+	hub := events.NewHub()
+	manager, store := newAgentTestManagerWithHub(t, provider, hub)
+	eventsCh, unsubscribe := hub.Subscribe()
+	defer unsubscribe()
+
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "say hello",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
+	if !receivedAgentDelta(eventsCh) {
+		t.Fatal("expected transient agent.delta on hub")
+	}
+	records, err := store.ListAgentRunEvents(context.Background(), "ws_1", run.ID)
+	if err != nil {
+		t.Fatalf("ListAgentRunEvents returned error: %v", err)
+	}
+	if hasEvent(records, "agent.delta") {
+		t.Fatalf("agent.delta should not be stored, got %+v", records)
+	}
+}
+
+func TestManagerStreamsWhitespaceOnlyDeltas(t *testing.T) {
+	hub := events.NewHub()
+	manager := NewManager(nil, nil, nil, nil, hub, nil)
+	manager.setRuntime(&runRuntime{runID: "run_1"})
+	eventsCh, unsubscribe := hub.Subscribe()
+	defer unsubscribe()
+
+	stream := manager.stream(Run{ID: "run_1", WorkspaceID: "ws_1"})
+	for _, delta := range []string{"##", " ", "1", "\n", "```txt", "\n", "internal/"} {
+		stream.Delta(context.Background(), delta)
+	}
+
+	const want = "## 1\n```txt\ninternal/"
+	if got := manager.DraftText("run_1"); got != want {
+		t.Fatalf("expected draft text to preserve whitespace, got %q", got)
+	}
+	if got := receiveAgentDeltaText(t, eventsCh, 7); got != want {
+		t.Fatalf("expected streamed text to preserve whitespace, got %q", got)
+	}
+}
+
+func TestManagerDraftTextTracksActiveStreamOnly(t *testing.T) {
+	root := initAgentGitRepo(t)
+	provider := &testProvider{
+		streamDeltas: []string{"draft ", "text"},
+		turns: []ProviderResult{{
+			Text:      "I will inspect and prepare the patch.",
+			ToolCalls: []ToolRequest{patchToolRequest("call_patch")},
+		}},
+	}
+	manager, _ := newAgentTestManager(t, provider)
+
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "fix bug",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusWaitingToolApproval)
+	if got := manager.DraftText(run.ID); got != "" {
+		t.Fatalf("draft should clear after assistant message persistence, got %q", got)
+	}
 }
 
 func TestManagerApprovesPatchToolAndResumesAgent(t *testing.T) {
@@ -127,7 +248,7 @@ func TestManagerApprovesPatchToolAndResumesAgent(t *testing.T) {
 		{ToolCalls: []ToolRequest{patchToolRequest("call_patch")}},
 		{Text: "Patch applied.", Done: true},
 	}}
-	manager, _ := newAgentTestManager(t, provider)
+	manager, store := newAgentTestManager(t, provider)
 
 	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
 		Prompt:           "fix bug",
@@ -153,6 +274,48 @@ func TestManagerApprovesPatchToolAndResumesAgent(t *testing.T) {
 	}
 	if len(provider.seen) < 2 || len(provider.seen[1].History) == 0 {
 		t.Fatalf("expected resumed provider history, got %+v", provider.seen)
+	}
+	conversation, err := store.GetConversation(context.Background(), "ws_1", run.ConversationID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if conversation.HasRunningRun {
+		t.Fatalf("expected done conversation to clear active flag, got %+v", conversation)
+	}
+}
+
+func TestManagerCancelClearsConversationActiveRunFlag(t *testing.T) {
+	root := initAgentGitRepo(t)
+	done := make(chan struct{})
+	provider := blockingTestProvider{
+		delta: "working",
+		done:  done,
+	}
+	manager, store := newAgentTestManager(t, provider)
+
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "fix bug",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	<-done
+	waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusRunning)
+
+	if _, err := manager.Cancel(context.Background(), "ws_1", run.ConversationID, run.ID); err != nil {
+		t.Fatalf("Cancel returned error: %v", err)
+	}
+	waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusCanceled)
+	conversation, err := store.GetConversation(context.Background(), "ws_1", run.ConversationID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if conversation.HasRunningRun {
+		t.Fatalf("expected canceled conversation to clear active flag, got %+v", conversation)
 	}
 }
 
@@ -413,6 +576,11 @@ func hasAgentMessage(messages []database.MessageRecord, role, content string) bo
 
 func newAgentTestManager(t *testing.T, provider Provider) (*Manager, *database.Store) {
 	t.Helper()
+	return newAgentTestManagerWithHub(t, provider, events.NewHub())
+}
+
+func newAgentTestManagerWithHub(t *testing.T, provider Provider, hub *events.Hub) (*Manager, *database.Store) {
+	t.Helper()
 	store, err := database.Open(filepath.Join(t.TempDir(), "patchpilot.db"))
 	if err != nil {
 		t.Fatalf("database.Open returned error: %v", err)
@@ -422,7 +590,7 @@ func newAgentTestManager(t *testing.T, provider Provider) (*Manager, *database.S
 			t.Fatalf("Close returned error: %v", err)
 		}
 	})
-	manager := NewManager(store, filestore.NewService(), gitrepo.NewClient(), runner.NewRunner(), events.NewHub(), provider)
+	manager := NewManager(store, filestore.NewService(), gitrepo.NewClient(), runner.NewRunner(), hub, provider)
 	if _, err := store.CreateConversation(context.Background(), database.ConversationRecord{
 		ID:          "conv_1",
 		WorkspaceID: "ws_1",
@@ -431,6 +599,44 @@ func newAgentTestManager(t *testing.T, provider Provider) (*Manager, *database.S
 		t.Fatalf("CreateConversation returned error: %v", err)
 	}
 	return manager, store
+}
+
+func receivedAgentDelta(eventsCh <-chan events.Event) bool {
+	deadline := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case event := <-eventsCh:
+			if event.Type == "agent.delta" {
+				return true
+			}
+		case <-deadline:
+			return false
+		}
+	}
+}
+
+func receiveAgentDeltaText(t *testing.T, eventsCh <-chan events.Event, count int) string {
+	t.Helper()
+	var builder strings.Builder
+	received := 0
+	deadline := time.After(500 * time.Millisecond)
+	for received < count {
+		select {
+		case event := <-eventsCh:
+			if event.Type != "agent.delta" {
+				continue
+			}
+			payload, ok := event.Payload.(map[string]string)
+			if !ok {
+				t.Fatalf("expected agent.delta payload map, got %T", event.Payload)
+			}
+			builder.WriteString(payload["text"])
+			received++
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d agent.delta events, got %q", count, builder.String())
+		}
+	}
+	return builder.String()
 }
 
 func waitForAgentRun(t *testing.T, manager *Manager, workspaceID, conversationID, runID string, status RunStatus) Detail {

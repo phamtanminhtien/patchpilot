@@ -5,6 +5,7 @@ export type WorkspaceEventHandler = (event: WorkspaceEvent) => void;
 const workspaceEventTypes: WorkspaceEvent["type"][] = [
   "workspace.indexing",
   "workspace.ready",
+  "conversation.message.created",
   "git.changed",
   "port.opened",
   "port.exposed",

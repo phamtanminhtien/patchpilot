@@ -11,6 +11,7 @@ import { Markdown } from "@/shared/ui";
 import {
   assistantMessagesForRun,
   assistantTextFromEvents,
+  assistantTextFromEventsAfter,
   promptForRun,
 } from "../lib/run-text";
 import { nextApprovalToolCall } from "../lib/tool-calls";
@@ -140,15 +141,20 @@ export function AgentRunThread({
               return first.id.localeCompare(second.id);
             });
             const displayItems = groupConsecutiveToolCalls(timelineItems);
-            const fallbackAssistantText =
-              assistantMessages.length === 0
-                ? assistantTextFromEvents(runEvents) ||
-                  (run.status === "done" ? run.summary.trim() : "")
-                : "";
             const isThinking =
               run.status === "queued" ||
               run.status === "running" ||
               run.status === "waiting_tool_approval";
+            const lastAssistantMessageAt =
+              assistantMessages.at(-1)?.createdAt ?? "";
+            const streamingAssistantText = isThinking
+              ? assistantTextFromEventsAfter(runEvents, lastAssistantMessageAt)
+              : "";
+            const fallbackAssistantText =
+              assistantMessages.length === 0 && streamingAssistantText === ""
+                ? assistantTextFromEvents(runEvents) ||
+                  (run.status === "done" ? run.summary.trim() : "")
+                : "";
             const prompt = promptForRun(messages, run);
 
             return (
@@ -188,6 +194,13 @@ export function AgentRunThread({
                   <div className="grid w-full gap-2">
                     <Markdown className="text-message">
                       {fallbackAssistantText}
+                    </Markdown>
+                  </div>
+                ) : null}
+                {streamingAssistantText ? (
+                  <div className="grid w-full gap-2">
+                    <Markdown className="text-message">
+                      {streamingAssistantText}
                     </Markdown>
                   </div>
                 ) : null}
