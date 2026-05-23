@@ -1,10 +1,4 @@
-import {
-  ArrowUp,
-  ChevronDown,
-  Loader2,
-  MessageSquarePlus,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowUp, ChevronDown, Loader2, ShieldCheck } from "lucide-react";
 import { type FormEvent } from "react";
 
 import type { AgentModel, AgentReasoningEffort } from "@/shared/api";
@@ -52,13 +46,6 @@ export function Composer({
         />
         <div className="flex min-w-0 flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Button
-              aria-label="Add context"
-              icon={<MessageSquarePlus />}
-              size="icon"
-              type="button"
-              variant="action"
-            />
             <span className="hover:bg-hover text-muted inline-flex min-h-9 min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 text-xs font-medium">
               <ShieldCheck aria-hidden="true" className="size-4" />
               Default permissions

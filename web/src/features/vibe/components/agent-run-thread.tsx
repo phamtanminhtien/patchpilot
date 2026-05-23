@@ -63,7 +63,7 @@ export function AgentRunThread({
   );
 
   return (
-    <div className="mx-auto grid min-h-full w-full max-w-4xl content-end gap-6 pt-2 pb-6">
+    <div className="mx-auto grid min-h-full w-full max-w-3xl content-end gap-6 pt-2 pb-6">
       <div className="grid gap-6">
         {createError ? (
           <p className="text-warning text-sm font-medium">{createError}</p>
@@ -128,19 +128,19 @@ export function AgentRunThread({
                 ) : null}
                 {timelineItems.map((item) =>
                   item.kind === "assistant" ? (
-                    <div className="grid max-w-[78%] gap-2" key={item.id}>
+                    <div className="grid w-full gap-2" key={item.id}>
                       <p className="text-ink text-sm leading-6 whitespace-pre-wrap">
                         {item.item.content}
                       </p>
                     </div>
                   ) : (
-                    <div className="grid max-w-[78%] gap-2" key={item.id}>
+                    <div className="grid w-full gap-2" key={item.id}>
                       {renderToolCallReview(item.item)}
                     </div>
                   ),
                 )}
                 {fallbackAssistantText ? (
-                  <div className="grid max-w-[78%] gap-2">
+                  <div className="grid w-full gap-2">
                     <p className="text-ink text-sm leading-6 whitespace-pre-wrap">
                       {fallbackAssistantText}
                     </p>

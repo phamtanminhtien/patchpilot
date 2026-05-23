@@ -34,9 +34,7 @@ export function VibePage() {
     <VibeWorkspaceLayout
       composer={
         controller.conversation.hasConversation ? (
-          <div className="mx-auto w-full max-w-4xl px-4 pb-4">
-            <Composer {...controller.composer} />
-          </div>
+          <Composer {...controller.composer} />
         ) : (
           <div />
         )
