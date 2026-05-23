@@ -432,12 +432,7 @@ func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 		if len(result.ToolCalls) == 0 {
 			now := time.Now().UTC()
 			summary := strings.TrimSpace(result.Text)
-			record, err = m.store.UpdateAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID, map[string]any{
-				"status":      string(StatusDone),
-				"summary":     summary,
-				"finished_at": now,
-			})
-			if err == nil && summary != "" {
+			if summary != "" {
 				runID := runtime.runID
 				_, _ = m.store.CreateMessage(ctx, database.MessageRecord{
 					WorkspaceID:    runtime.workspaceID,
@@ -448,6 +443,11 @@ func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 					CreatedAt:      now,
 				})
 			}
+			record, err = m.store.UpdateAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID, map[string]any{
+				"status":      string(StatusDone),
+				"summary":     summary,
+				"finished_at": now,
+			})
 			if err == nil {
 				_ = m.publish(ctx, RunFromRecord(record), "agent.run.status_changed", RunFromRecord(record))
 			}
