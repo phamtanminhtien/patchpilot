@@ -483,3 +483,31 @@ regions, `components` for Vibe-only UI, and `lib` for local pure helpers.
 - User commits explicit non-empty selected paths.
 - User previews app through same-host proxy.
 - Mobile/iPad user completes a chat-driven AI coding loop from Vibe Mode.
+- Auth/session expiry: expired, missing, or invalid session cookies return
+  `401 unauthorized` and valid logout clears the session cookie. Verification:
+  backend auth/API handler tests.
+- Indexing failure: workspace create/get/index refresh return the standard error
+  envelope without exposing host paths outside the workspace root, and no stale
+  successful index response is sent for the failed refresh. Verification:
+  backend API handler tests with a failing file index/read path.
+- SSE replay: run event streams replay durable run events after
+  `Last-Event-ID`, exclude transient `agent.delta`, and emit an in-memory
+  `agent.output.snapshot` only for active local runs. Verification: backend SSE
+  handler tests.
+- Command truncation: command output persistence keeps only the latest 1 MiB per
+  command and process detail replays only retained output. Verification:
+  database command-output tests and API process detail tests.
+- Closed ports: unreachable exposed or detected ports are marked `closed`, emit
+  `port.closed`, and expose/proxy requests return `502 port_unreachable`.
+  Verification: backend port/API handler tests.
+- Patch apply conflict: failed patch application marks the tool call failed,
+  leaves source files unchanged, records an actionable tool error, and keeps the
+  run recoverable without executing later approval-required tools in that batch.
+  Verification: backend agent/tool approval tests.
+- Invalid paths: file, Git, command, and agent tool paths reject absolute paths,
+  traversal, and symlink escapes with standard error envelopes and without host
+  path leakage. Verification: filestore, gitrepo, runner, agent, and API tests.
+- Secret protection: agent file reads reject `.env`, `.env.*`, `*.pem`,
+  `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, and `.netrc`; manual
+  file writes reject the same secret-like paths. Verification: agent tool,
+  filestore, and API tests.
