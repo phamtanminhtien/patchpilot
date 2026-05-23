@@ -14,7 +14,9 @@ if (!("releasePointerCapture" in Element.prototype)) {
 
 if (!("scrollIntoView" in Element.prototype)) {
   Object.defineProperty(Element.prototype, "scrollIntoView", {
+    configurable: true,
     value: () => undefined,
+    writable: true,
   });
 }
 

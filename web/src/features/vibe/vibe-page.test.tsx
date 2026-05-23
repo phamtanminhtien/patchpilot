@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type * as NuqsModule from "nuqs";
 import type * as ReactModule from "react";
@@ -160,18 +160,239 @@ describe("VibePage", () => {
     expect(await screen.findAllByText("Fix the failing test")).toHaveLength(3);
   });
 
-  it("keeps the run list in a bounded scroll region", async () => {
+  it("starts on a new conversation instead of opening the newest existing one", async () => {
     vi.mocked(listConversations).mockResolvedValue({
       conversations: [conversation],
     });
     renderVibe("/vibe?workspaceId=ws_1");
 
+    expect(await screen.findByLabelText("Ask AI")).toBeEnabled();
+    expect(await screen.findByText("Fix the failing test")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Conversation timeline" }),
+    ).not.toBeInTheDocument();
+    expect(getConversation).not.toHaveBeenCalled();
+  });
+
+  it("keeps the run list in a bounded scroll region", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
     const taskList = await screen.findByRole("region", {
       name: "Agent conversations",
+    });
+    const timeline = screen.getByRole("region", {
+      name: "Conversation timeline",
     });
 
     expect(taskList).toHaveClass("min-h-0", "min-w-0", "overflow-auto");
     expect(taskList.parentElement).toHaveClass("grid", "overflow-hidden");
+    expect(timeline).toHaveClass("overflow-auto");
+  });
+
+  it("auto-scrolls to the latest activity when the timeline is near the bottom", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(createMessage).mockResolvedValue({
+      message: {
+        ...message,
+        content: "Apply the fix",
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "msg_2",
+        runId: "run_2",
+      },
+      run: {
+        ...run,
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "run_2",
+        triggerMessageId: "msg_2",
+        updatedAt: "2026-05-20T00:00:02Z",
+      },
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const timeline = await screen.findByRole("region", {
+      name: "Conversation timeline",
+    });
+    await screen.findByText("Fix the failing test");
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 960,
+      scrollTop: 576,
+    });
+    fireEvent.scroll(timeline);
+    scrollIntoView.mockClear();
+
+    await submitPrompt(user, "Apply the fix");
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Jump to latest" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("pauses auto-scroll and shows a jump control when newer activity arrives off-bottom", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(createMessage).mockResolvedValue({
+      message: {
+        ...message,
+        content: "Investigate logs",
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "msg_2",
+        runId: "run_2",
+      },
+      run: {
+        ...run,
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "run_2",
+        triggerMessageId: "msg_2",
+        updatedAt: "2026-05-20T00:00:02Z",
+      },
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const timeline = await screen.findByRole("region", {
+      name: "Conversation timeline",
+    });
+    await screen.findByText("Fix the failing test");
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 960,
+      scrollTop: 120,
+    });
+    fireEvent.scroll(timeline);
+    scrollIntoView.mockClear();
+
+    expect(
+      screen.queryByRole("button", { name: "Jump to latest" }),
+    ).not.toBeInTheDocument();
+
+    await submitPrompt(user, "Investigate logs");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Jump to latest" }),
+      ).toBeInTheDocument();
+    });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("jumps to the latest activity and resumes follow mode", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(createMessage)
+      .mockResolvedValueOnce({
+        message: {
+          ...message,
+          content: "First follow-up",
+          createdAt: "2026-05-20T00:00:02Z",
+          id: "msg_2",
+          runId: "run_2",
+        },
+        run: {
+          ...run,
+          createdAt: "2026-05-20T00:00:02Z",
+          id: "run_2",
+          triggerMessageId: "msg_2",
+          updatedAt: "2026-05-20T00:00:02Z",
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          ...message,
+          content: "Second follow-up",
+          createdAt: "2026-05-20T00:00:03Z",
+          id: "msg_3",
+          runId: "run_3",
+        },
+        run: {
+          ...run,
+          createdAt: "2026-05-20T00:00:03Z",
+          id: "run_3",
+          triggerMessageId: "msg_3",
+          updatedAt: "2026-05-20T00:00:03Z",
+        },
+      });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const timeline = await screen.findByRole("region", {
+      name: "Conversation timeline",
+    });
+    await screen.findByText("Fix the failing test");
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 960,
+      scrollTop: 120,
+    });
+    fireEvent.scroll(timeline);
+    scrollIntoView.mockClear();
+
+    await submitPrompt(user, "First follow-up");
+
+    const jumpButton = await screen.findByRole("button", {
+      name: "Jump to latest",
+    });
+    await user.click(jumpButton);
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Jump to latest" }),
+    ).not.toBeInTheDocument();
+
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 1080,
+      scrollTop: 760,
+    });
+    fireEvent.scroll(timeline);
+    scrollIntoView.mockClear();
+
+    await submitPrompt(user, "Second follow-up");
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
   });
 
   it("renders and approves an approval-required tool call", async () => {
@@ -187,8 +408,11 @@ describe("VibePage", () => {
       toolCalls: [toolCall],
     });
     renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
 
-    expect(await screen.findByText("apply_patch")).toBeInTheDocument();
+    expect(await screen.findByText("example.txt")).toBeInTheDocument();
+    expect(screen.getByText("Waiting approval")).toBeInTheDocument();
+    expect(screen.queryByText("apply_patch")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Approve tool" }));
 
     await waitFor(() => {
@@ -222,11 +446,43 @@ describe("VibePage", () => {
       toolCalls: [toolCall],
     });
     renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
 
-    expect(await screen.findByText("apply_patch")).toBeInTheDocument();
+    expect(await screen.findByText("example.txt")).toBeInTheDocument();
     expect(
       screen.queryByRole("group", { name: "agent.approval_required" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders read file tool calls as one-line activity without output detail", async () => {
+    const readToolCall = {
+      ...toolCall,
+      finishedAt: "2026-05-20T00:00:02Z",
+      input: '{"path":"README.md"}',
+      name: "read_file",
+      output: '{"content":"PatchPilot smoke file"}',
+      requiresApproval: false,
+      status: "finished" as const,
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "done" }],
+      toolCalls: [readToolCall],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const path = await screen.findByText("README.md");
+
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(path.closest("[data-tool-call]")).toBeNull();
+    expect(screen.queryByText("PatchPilot smoke file")).not.toBeInTheDocument();
   });
 
   it("keeps previous conversation messages visible after newer runs", async () => {
@@ -275,6 +531,7 @@ describe("VibePage", () => {
       toolCalls: [],
     });
     renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
 
     expect(await screen.findByText("Then update the UI")).toBeInTheDocument();
     expect(screen.getAllByText("Fix the failing test").length).toBeGreaterThan(
@@ -305,7 +562,10 @@ describe("VibePage", () => {
       ...toolCall,
       createdAt: "2026-05-20T00:00:02Z",
       id: "evt_2",
+      input: '{"query":"Docker"}',
       name: "search_files",
+      requiresApproval: false,
+      status: "finished" as const,
     };
     vi.mocked(listConversations).mockResolvedValue({
       conversations: [conversation],
@@ -320,9 +580,10 @@ describe("VibePage", () => {
       toolCalls: [timelineToolCall],
     });
     renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
 
     const progress = await screen.findByText("I will inspect the workspace.");
-    const tool = screen.getByText("search_files");
+    const tool = screen.getByText("Docker");
     const final = screen.getByText("The workspace has Docker files.");
 
     expect(
@@ -331,6 +592,89 @@ describe("VibePage", () => {
     expect(
       tool.compareDocumentPosition(final) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("groups adjacent tool calls behind a collapsed activity block", async () => {
+    const finishedPatch = {
+      ...toolCall,
+      finishedAt: "2026-05-20T00:00:02Z",
+      output: '{"status":"applied"}',
+      status: "finished" as const,
+    };
+    const finishedSearch = {
+      ...toolCall,
+      createdAt: "2026-05-20T00:00:01Z",
+      finishedAt: "2026-05-20T00:00:02Z",
+      id: "evt_2",
+      input: '{"query":"docs"}',
+      name: "search_files",
+      output: '{"results":[]}',
+      requiresApproval: false,
+      sequence: 1,
+      status: "finished" as const,
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "done" }],
+      toolCalls: [finishedPatch, finishedSearch],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const groupLabel = await screen.findByText("2 tool calls");
+    const group = groupLabel.closest("[data-tool-call-group]");
+
+    expect(group).toBeInTheDocument();
+    expect(group).toHaveAttribute("data-state", "closed");
+    expect(screen.getAllByText("example.txt").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("docs").length).toBeGreaterThan(0);
+  });
+
+  it("opens grouped tool calls by default when a child needs attention", async () => {
+    const runningSearch = {
+      ...toolCall,
+      createdAt: "2026-05-20T00:00:01Z",
+      id: "evt_2",
+      input: '{"query":"docs"}',
+      name: "search_files",
+      output: "{}",
+      requiresApproval: false,
+      sequence: 1,
+      status: "running" as const,
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "waiting_tool_approval" }],
+      toolCalls: [toolCall, runningSearch],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const groupLabel = await screen.findByText("2 tool calls");
+    const group = groupLabel.closest("[data-tool-call-group]");
+    const approvalItem = screen
+      .getByRole("button", { name: "Approve tool" })
+      .closest("[data-tool-call]");
+    const runningItem = screen
+      .getAllByText("docs")
+      .find((item) => item.closest("[data-tool-call]"))
+      ?.closest("[data-tool-call]");
+
+    expect(group).toHaveAttribute("data-state", "open");
+    expect(approvalItem).toHaveAttribute("data-state", "open");
+    expect(runningItem).toHaveAttribute("data-state", "open");
   });
 
   it("renders assistant markdown code blocks with language labels and copy", async () => {
@@ -359,6 +703,7 @@ describe("VibePage", () => {
       toolCalls: [],
     });
     const { container } = renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
 
     expect(
       await screen.findByRole("heading", { name: "Done" }),
@@ -434,4 +779,53 @@ function renderVibe(initialEntry: string) {
       </ThemeProvider>
     </QueryClientProvider>,
   );
+}
+
+async function openExistingConversation() {
+  const title = await screen.findByText(conversation.title);
+  const button = title.closest("button");
+  if (button === null) {
+    throw new Error("Conversation button was not found");
+  }
+  fireEvent.click(button);
+}
+
+async function submitPrompt(
+  user: ReturnType<typeof userEvent.setup>,
+  content: string,
+) {
+  await waitFor(() => {
+    expect(screen.getByLabelText("Ask AI")).toBeEnabled();
+  });
+  const promptInput = screen.getByLabelText("Ask AI");
+  await user.clear(promptInput);
+  await user.type(promptInput, content);
+  const startButton = screen.getByRole("button", { name: "Start run" });
+  await waitFor(() => {
+    expect(startButton).toBeEnabled();
+  });
+  await user.click(startButton);
+}
+
+function setScrollMetrics(
+  element: HTMLElement,
+  metrics: {
+    clientHeight: number;
+    scrollHeight: number;
+    scrollTop: number;
+  },
+) {
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    value: metrics.clientHeight,
+  });
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    value: metrics.scrollHeight,
+  });
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    value: metrics.scrollTop,
+    writable: true,
+  });
 }

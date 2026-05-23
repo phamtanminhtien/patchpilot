@@ -74,6 +74,12 @@ Provider settings:
 - Vibe sends `model` and `reasoningEffort` with each user message.
 - Vibe renders assistant text as Markdown with GitHub-flavored Markdown support;
   raw HTML in messages is escaped.
+- Vibe timeline auto-scroll follows the latest activity only while the user is
+  already at or near the bottom of the thread.
+- Scrolling up to read older activity pauses auto-follow until the user returns
+  to the bottom or uses a visible jump-to-latest control.
+- New activity that arrives while auto-follow is paused shows a compact control
+  that jumps back to the latest activity and re-enables follow mode.
 - Markdown fenced code blocks show syntax highlighting, language context, and a
   copy action for the raw code.
 - Initial models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`; default `gpt-5.5`.
@@ -196,8 +202,11 @@ Response contracts:
 - Message create accepts
   `{"content":"...","model":"gpt-5.5","reasoningEffort":"medium"}` and returns
   `202` with the user message and agent run.
-- Git status returns `{"porcelain":"..."}` including ignored paths and expanded
-  untracked files.
+- Git status returns `{"porcelain":"..."}` including expanded untracked files. By default, it does not include ignored paths. It can be configured using parameters:
+  - `ignored` (boolean, default: false): whether to include ignored files in the status.
+  - `untracked` (string: "all", "normal", "no", default: "all"): untracked files mode.
+  - `ignore_submodules` (string: "none", "untracked", "dirty", "all", default: ""): ignore changes to submodules mode.
+  - `paths` (string array / workspace-relative paths): limit status check to specific paths.
 - Git diff returns `{"path":"...","diff":"..."}` for workspace or path; untracked
   diffs are shown without staging.
 - Git stage/unstage/discard accept explicit non-empty workspace-relative
@@ -258,6 +267,16 @@ Tools:
 - `git_status`, `git_diff`.
 - `run_command` for approved commands with possible side effects.
 - `apply_patch` for approval-required server-side patch apply.
+
+Vibe Mode renders tool calls as compact activity rows with icons, human status
+text, and concise tool-specific labels such as read path, edited path, command,
+or search query. Consecutive tool calls in the same run are grouped into a
+collapsible activity block. Individual tool calls may be expandable or
+non-expandable by tool type: approval, patch, command, diff, search, status, and
+list calls can expose relevant detail, while `read_file` remains a one-line
+activity and does not expose file output. Tool call groups and expandable calls
+open by default when a decision or attention is needed, including waiting
+approval, running, or failed states; completed calls stay collapsed by default.
 
 Agents must not read outside workspace root, access secrets, expose ports, or run
 approval-required tools without approval. Backend preserves provider tool-call

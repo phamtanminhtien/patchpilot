@@ -46,7 +46,8 @@ export function useVibeController() {
   const [model, setModel] = useState<AgentModel>("gpt-5.5");
   const [reasoningEffort, setReasoningEffort] =
     useState<AgentReasoningEffort>("medium");
-  const [activeConversationId, setActiveConversationId] = useState("");
+  const [activeConversationId, setActiveConversationId] =
+    useState(newConversationId);
   const queryClient = useQueryClient();
 
   const workspaceQuery = useQuery({
@@ -75,11 +76,7 @@ export function useVibeController() {
   });
 
   const isNewConversation = activeConversationId === newConversationId;
-  const currentConversationId = isNewConversation
-    ? ""
-    : activeConversationId ||
-      conversationsQuery.data?.conversations[0]?.id ||
-      "";
+  const currentConversationId = isNewConversation ? "" : activeConversationId;
   const currentConversationIdRef = useRef(currentConversationId);
 
   useEffect(() => {

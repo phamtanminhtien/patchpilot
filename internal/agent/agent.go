@@ -335,7 +335,6 @@ func (m *Manager) run(runtime *runRuntime) {
 	}
 	run := RunFromRecord(record)
 	_ = m.publish(ctx, run, "agent.run.status_changed", run)
-	_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": "Preparing workspace context."})
 
 	if err := m.prepareConversationContext(ctx, run, runtime); err != nil {
 		m.fail(ctx, run, err)
@@ -653,7 +652,22 @@ func (m *Manager) executeTool(ctx context.Context, workspaceRoot string, record 
 		}
 		return openToolJSON(file), nil
 	case "git_status":
-		status, err := m.git.Status(ctx, workspaceRoot)
+		var args struct {
+			Ignored          *bool    `json:"ignored"`
+			Untracked        string   `json:"untracked"`
+			IgnoreSubmodules string   `json:"ignore_submodules"`
+			Paths            []string `json:"paths"`
+		}
+		var opts gitrepo.StatusOptions
+		if err := json.Unmarshal([]byte(record.InputJSON), &args); err == nil {
+			if args.Ignored != nil {
+				opts.Ignored = *args.Ignored
+			}
+			opts.Untracked = args.Untracked
+			opts.IgnoreSubmodules = args.IgnoreSubmodules
+			opts.Paths = args.Paths
+		}
+		status, err := m.git.Status(ctx, workspaceRoot, opts)
 		if err != nil {
 			return "", err
 		}

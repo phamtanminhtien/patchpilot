@@ -394,7 +394,34 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	status, err := s.git.Status(r.Context(), ws.RootPath)
+	opts := gitrepo.StatusOptions{}
+	if val := r.URL.Query().Get("ignored"); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			opts.Ignored = b
+		}
+	}
+	if val := r.URL.Query().Get("untracked"); val != "" {
+		opts.Untracked = val
+	}
+	if val := r.URL.Query().Get("ignore_submodules"); val != "" {
+		opts.IgnoreSubmodules = val
+	}
+	var paths []string
+	for _, key := range []string{"paths", "path"} {
+		if vals, exists := r.URL.Query()[key]; exists {
+			for _, val := range vals {
+				for _, p := range strings.Split(val, ",") {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						paths = append(paths, p)
+					}
+				}
+			}
+		}
+	}
+	opts.Paths = paths
+
+	status, err := s.git.Status(r.Context(), ws.RootPath, opts)
 	if err != nil {
 		writeGitError(w, err, "git_status_failed", "Git status failed")
 		return
@@ -1067,7 +1094,7 @@ func (s *Server) publishProcessExited(command database.CommandRecord) {
 }
 
 func (s *Server) publishGitChanged(ctx context.Context, ws workspace.Workspace) {
-	status, err := s.git.Status(ctx, ws.RootPath)
+	status, err := s.git.Status(ctx, ws.RootPath, gitrepo.StatusOptions{})
 	if err != nil {
 		return
 	}

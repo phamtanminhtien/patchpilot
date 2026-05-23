@@ -41,9 +41,6 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, 
 	if !p.Configured() {
 		return ProviderResult{}, ErrProviderUnavailable
 	}
-	if stream != nil {
-		stream.Delta(ctx, "Calling OpenAI provider.")
-	}
 	body := openAIResponsesRequest{
 		Model:        request.Run.Model,
 		Instructions: providerInstructions(),
@@ -164,8 +161,10 @@ type openAIToolParameters struct {
 }
 
 type openAIToolProperty struct {
-	Type        string `json:"type"`
-	Description string `json:"description,omitempty"`
+	Type        string              `json:"type"`
+	Description string              `json:"description,omitempty"`
+	Items       *openAIToolProperty `json:"items,omitempty"`
+	Enum        []string            `json:"enum,omitempty"`
 }
 
 type openAIResponsesResponse struct {
@@ -370,8 +369,35 @@ func openAITools() []openAITool {
 			Type:        "function",
 			Name:        "git_status",
 			Description: "Inspect current workspace git status.",
-			Parameters:  emptyToolParameters(),
-			Strict:      true,
+			Parameters: openAIToolParameters{
+				Type: "object",
+				Properties: map[string]openAIToolProperty{
+					"ignored": {
+						Type:        "boolean",
+						Description: "Whether to include ignored files in the status output. Defaults to false if not specified.",
+					},
+					"untracked": {
+						Type:        "string",
+						Description: "Show untracked files. Options: 'no' (show no untracked files), 'normal' (show untracked files and directories), 'all' (show individual files in untracked directories). Defaults to 'all'.",
+						Enum:        []string{"all", "normal", "no"},
+					},
+					"ignore_submodules": {
+						Type:        "string",
+						Description: "Ignore changes to submodules. Options: 'none', 'untracked', 'dirty', 'all'.",
+						Enum:        []string{"none", "untracked", "dirty", "all"},
+					},
+					"paths": {
+						Type:        "array",
+						Description: "Optional list of workspace-relative paths to limit the status to. If omitted, gets the status of the entire workspace.",
+						Items: &openAIToolProperty{
+							Type: "string",
+						},
+					},
+				},
+				Required:             []string{},
+				AdditionalProperties: false,
+			},
+			Strict: false,
 		},
 		{
 			Type:        "function",

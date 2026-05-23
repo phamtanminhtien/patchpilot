@@ -75,7 +75,9 @@ test("signs in and opens a recent workspace in Vibe Mode", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Finish product smoke test" }),
   ).toBeVisible();
-  await expect(page.getByText("apply_patch", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Waiting approval docs/product-release-checklist.md"),
+  ).toBeVisible();
 });
 
 test("covers workspace files, Git, commands, and preview smoke flows", async ({

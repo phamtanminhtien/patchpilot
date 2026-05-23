@@ -26,6 +26,13 @@ type Status struct {
 	Porcelain string `json:"porcelain"`
 }
 
+type StatusOptions struct {
+	Ignored          bool     `json:"ignored"`
+	Untracked        string   `json:"untracked"`         // "all", "normal", "no"
+	IgnoreSubmodules string   `json:"ignore_submodules"` // "none", "untracked", "dirty", "all"
+	Paths            []string `json:"paths"`
+}
+
 type Diff struct {
 	Path string `json:"path,omitempty"`
 	Diff string `json:"diff"`
@@ -46,15 +53,96 @@ func NewClient() *Client {
 	return &Client{}
 }
 
-func (c *Client) Status(ctx context.Context, root string) (Status, error) {
+func (c *Client) Status(ctx context.Context, root string, opts StatusOptions) (Status, error) {
 	if err := validateRepositoryRoot(ctx, root); err != nil {
 		return Status{}, err
 	}
-	output, err := runGit(ctx, root, "status", "--porcelain=v1", "--ignored", "--untracked-files=all")
+	args := []string{"status", "--porcelain=v1"}
+
+	untracked := opts.Untracked
+	if untracked == "" {
+		untracked = "all"
+	}
+	switch untracked {
+	case "all", "normal", "no":
+		args = append(args, "--untracked-files="+untracked)
+	default:
+		return Status{}, fmt.Errorf("invalid untracked option: %s", untracked)
+	}
+
+	if opts.Ignored {
+		args = append(args, "--ignored")
+	}
+
+	if opts.IgnoreSubmodules != "" {
+		switch opts.IgnoreSubmodules {
+		case "none", "untracked", "dirty", "all":
+			args = append(args, "--ignore-submodules="+opts.IgnoreSubmodules)
+		default:
+			return Status{}, fmt.Errorf("invalid ignore_submodules option: %s", opts.IgnoreSubmodules)
+		}
+	}
+
+	args = append(args, "--")
+
+	if len(opts.Paths) > 0 {
+		cleaned, err := cleanRelativePaths(opts.Paths)
+		if err != nil {
+			return Status{}, err
+		}
+		args = append(args, cleaned...)
+	}
+
+	output, err := runGit(ctx, root, args...)
 	if err != nil {
 		return Status{}, err
 	}
-	return Status{Porcelain: output}, nil
+
+	lines := strings.Split(output, "\n")
+	filteredLines := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if shouldFilterStatusLine(line) {
+			continue
+		}
+		filteredLines = append(filteredLines, line)
+	}
+
+	const maxLines = 1000
+	if len(filteredLines) > maxLines {
+		truncated := make([]string, maxLines)
+		copy(truncated, filteredLines[:maxLines])
+		truncated = append(truncated, "!! (status output truncated: too many files)")
+		filteredLines = truncated
+	}
+
+	return Status{Porcelain: strings.Join(filteredLines, "\n")}, nil
+}
+
+func shouldFilterStatusLine(line string) bool {
+	if len(line) < 4 {
+		return false
+	}
+	status := line[:2]
+	if status != "??" && status != "!!" {
+		return false
+	}
+	pathPart := line[3:]
+	if len(pathPart) >= 2 && pathPart[0] == '"' && pathPart[len(pathPart)-1] == '"' {
+		pathPart = pathPart[1 : len(pathPart)-1]
+	}
+	pathPart = filepath.ToSlash(pathPart)
+	segments := strings.Split(pathPart, "/")
+	for _, seg := range segments {
+		segLower := strings.ToLower(seg)
+		switch segLower {
+		case "node_modules", ".git", ".pnpm-store", ".pnpm", "build", "dist", ".next", ".nuxt", ".docusaurus", ".svelte-kit", "tmp", "temp", ".cache", "coverage", ".nyc_output", "bower_components", ".yarn", ".cargo", ".idea", ".vscode":
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) RepositoryRoot(ctx context.Context, root string) (string, error) {
@@ -113,7 +201,7 @@ func (c *Client) Stage(ctx context.Context, root string, relPaths []string) (Sta
 	if _, err := runGit(ctx, root, args...); err != nil {
 		return Status{}, err
 	}
-	return c.Status(ctx, root)
+	return c.Status(ctx, root, StatusOptions{})
 }
 
 func (c *Client) Unstage(ctx context.Context, root string, relPaths []string) (Status, error) {
@@ -128,7 +216,7 @@ func (c *Client) Unstage(ctx context.Context, root string, relPaths []string) (S
 	if _, err := runGit(ctx, root, args...); err != nil {
 		return Status{}, err
 	}
-	return c.Status(ctx, root)
+	return c.Status(ctx, root, StatusOptions{})
 }
 
 func (c *Client) Discard(ctx context.Context, root string, relPaths []string) (Status, error) {
@@ -144,7 +232,7 @@ func (c *Client) Discard(ctx context.Context, root string, relPaths []string) (S
 			return Status{}, err
 		}
 	}
-	return c.Status(ctx, root)
+	return c.Status(ctx, root, StatusOptions{})
 }
 
 func (c *Client) Commit(ctx context.Context, root, message string, relPaths []string) (Commit, error) {
