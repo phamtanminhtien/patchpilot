@@ -74,8 +74,8 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if err := store.db.First(&version, "key = ?", schemaVersionKey).Error; err != nil {
 		t.Fatalf("expected schema version metadata: %v", err)
 	}
-	if version.Value != "2" {
-		t.Fatalf("expected schema version 2, got %q", version.Value)
+	if version.Value != "3" {
+		t.Fatalf("expected schema version 3, got %q", version.Value)
 	}
 }
 
@@ -105,6 +105,60 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected one schema version metadata row, got %d", count)
+	}
+}
+
+func TestConversationContextSummaryAndListMessagesAfter(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	}()
+
+	conversation, err := store.CreateConversation(context.Background(), ConversationRecord{
+		WorkspaceID: "ws_1",
+		Title:       "Context",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation returned error: %v", err)
+	}
+	first, err := store.CreateMessage(context.Background(), MessageRecord{
+		WorkspaceID:    "ws_1",
+		ConversationID: conversation.ID,
+		Role:           "user",
+		Content:        "first",
+	})
+	if err != nil {
+		t.Fatalf("CreateMessage first returned error: %v", err)
+	}
+	second, err := store.CreateMessage(context.Background(), MessageRecord{
+		WorkspaceID:    "ws_1",
+		ConversationID: conversation.ID,
+		Role:           "assistant",
+		Content:        "second",
+	})
+	if err != nil {
+		t.Fatalf("CreateMessage second returned error: %v", err)
+	}
+
+	updated, err := store.UpdateConversationContextSummary(context.Background(), "ws_1", conversation.ID, "summary", first.ID, first.CreatedAt)
+	if err != nil {
+		t.Fatalf("UpdateConversationContextSummary returned error: %v", err)
+	}
+	if updated.ContextSummary != "summary" || updated.ContextSummaryThroughMessageID == nil || *updated.ContextSummaryThroughMessageID != first.ID {
+		t.Fatalf("unexpected summary fields: %+v", updated)
+	}
+
+	messages, err := store.ListMessagesAfter(context.Background(), "ws_1", conversation.ID, first.ID)
+	if err != nil {
+		t.Fatalf("ListMessagesAfter returned error: %v", err)
+	}
+	if len(messages) != 1 || messages[0].ID != second.ID {
+		t.Fatalf("expected only second message, got %+v", messages)
 	}
 }
 

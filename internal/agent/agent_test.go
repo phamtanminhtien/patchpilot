@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,10 +19,12 @@ import (
 )
 
 type testProvider struct {
-	mu    sync.Mutex
-	err   error
-	turns []ProviderResult
-	seen  []ProviderRequest
+	mu              sync.Mutex
+	err             error
+	summary         string
+	turns           []ProviderResult
+	seen            []ProviderRequest
+	summaryRequests []SummaryRequest
 }
 
 func (p *testProvider) Configured() bool {
@@ -43,6 +46,19 @@ func (p *testProvider) Generate(ctx context.Context, request ProviderRequest, st
 	return turn, nil
 }
 
+func (p *testProvider) Summarize(ctx context.Context, request SummaryRequest) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.summaryRequests = append(p.summaryRequests, request)
+	if p.err != nil {
+		return "", p.err
+	}
+	if p.summary != "" {
+		return p.summary, nil
+	}
+	return "summarized older context", nil
+}
+
 type unconfiguredProvider struct{}
 
 func (unconfiguredProvider) Configured() bool {
@@ -51,6 +67,10 @@ func (unconfiguredProvider) Configured() bool {
 
 func (unconfiguredProvider) Generate(context.Context, ProviderRequest, Stream) (ProviderResult, error) {
 	return ProviderResult{}, ErrProviderUnavailable
+}
+
+func (unconfiguredProvider) Summarize(context.Context, SummaryRequest) (string, error) {
+	return "", ErrProviderUnavailable
 }
 
 func TestManagerCreatesApprovalRequiredPatchTool(t *testing.T) {
@@ -130,6 +150,104 @@ func TestManagerApprovesPatchToolAndResumesAgent(t *testing.T) {
 	}
 	if len(provider.seen) < 2 || len(provider.seen[1].History) == 0 {
 		t.Fatalf("expected resumed provider history, got %+v", provider.seen)
+	}
+}
+
+func TestManagerSendsConversationContextToProvider(t *testing.T) {
+	root := initAgentGitRepo(t)
+	provider := &testProvider{}
+	manager, store := newAgentTestManager(t, provider)
+	conversation, err := store.CreateConversation(context.Background(), database.ConversationRecord{
+		WorkspaceID: "ws_1",
+		Title:       "Follow up",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation returned error: %v", err)
+	}
+	if _, err := store.CreateMessage(context.Background(), database.MessageRecord{
+		WorkspaceID:    "ws_1",
+		ConversationID: conversation.ID,
+		Role:           "user",
+		Content:        "Earlier user request",
+	}); err != nil {
+		t.Fatalf("CreateMessage returned error: %v", err)
+	}
+	trigger, err := store.CreateMessage(context.Background(), database.MessageRecord{
+		WorkspaceID:    "ws_1",
+		ConversationID: conversation.ID,
+		Role:           "user",
+		Content:        "Now continue",
+	})
+	if err != nil {
+		t.Fatalf("CreateMessage trigger returned error: %v", err)
+	}
+
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           trigger.Content,
+		ConversationID:   conversation.ID,
+		TriggerMessageID: trigger.ID,
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
+
+	if len(provider.seen) != 1 {
+		t.Fatalf("expected one provider request, got %+v", provider.seen)
+	}
+	context := provider.seen[0].ConversationContext
+	if len(context) != 2 || context[0].Content != "Earlier user request" || context[1].Content != "Now continue" {
+		t.Fatalf("expected conversation context through trigger, got %+v", context)
+	}
+}
+
+func TestManagerSummarizesOlderConversationContext(t *testing.T) {
+	root := initAgentGitRepo(t)
+	provider := &testProvider{summary: "compressed decisions"}
+	manager, store := newAgentTestManager(t, provider)
+	var trigger database.MessageRecord
+	for i := 0; i < 9; i++ {
+		message, err := store.CreateMessage(context.Background(), database.MessageRecord{
+			WorkspaceID:    "ws_1",
+			ConversationID: "conv_1",
+			Role:           "user",
+			Content:        strings.Repeat("long context ", 2500) + string(rune('a'+i)),
+		})
+		if err != nil {
+			t.Fatalf("CreateMessage returned error: %v", err)
+		}
+		trigger = message
+	}
+
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           trigger.Content,
+		ConversationID:   "conv_1",
+		TriggerMessageID: trigger.ID,
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
+
+	if len(provider.summaryRequests) != 1 {
+		t.Fatalf("expected one summary request, got %+v", provider.summaryRequests)
+	}
+	if len(provider.summaryRequests[0].Messages) == 0 {
+		t.Fatalf("expected older messages in summary request")
+	}
+	conversation, err := store.GetConversation(context.Background(), "ws_1", "conv_1")
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if conversation.ContextSummary != "compressed decisions" || conversation.ContextSummaryThroughMessageID == nil {
+		t.Fatalf("expected persisted context summary, got %+v", conversation)
+	}
+	if len(provider.seen) != 1 || provider.seen[0].ContextSummary != "compressed decisions" {
+		t.Fatalf("expected main provider call to receive summary, got %+v", provider.seen)
 	}
 }
 
@@ -290,6 +408,13 @@ func newAgentTestManager(t *testing.T, provider Provider) (*Manager, *database.S
 		}
 	})
 	manager := NewManager(store, filestore.NewService(), gitrepo.NewClient(), runner.NewRunner(), events.NewHub(), provider)
+	if _, err := store.CreateConversation(context.Background(), database.ConversationRecord{
+		ID:          "conv_1",
+		WorkspaceID: "ws_1",
+		Title:       "Test conversation",
+	}); err != nil {
+		t.Fatalf("CreateConversation returned error: %v", err)
+	}
 	return manager, store
 }
 

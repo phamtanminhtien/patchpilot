@@ -72,6 +72,10 @@ func (unavailableAgentProvider) Generate(context.Context, agent.ProviderRequest,
 	return agent.ProviderResult{}, agent.ErrProviderUnavailable
 }
 
+func (unavailableAgentProvider) Summarize(context.Context, agent.SummaryRequest) (string, error) {
+	return "", agent.ErrProviderUnavailable
+}
+
 func (fakeAgentProvider) Generate(ctx context.Context, request agent.ProviderRequest, stream agent.Stream) (agent.ProviderResult, error) {
 	stream.Delta(ctx, "fake provider response")
 	if len(request.History) > 0 {
@@ -82,6 +86,10 @@ func (fakeAgentProvider) Generate(ctx context.Context, request agent.ProviderReq
 		Name:      "apply_patch",
 		Arguments: `{"summary":"update example","diff":"diff --git a/example.txt b/example.txt\nindex 7c8e5d0..ef49dd8 100644\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-before\n+after\n"}`,
 	}}}, nil
+}
+
+func (fakeAgentProvider) Summarize(context.Context, agent.SummaryRequest) (string, error) {
+	return "fake summary", nil
 }
 
 func TestHealthCheckReturnsOK(t *testing.T) {

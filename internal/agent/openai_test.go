@@ -50,6 +50,17 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 
 		switch len(requests) {
 		case 1:
+			instructions, ok := body["instructions"].(string)
+			if !ok || !strings.Contains(instructions, "PatchPilot's coding agent") {
+				t.Fatalf("expected provider instructions, got %#v", body["instructions"])
+			}
+			encodedInput, err := json.Marshal(body["input"])
+			if err != nil {
+				t.Fatalf("marshal input: %v", err)
+			}
+			if strings.Contains(string(encodedInput), "PatchPilot's coding agent") {
+				t.Fatalf("expected agent instructions outside input, got %s", encodedInput)
+			}
 			tools, ok := body["tools"].([]any)
 			if !ok || len(tools) != 7 {
 				t.Fatalf("expected seven tools in initial request, got %#v", body["tools"])
@@ -146,24 +157,24 @@ func TestOpenAIProviderPromptRejectsReadinessForConcreteTasks(t *testing.T) {
 	}
 }
 
-func TestOpenAIProviderPromptDoesNotEmbedGitStatus(t *testing.T) {
+func TestOpenAIProviderInputDoesNotEmbedGitStatus(t *testing.T) {
 	run := Run{
 		ID:              "run_1",
 		WorkspaceID:     "ws_1",
 		Model:           "gpt-5.5",
 		ReasoningEffort: "medium",
 	}
-	prompt := buildProviderPrompt(ProviderRequest{
-		Run:       run,
-		Prompt:    "Review the workspace.",
-		GitStatus: " M internal/agent/openai.go",
-	})
+	input := buildOpenAIInput(ProviderRequest{Run: run, Prompt: "Review the workspace."})
+	encodedInput, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
 	for _, unexpected := range []string{
 		"Workspace git status:",
 		" M internal/agent/openai.go",
 	} {
-		if strings.Contains(prompt, unexpected) {
-			t.Fatalf("expected provider prompt to omit %q, got %s", unexpected, prompt)
+		if strings.Contains(string(encodedInput), unexpected) {
+			t.Fatalf("expected provider input to omit %q, got %s", unexpected, encodedInput)
 		}
 	}
 }

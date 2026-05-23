@@ -123,15 +123,17 @@ type Detail struct {
 
 type Provider interface {
 	Generate(context.Context, ProviderRequest, Stream) (ProviderResult, error)
+	Summarize(context.Context, SummaryRequest) (string, error)
 	Configured() bool
 }
 
 type ProviderRequest struct {
-	Run           Run
-	Prompt        string
-	WorkspaceRoot string
-	GitStatus     string
-	History       []ProviderHistoryItem
+	Run                 Run
+	Prompt              string
+	WorkspaceRoot       string
+	ContextSummary      string
+	ConversationContext []ProviderMessage
+	History             []ProviderHistoryItem
 }
 
 type ProviderHistoryItem struct {
@@ -175,14 +177,16 @@ type Manager struct {
 }
 
 type runRuntime struct {
-	workspaceID    string
-	workspaceRoot  string
-	conversationID string
-	runID          string
-	prompt         string
-	gitStatus      string
-	history        []ProviderHistoryItem
-	pendingBatch   string
+	workspaceID         string
+	workspaceRoot       string
+	conversationID      string
+	runID               string
+	triggerMessageID    string
+	prompt              string
+	contextSummary      string
+	conversationContext []ProviderMessage
+	history             []ProviderHistoryItem
+	pendingBatch        string
 }
 
 func NewManager(store *database.Store, files *filestore.Service, git *gitrepo.Client, run *runner.Runner, hub *events.Hub, provider Provider) *Manager {
@@ -220,7 +224,7 @@ func (m *Manager) Create(ctx context.Context, workspaceID, workspaceRoot string,
 		return Run{}, err
 	}
 	publicRun := RunFromRecord(run)
-	runtime := &runRuntime{workspaceID: workspaceID, workspaceRoot: workspaceRoot, conversationID: input.ConversationID, runID: run.ID, prompt: input.Prompt}
+	runtime := &runRuntime{workspaceID: workspaceID, workspaceRoot: workspaceRoot, conversationID: input.ConversationID, runID: run.ID, triggerMessageID: input.TriggerMessageID, prompt: input.Prompt}
 	m.setRuntime(runtime)
 	go m.run(runtime)
 	return publicRun, nil
@@ -333,12 +337,10 @@ func (m *Manager) run(runtime *runRuntime) {
 	_ = m.publish(ctx, run, "agent.run.status_changed", run)
 	_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": "Preparing workspace context."})
 
-	status, err := m.git.Status(ctx, runtime.workspaceRoot)
-	if err != nil {
+	if err := m.prepareConversationContext(ctx, run, runtime); err != nil {
 		m.fail(ctx, run, err)
 		return
 	}
-	runtime.gitStatus = status.Porcelain
 	m.loop(ctx, runtime)
 }
 
@@ -364,6 +366,47 @@ func (m *Manager) resume(runtime *runRuntime) {
 	m.loop(ctx, runtime)
 }
 
+func (m *Manager) prepareConversationContext(ctx context.Context, run Run, runtime *runRuntime) error {
+	conversation, err := m.store.GetConversation(ctx, runtime.workspaceID, runtime.conversationID)
+	if err != nil {
+		return err
+	}
+	afterMessageID := ""
+	if conversation.ContextSummaryThroughMessageID != nil {
+		afterMessageID = *conversation.ContextSummaryThroughMessageID
+	}
+	messages, err := m.store.ListMessagesAfter(ctx, runtime.workspaceID, runtime.conversationID, afterMessageID)
+	if err != nil {
+		return err
+	}
+	context := buildConversationContext(conversation, messages, runtime.triggerMessageID)
+	if len(context.SummarizeRecords) > 0 {
+		_ = m.publish(ctx, run, "agent.delta", map[string]string{"runId": run.ID, "text": "Summarizing earlier conversation context."})
+		summary, err := m.provider.Summarize(ctx, SummaryRequest{
+			Run:             run,
+			ExistingSummary: context.Summary,
+			Messages:        providerMessagesFromRecords(context.SummarizeRecords),
+		})
+		if err != nil {
+			return err
+		}
+		summary = strings.TrimSpace(summary)
+		throughMessageID := context.SummarizeRecords[len(context.SummarizeRecords)-1].ID
+		conversation, err = m.store.UpdateConversationContextSummary(ctx, runtime.workspaceID, runtime.conversationID, summary, throughMessageID, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		messages, err = m.store.ListMessagesAfter(ctx, runtime.workspaceID, runtime.conversationID, throughMessageID)
+		if err != nil {
+			return err
+		}
+		context = buildConversationContext(conversation, messages, runtime.triggerMessageID)
+	}
+	runtime.contextSummary = context.Summary
+	runtime.conversationContext = context.Messages
+	return nil
+}
+
 func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 	for {
 		record, err := m.store.GetAgentRun(ctx, runtime.workspaceID, runtime.conversationID, runtime.runID)
@@ -372,11 +415,12 @@ func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 		}
 		run := RunFromRecord(record)
 		result, err := m.provider.Generate(ctx, ProviderRequest{
-			Run:           run,
-			Prompt:        runtime.prompt,
-			WorkspaceRoot: runtime.workspaceRoot,
-			GitStatus:     runtime.gitStatus,
-			History:       runtime.history,
+			Run:                 run,
+			Prompt:              runtime.prompt,
+			WorkspaceRoot:       runtime.workspaceRoot,
+			ContextSummary:      runtime.contextSummary,
+			ConversationContext: runtime.conversationContext,
+			History:             runtime.history,
 		}, m.stream(run))
 		if err != nil {
 			m.fail(ctx, run, err)

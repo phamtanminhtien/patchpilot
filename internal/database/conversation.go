@@ -9,12 +9,15 @@ import (
 )
 
 type ConversationRecord struct {
-	ID            string    `gorm:"primaryKey;column:id"`
-	WorkspaceID   string    `gorm:"column:workspace_id;not null;index"`
-	Title         string    `gorm:"column:title;not null"`
-	LastMessageAt time.Time `gorm:"column:last_message_at;not null;index"`
-	CreatedAt     time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;not null;index"`
+	ID                             string     `gorm:"primaryKey;column:id"`
+	WorkspaceID                    string     `gorm:"column:workspace_id;not null;index"`
+	Title                          string     `gorm:"column:title;not null"`
+	LastMessageAt                  time.Time  `gorm:"column:last_message_at;not null;index"`
+	ContextSummary                 string     `gorm:"column:context_summary;not null"`
+	ContextSummaryThroughMessageID *string    `gorm:"column:context_summary_through_message_id"`
+	ContextSummaryUpdatedAt        *time.Time `gorm:"column:context_summary_updated_at"`
+	CreatedAt                      time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt                      time.Time  `gorm:"column:updated_at;not null;index"`
 }
 
 func (ConversationRecord) TableName() string {
@@ -91,6 +94,24 @@ func (s *Store) UpdateConversation(ctx context.Context, workspaceID, conversatio
 	return s.GetConversation(ctx, workspaceID, conversationID)
 }
 
+func (s *Store) UpdateConversationContextSummary(ctx context.Context, workspaceID, conversationID, summary, throughMessageID string, updatedAt time.Time) (ConversationRecord, error) {
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	updates := map[string]any{
+		"context_summary":                    summary,
+		"context_summary_through_message_id": throughMessageID,
+		"context_summary_updated_at":         updatedAt,
+		"updated_at":                         updatedAt,
+	}
+	if err := s.db.WithContext(ctx).Model(&ConversationRecord{}).
+		Where("workspace_id = ? AND id = ?", workspaceID, conversationID).
+		Updates(updates).Error; err != nil {
+		return ConversationRecord{}, err
+	}
+	return s.GetConversation(ctx, workspaceID, conversationID)
+}
+
 func (s *Store) CreateMessage(ctx context.Context, message MessageRecord) (MessageRecord, error) {
 	if message.ID == "" {
 		id, err := newPrefixedID("msg_")
@@ -136,6 +157,28 @@ func (s *Store) ListMessages(ctx context.Context, workspaceID, conversationID st
 	var messages []MessageRecord
 	if err := s.db.WithContext(ctx).
 		Where("workspace_id = ? AND conversation_id = ?", workspaceID, conversationID).
+		Order("created_at ASC, id ASC").
+		Find(&messages).Error; err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
+func (s *Store) ListMessagesAfter(ctx context.Context, workspaceID, conversationID, afterMessageID string) ([]MessageRecord, error) {
+	if afterMessageID == "" {
+		return s.ListMessages(ctx, workspaceID, conversationID)
+	}
+	var after MessageRecord
+	if err := s.db.WithContext(ctx).
+		First(&after, "workspace_id = ? AND conversation_id = ? AND id = ?", workspaceID, conversationID, afterMessageID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	var messages []MessageRecord
+	if err := s.db.WithContext(ctx).
+		Where("workspace_id = ? AND conversation_id = ? AND (created_at > ? OR (created_at = ? AND id > ?))", workspaceID, conversationID, after.CreatedAt, after.CreatedAt, after.ID).
 		Order("created_at ASC, id ASC").
 		Find(&messages).Error; err != nil {
 		return nil, err
