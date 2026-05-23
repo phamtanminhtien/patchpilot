@@ -3,6 +3,7 @@ import { StarterScreen, ThemeSwitcher } from "@/shared/ui";
 
 import { AgentRunThread } from "./components/agent-run-thread";
 import { Composer } from "./components/composer";
+import { useSmartAutoScroll } from "./hooks/use-smart-auto-scroll";
 import { useVibeController } from "./hooks/use-vibe-controller";
 import { VibeConversationSidebar } from "./layout/vibe-conversation-sidebar";
 import { VibeWorkspaceLayout } from "./layout/vibe-workspace-layout";
@@ -10,6 +11,26 @@ import { VibeWorkspaceLayout } from "./layout/vibe-workspace-layout";
 export function VibePage() {
   const controller = useVibeController();
   const { preference, setPreference } = useThemePreference();
+  const scroll = useSmartAutoScroll({
+    contentKey: [
+      controller.conversation.activeConversationId,
+      controller.thread.messages.length,
+      controller.thread.messages
+        .map((item) => `${item.id}:${item.runId ?? ""}`)
+        .join("|"),
+      controller.thread.toolCalls
+        .map(
+          (item) =>
+            `${item.id}:${item.status}:${item.decision ?? ""}:${item.finishedAt ?? ""}`,
+        )
+        .join("|"),
+      controller.thread.runs
+        .map((item) => `${item.id}:${item.status}:${item.updatedAt}`)
+        .join("|"),
+      controller.thread.events.map((item) => item.id).join("|"),
+    ].join("::"),
+    resetKey: controller.conversation.activeConversationId,
+  });
 
   if (controller.workspace.id.length === 0) {
     return (
@@ -39,6 +60,9 @@ export function VibePage() {
           <div />
         )
       }
+      onJumpToLatest={() => scroll.scrollToLatest()}
+      onScroll={scroll.handleScroll}
+      scrollContainerRef={scroll.scrollContainerRef}
       sidebar={
         <VibeConversationSidebar
           activeConversationId={controller.conversation.activeConversationId}
@@ -49,12 +73,14 @@ export function VibePage() {
           workspaceId={controller.workspace.id}
         />
       }
+      showJumpToLatest={scroll.showJumpToLatest}
       title={controller.conversation.title}
       workspaceId={controller.workspace.id}
     >
       {controller.conversation.hasConversation ? (
         <AgentRunThread
           {...controller.thread}
+          bottomAnchorRef={scroll.bottomAnchorRef}
           isLoading={controller.conversation.isLoading}
         />
       ) : (

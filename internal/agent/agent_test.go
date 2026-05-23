@@ -109,6 +109,9 @@ func TestManagerCreatesApprovalRequiredPatchTool(t *testing.T) {
 	if !hasEvent(events, "agent.approval_required") {
 		t.Fatalf("expected approval event, got %+v", events)
 	}
+	if hasAgentDeltaText(events, "Preparing workspace context.") {
+		t.Fatalf("workspace preparation progress should not be stored as UI event, got %+v", events)
+	}
 	messages, err := store.ListMessages(context.Background(), "ws_1", run.ConversationID)
 	if err != nil {
 		t.Fatalf("ListMessages returned error: %v", err)
@@ -381,6 +384,18 @@ func patchToolRequest(callID string) ToolRequest {
 func hasEvent(events []database.AgentRunEventRecord, eventType string) bool {
 	for _, event := range events {
 		if event.Type == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAgentDeltaText(events []database.AgentRunEventRecord, text string) bool {
+	for _, event := range events {
+		if event.Type != "agent.delta" {
+			continue
+		}
+		if strings.Contains(event.PayloadJSON, text) {
 			return true
 		}
 	}

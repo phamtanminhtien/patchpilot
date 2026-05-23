@@ -13,6 +13,7 @@
   --color-accent: var(--pp-color-accent);
   --color-accent-hover: var(--pp-color-accent-hover);
   --color-accent-ink: var(--pp-color-accent-ink);
+  --color-message: var(--pp-color-message);
   --color-focus: var(--pp-color-focus);
   --color-warning: var(--pp-color-warning);
   --color-pattern: var(--pp-bg-pattern);
@@ -40,6 +41,7 @@
   --pp-bg-accent-soft: #e8efff;
   --pp-bg-pattern: #d9e1ec;
   --pp-color-ink: #151923;
+  --pp-color-message: #0d111a;
   --pp-color-muted: #637083;
   --pp-color-line: #d9e1ec;
   --pp-color-accent: #315bc7;
@@ -72,6 +74,7 @@
   --pp-bg-accent-soft: #294136;
   --pp-bg-pattern: #353535;
   --pp-color-ink: #fafafa;
+  --pp-color-message: #ffffff;
   --pp-color-muted: #d0d0d0;
   --pp-color-line: #4a4a4a;
   --pp-color-accent: #8fe6b7;
@@ -96,6 +99,7 @@
     --pp-bg-accent-soft: #294136;
     --pp-bg-pattern: #353535;
     --pp-color-ink: #fafafa;
+    --pp-color-message: #ffffff;
     --pp-color-muted: #d0d0d0;
     --pp-color-line: #4a4a4a;
     --pp-color-accent: #8fe6b7;
@@ -161,6 +165,35 @@ body {
   background-size: 2.5rem 2.5rem;
 }
 
+.pp-shimmer-text {
+  display: inline-block;
+  --pp-shimmer-base: var(--pp-color-muted);
+  --pp-shimmer-highlight: #ffffff;
+  background-image: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--pp-shimmer-base) 70%, transparent) 0%,
+    var(--pp-shimmer-base) 42%,
+    var(--pp-shimmer-highlight) 50%,
+    var(--pp-shimmer-base) 58%,
+    color-mix(in srgb, var(--pp-shimmer-base) 70%, transparent) 100%
+  );
+  background-size: 240% 100%;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: pp-shimmer-text 1.8s linear infinite;
+}
+
+@keyframes pp-shimmer-text {
+  from {
+    background-position: 120% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
+}
+
 button,
 input,
 textarea {
@@ -183,7 +216,7 @@ textarea {
 }
 
 .pp-markdown {
-  @apply text-ink grid gap-3 text-sm leading-6;
+  @apply text-ink grid gap-2 text-[0.9375rem] leading-6;
 }
 
 .pp-markdown a {
@@ -203,7 +236,7 @@ textarea {
 }
 
 .pp-markdown h3 {
-  @apply text-ink text-base leading-6 font-semibold;
+  @apply text-ink text-lg leading-7 font-semibold;
 }
 
 .pp-markdown hr {

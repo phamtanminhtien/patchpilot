@@ -3,6 +3,7 @@ package gitrepo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,7 +18,7 @@ func TestStatusReturnsPorcelain(t *testing.T) {
 	}
 	client := NewClient()
 
-	status, err := client.Status(context.Background(), root)
+	status, err := client.Status(context.Background(), root, StatusOptions{Ignored: true})
 	if err != nil {
 		t.Fatalf("Status returned error: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestStatusExpandsUntrackedDirectories(t *testing.T) {
 	}
 	client := NewClient()
 
-	status, err := client.Status(context.Background(), root)
+	status, err := client.Status(context.Background(), root, StatusOptions{Ignored: true})
 	if err != nil {
 		t.Fatalf("Status returned error: %v", err)
 	}
@@ -59,7 +60,7 @@ func TestStatusReturnsIgnoredPaths(t *testing.T) {
 	}
 	client := NewClient()
 
-	status, err := client.Status(context.Background(), root)
+	status, err := client.Status(context.Background(), root, StatusOptions{Ignored: true})
 	if err != nil {
 		t.Fatalf("Status returned error: %v", err)
 	}
@@ -302,7 +303,7 @@ func TestCommitCommitsOnlyExplicitPaths(t *testing.T) {
 	if commitResult.Hash == "" {
 		t.Fatal("expected commit hash")
 	}
-	status, err := client.Status(context.Background(), root)
+	status, err := client.Status(context.Background(), root, StatusOptions{Ignored: true})
 	if err != nil {
 		t.Fatalf("Status returned error: %v", err)
 	}
@@ -329,7 +330,7 @@ func TestCommitDoesNotCommitUnrelatedStagedPaths(t *testing.T) {
 	if _, err := client.Commit(context.Background(), root, "add first", []string{"first.txt"}); err != nil {
 		t.Fatalf("Commit returned error: %v", err)
 	}
-	status, err := client.Status(context.Background(), root)
+	status, err := client.Status(context.Background(), root, StatusOptions{Ignored: true})
 	if err != nil {
 		t.Fatalf("Status returned error: %v", err)
 	}
@@ -343,7 +344,7 @@ func TestCommitDoesNotCommitUnrelatedStagedPaths(t *testing.T) {
 
 func TestMethodsRejectNonRepositoryAndNestedRoot(t *testing.T) {
 	client := NewClient()
-	_, err := client.Status(context.Background(), t.TempDir())
+	_, err := client.Status(context.Background(), t.TempDir(), StatusOptions{Ignored: true})
 	if !errors.Is(err, ErrNotRepository) {
 		t.Fatalf("expected ErrNotRepository, got %v", err)
 	}
@@ -353,7 +354,7 @@ func TestMethodsRejectNonRepositoryAndNestedRoot(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("mkdir nested: %v", err)
 	}
-	_, err = client.Status(context.Background(), nested)
+	_, err = client.Status(context.Background(), nested, StatusOptions{Ignored: true})
 	if !errors.Is(err, ErrNotRepository) {
 		t.Fatalf("expected ErrNotRepository for nested root, got %v", err)
 	}
@@ -381,6 +382,89 @@ func TestApplyPatchValidatesAndReverts(t *testing.T) {
 	}
 	if content := readFile(t, root, "app.txt"); content != "old\n" {
 		t.Fatalf("expected reverted content, got %q", content)
+	}
+}
+
+func TestStatusFiltersIgnoredDirectories(t *testing.T) {
+	root := initGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("node_modules/\nignored_at_root.txt\n"), 0o644); err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "ignored_at_root.txt"), []byte("ignored"), 0o644); err != nil {
+		t.Fatalf("write ignored file: %v", err)
+	}
+
+	nodeModulesDir := filepath.Join(root, "node_modules")
+	if err := os.MkdirAll(nodeModulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeModulesDir, "some_dep.txt"), []byte("dep content"), 0o644); err != nil {
+		t.Fatalf("write dep file: %v", err)
+	}
+
+	distDir := filepath.Join(root, "dist")
+	if err := os.MkdirAll(distDir, 0o755); err != nil {
+		t.Fatalf("mkdir dist: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "bundle.js"), []byte("bundle content"), 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+
+	srcDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "app.js"), []byte("app content"), 0o644); err != nil {
+		t.Fatalf("write app file: %v", err)
+	}
+
+	client := NewClient()
+	status, err := client.Status(context.Background(), root, StatusOptions{Ignored: true})
+	if err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+
+	if !strings.Contains(status.Porcelain, "!! ignored_at_root.txt") {
+		t.Errorf("expected !! ignored_at_root.txt to be kept, status:\n%s", status.Porcelain)
+	}
+	if !strings.Contains(status.Porcelain, "?? src/app.js") {
+		t.Errorf("expected ?? src/app.js to be kept, status:\n%s", status.Porcelain)
+	}
+	if strings.Contains(status.Porcelain, "node_modules") {
+		t.Errorf("expected node_modules files to be filtered, got:\n%s", status.Porcelain)
+	}
+	if strings.Contains(status.Porcelain, "dist") {
+		t.Errorf("expected dist files to be filtered, got:\n%s", status.Porcelain)
+	}
+}
+
+func TestStatusTruncation(t *testing.T) {
+	root := initGitRepo(t)
+	testDir := filepath.Join(root, "lots_of_files")
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for i := 0; i < 1005; i++ {
+		filename := filepath.Join(testDir, fmt.Sprintf("file_%d.txt", i))
+		if err := os.WriteFile(filename, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write file %d: %v", i, err)
+		}
+	}
+
+	client := NewClient()
+	status, err := client.Status(context.Background(), root, StatusOptions{Ignored: true})
+	if err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+
+	lines := strings.Split(status.Porcelain, "\n")
+	if len(lines) != 1001 {
+		t.Errorf("expected exactly 1001 lines (1000 files + 1 truncation message), got %d lines", len(lines))
+	}
+	lastLine := lines[len(lines)-1]
+	if lastLine != "!! (status output truncated: too many files)" {
+		t.Errorf("expected truncation message, got %q", lastLine)
 	}
 }
 
@@ -420,4 +504,61 @@ func readFile(t *testing.T, root, relPath string) string {
 		t.Fatalf("read file: %v", err)
 	}
 	return string(content)
+}
+
+func TestStatusHidesIgnoredPaths(t *testing.T) {
+	root := initGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored.txt\n"), 0o644); err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ignored.txt"), []byte("ignored"), 0o644); err != nil {
+		t.Fatalf("write ignored file: %v", err)
+	}
+	client := NewClient()
+
+	status, err := client.Status(context.Background(), root, StatusOptions{Ignored: false})
+	if err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+	if strings.Contains(status.Porcelain, "ignored.txt") {
+		t.Fatalf("expected ignored file to be omitted from status, got %q", status.Porcelain)
+	}
+}
+
+func TestStatusUntrackedFiles(t *testing.T) {
+	root := initGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "untracked.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	client := NewClient()
+
+	status, err := client.Status(context.Background(), root, StatusOptions{Untracked: "no"})
+	if err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+	if strings.Contains(status.Porcelain, "untracked.txt") {
+		t.Fatalf("expected untracked file to be hidden with Untracked=no, got %q", status.Porcelain)
+	}
+}
+
+func TestStatusWithSpecificPaths(t *testing.T) {
+	root := initGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "file1.txt"), []byte("1"), 0o644); err != nil {
+		t.Fatalf("write file1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "file2.txt"), []byte("2"), 0o644); err != nil {
+		t.Fatalf("write file2: %v", err)
+	}
+	client := NewClient()
+
+	status, err := client.Status(context.Background(), root, StatusOptions{Paths: []string{"file1.txt"}})
+	if err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+	if !strings.Contains(status.Porcelain, "?? file1.txt") {
+		t.Errorf("expected file1.txt in status, got %q", status.Porcelain)
+	}
+	if strings.Contains(status.Porcelain, "file2.txt") {
+		t.Errorf("expected file2.txt to be omitted from status, got %q", status.Porcelain)
+	}
 }

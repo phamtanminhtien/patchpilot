@@ -1,5 +1,5 @@
-import { Code2 } from "lucide-react";
-import { type ReactNode } from "react";
+import { ArrowDown, Code2 } from "lucide-react";
+import { type ReactNode, type RefObject } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/shared/ui";
@@ -7,13 +7,21 @@ import { Button } from "@/shared/ui";
 export function VibeWorkspaceLayout({
   children,
   composer,
+  onJumpToLatest,
+  onScroll,
+  scrollContainerRef,
   sidebar,
+  showJumpToLatest,
   title,
   workspaceId,
 }: {
   children: ReactNode;
   composer: ReactNode;
+  onJumpToLatest: () => void;
+  onScroll: () => void;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
   sidebar: ReactNode;
+  showJumpToLatest: boolean;
   title: string;
   workspaceId: string;
 }) {
@@ -44,9 +52,32 @@ export function VibeWorkspaceLayout({
         </header>
 
         <div className="relative min-h-0 min-w-0">
-          <div className="absolute inset-0 min-w-0 overflow-auto px-4 pt-4 pb-48 sm:pb-52">
+          <div
+            aria-label="Conversation timeline"
+            className="absolute inset-0 min-w-0 overflow-auto px-4 pt-4 pb-48 sm:pb-52"
+            onScroll={onScroll}
+            ref={scrollContainerRef}
+            role="region"
+          >
             {children}
           </div>
+
+          {showJumpToLatest ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-28 z-10 px-4 sm:bottom-32">
+              <div className="mx-auto flex w-full max-w-3xl justify-center">
+                <Button
+                  aria-label="Jump to latest"
+                  className="pointer-events-auto"
+                  icon={<ArrowDown />}
+                  onClick={onJumpToLatest}
+                  size="small"
+                  variant="secondary"
+                >
+                  Jump to latest
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
             <div className="pointer-events-auto mx-auto w-full max-w-3xl">

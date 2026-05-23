@@ -82,6 +82,7 @@ function AuthGate() {
               autoComplete="current-password"
               label="Admin token"
               onChange={(event) => setToken(event.target.value)}
+              placeholder="Enter admin token"
               type="password"
               value={token}
             />

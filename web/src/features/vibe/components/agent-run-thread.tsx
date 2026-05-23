@@ -1,3 +1,5 @@
+import type { Ref } from "react";
+
 import type {
   AgentRun,
   AgentRunEvent,
@@ -13,10 +15,34 @@ import {
 } from "../lib/run-text";
 import { nextApprovalToolCall } from "../lib/tool-calls";
 import { ThinkingIndicator } from "./thinking-indicator";
+import { ToolCallGroup } from "./tool-call-group";
 import { ToolCallReview } from "./tool-call-review";
+
+type TimelineItem =
+  | {
+      createdAt: string;
+      id: string;
+      item: Message;
+      kind: "assistant";
+    }
+  | {
+      createdAt: string;
+      id: string;
+      item: AgentToolCall;
+      kind: "tool_call";
+    };
+
+type TimelineDisplayItem =
+  | TimelineItem
+  | {
+      id: string;
+      items: AgentToolCall[];
+      kind: "tool_call_group";
+    };
 
 export function AgentRunThread({
   approvalError,
+  bottomAnchorRef,
   createError,
   events,
   isApproving,
@@ -30,6 +56,7 @@ export function AgentRunThread({
   toolCalls,
 }: {
   approvalError?: string;
+  bottomAnchorRef?: Ref<HTMLDivElement>;
   createError?: string;
   events: AgentRunEvent[];
   isApproving: boolean;
@@ -49,7 +76,10 @@ export function AgentRunThread({
       new Date(second.createdAt).getTime(),
   );
 
-  const renderToolCallReview = (toolCall: AgentToolCall) => (
+  const renderToolCallReview = (
+    toolCall: AgentToolCall,
+    options: { compact?: boolean; showIcon?: boolean } = {},
+  ) => (
     <ToolCallReview
       approvalError={approvalError}
       isApproving={isApproving}
@@ -59,13 +89,15 @@ export function AgentRunThread({
       onApprove={() => onToolApprove(toolCall.runId, toolCall.id)}
       onReject={() => onToolReject(toolCall.runId, toolCall.id)}
       rejectError={rejectError}
+      compact={options.compact}
+      showIcon={options.showIcon}
       toolCall={toolCall}
     />
   );
 
   return (
-    <div className="mx-auto grid min-h-full w-full max-w-3xl content-end gap-6 pt-2 pb-6">
-      <div className="grid gap-6">
+    <div className="mx-auto grid min-h-full w-full max-w-3xl content-end gap-6 pt-2">
+      <div className="grid gap-3">
         {createError ? (
           <p className="text-warning text-sm font-medium">{createError}</p>
         ) : null}
@@ -107,6 +139,7 @@ export function AgentRunThread({
               }
               return first.id.localeCompare(second.id);
             });
+            const displayItems = groupConsecutiveToolCalls(timelineItems);
             const fallbackAssistantText =
               assistantMessages.length === 0
                 ? assistantTextFromEvents(runEvents) ||
@@ -119,28 +152,43 @@ export function AgentRunThread({
             const prompt = promptForRun(messages, run);
 
             return (
-              <div className="grid gap-6" key={run.id}>
+              <div className="grid gap-3" key={run.id}>
                 {prompt ? (
                   <div className="flex justify-end">
-                    <p className="bg-hover text-ink max-w-[75%] rounded-lg px-4 py-3 text-sm leading-6 whitespace-pre-wrap">
+                    <p className="bg-hover text-message max-w-[75%] rounded-lg px-4 py-2 text-[0.9375rem] leading-6 whitespace-pre-wrap">
                       {prompt}
                     </p>
                   </div>
                 ) : null}
-                {timelineItems.map((item) =>
+                {displayItems.map((item) =>
                   item.kind === "assistant" ? (
                     <div className="grid w-full gap-2" key={item.id}>
-                      <Markdown>{item.item.content}</Markdown>
+                      <Markdown className="text-message">
+                        {item.item.content}
+                      </Markdown>
+                    </div>
+                  ) : item.kind === "tool_call" ? (
+                    <div className="grid w-full gap-2" key={item.id}>
+                      {renderToolCallReview(item.item)}
                     </div>
                   ) : (
                     <div className="grid w-full gap-2" key={item.id}>
-                      {renderToolCallReview(item.item)}
+                      <ToolCallGroup toolCalls={item.items}>
+                        {item.items.map((toolCall) =>
+                          renderToolCallReview(toolCall, {
+                            compact: true,
+                            showIcon: false,
+                          }),
+                        )}
+                      </ToolCallGroup>
                     </div>
                   ),
                 )}
                 {fallbackAssistantText ? (
                   <div className="grid w-full gap-2">
-                    <Markdown>{fallbackAssistantText}</Markdown>
+                    <Markdown className="text-message">
+                      {fallbackAssistantText}
+                    </Markdown>
                   </div>
                 ) : null}
                 {isThinking ? <ThinkingIndicator status={run.status} /> : null}
@@ -159,7 +207,49 @@ export function AgentRunThread({
             ) : null}
           </>
         )}
+        <div aria-hidden="true" ref={bottomAnchorRef} />
       </div>
     </div>
   );
+}
+
+function groupConsecutiveToolCalls(
+  timelineItems: TimelineItem[],
+): TimelineDisplayItem[] {
+  const displayItems: TimelineDisplayItem[] = [];
+  let currentGroup: AgentToolCall[] = [];
+
+  const flushToolCalls = () => {
+    if (currentGroup.length === 1) {
+      const toolCall = currentGroup[0];
+      if (toolCall) {
+        displayItems.push({
+          createdAt: toolCall.createdAt,
+          id: toolCall.id,
+          item: toolCall,
+          kind: "tool_call",
+        });
+      }
+    } else if (currentGroup.length > 1) {
+      displayItems.push({
+        id: currentGroup.map((toolCall) => toolCall.id).join("-"),
+        items: currentGroup,
+        kind: "tool_call_group",
+      });
+    }
+    currentGroup = [];
+  };
+
+  for (const item of timelineItems) {
+    if (item.kind === "tool_call") {
+      currentGroup.push(item.item);
+      continue;
+    }
+    flushToolCalls();
+    displayItems.push(item);
+  }
+
+  flushToolCalls();
+
+  return displayItems;
 }

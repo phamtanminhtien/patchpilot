@@ -1,12 +1,15 @@
 export function ThinkingIndicator({ status }: { status: string }) {
   return (
-    <div className="text-muted flex max-w-[78%] items-center gap-2 text-sm">
-      <span className="flex gap-1">
-        <span className="bg-muted size-1.5 animate-pulse rounded-full" />
-        <span className="bg-muted size-1.5 animate-pulse rounded-full [animation-delay:120ms]" />
-        <span className="bg-muted size-1.5 animate-pulse rounded-full [animation-delay:240ms]" />
-      </span>
-      <span>
+    <div className="max-w-[78%] text-sm font-medium">
+      <span
+        className="pp-shimmer-text"
+        style={
+          {
+            "--pp-shimmer-base":
+              "color-mix(in srgb, var(--pp-color-muted) 45%, transparent)",
+          } as React.CSSProperties
+        }
+      >
         {status === "waiting_tool_approval"
           ? "Waiting for approval"
           : "Thinking"}

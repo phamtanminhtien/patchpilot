@@ -33,9 +33,22 @@ export async function getGitDiff(
   return response.data;
 }
 
-export async function getGitStatus(workspaceId: string): Promise<GitStatus> {
+export interface GitStatusOptions {
+  ignored?: boolean;
+  untracked?: "all" | "normal" | "no";
+  ignore_submodules?: "none" | "untracked" | "dirty" | "all";
+  paths?: string[];
+}
+
+export async function getGitStatus(
+  workspaceId: string,
+  options?: GitStatusOptions,
+): Promise<GitStatus> {
   const response = await apiClient.get<GitStatus>(
     `/workspaces/${workspaceId}/git/status`,
+    {
+      params: options,
+    },
   );
   return response.data;
 }
