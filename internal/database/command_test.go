@@ -117,3 +117,38 @@ func TestCommandOutputRepositoryKeepsLatestBytes(t *testing.T) {
 		t.Fatalf("expected latest chunks within cap, got %+v", output)
 	}
 }
+
+func TestCommandRepositoryListsActiveCommands(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	}()
+
+	records := []CommandRecord{
+		{WorkspaceID: "ws_1", Command: "go test ./...", Cwd: "/repo", Status: "queued"},
+		{WorkspaceID: "ws_2", Command: "sleep 10", Cwd: "/repo", Status: "running"},
+		{WorkspaceID: "ws_3", Command: "echo done", Cwd: "/repo", Status: "exited"},
+	}
+	for _, record := range records {
+		if _, err := store.CreateCommand(ctx, record); err != nil {
+			t.Fatalf("CreateCommand returned error: %v", err)
+		}
+	}
+
+	active, err := store.ListActiveCommands(ctx)
+	if err != nil {
+		t.Fatalf("ListActiveCommands returned error: %v", err)
+	}
+	if len(active) != 2 {
+		t.Fatalf("expected 2 active commands, got %+v", active)
+	}
+	if active[0].Status != "queued" || active[1].Status != "running" {
+		t.Fatalf("unexpected active commands: %+v", active)
+	}
+}

@@ -616,6 +616,108 @@ func TestCancelAgentRunMarksCanceled(t *testing.T) {
 	}
 }
 
+func TestServerShutdownStopsActiveCommandsAndPublishesExit(t *testing.T) {
+	fixture := newServerFixture(t, t.TempDir(), fakeAgentProvider{})
+	eventsCh, unsubscribe := fixture.hub.Subscribe()
+	defer unsubscribe()
+
+	queued, err := fixture.store.CreateCommand(context.Background(), database.CommandRecord{
+		WorkspaceID: "ws_1",
+		Command:     "echo later",
+		Cwd:         t.TempDir(),
+		Status:      "queued",
+	})
+	if err != nil {
+		t.Fatalf("CreateCommand queued returned error: %v", err)
+	}
+	running, err := fixture.store.CreateCommand(context.Background(), database.CommandRecord{
+		WorkspaceID: "ws_1",
+		Command:     "go test ./...",
+		Cwd:         filepath.Join("..", "runner", "testdata", "slow"),
+		Status:      "queued",
+	})
+	if err != nil {
+		t.Fatalf("CreateCommand running returned error: %v", err)
+	}
+	if err := fixture.runner.Start(runner.RunSpec{
+		ID:          running.ID,
+		WorkspaceID: running.WorkspaceID,
+		Command:     running.Command,
+		Cwd:         running.Cwd,
+	}, fixture.server.commandHooks(running.WorkspaceID, running.ID)); err != nil {
+		t.Fatalf("runner.Start returned error: %v", err)
+	}
+	waitForCommandStatus(t, fixture.store, running.WorkspaceID, running.ID, "running")
+
+	if err := fixture.server.Shutdown(context.Background(), "backend shutdown"); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+
+	queued = waitForCommandStatus(t, fixture.store, queued.WorkspaceID, queued.ID, "stopped")
+	running = waitForCommandStatus(t, fixture.store, running.WorkspaceID, running.ID, "stopped")
+	if queued.FinishedAt == nil || running.FinishedAt == nil {
+		t.Fatalf("expected finished_at on stopped commands, queued=%+v running=%+v", queued, running)
+	}
+	if got := receiveProcessExitedEvents(t, eventsCh, 2); len(got) != 2 {
+		t.Fatalf("expected 2 process.exited events, got %+v", got)
+	}
+}
+
+func TestServerShutdownFailsActiveRunsAndIsIdempotent(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	seedExampleFile(t, root)
+	fixture := newServerFixture(t, root, fakeAgentProvider{})
+
+	conversation, err := fixture.store.CreateConversation(context.Background(), database.ConversationRecord{
+		ID:          "conv_1",
+		WorkspaceID: "ws_1",
+		Title:       "Tracked",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation returned error: %v", err)
+	}
+	trigger, err := fixture.store.CreateMessage(context.Background(), database.MessageRecord{
+		ID:             "msg_1",
+		WorkspaceID:    "ws_1",
+		ConversationID: conversation.ID,
+		Role:           "user",
+		Content:        "fix bug",
+	})
+	if err != nil {
+		t.Fatalf("CreateMessage returned error: %v", err)
+	}
+	run, err := fixture.agent.Create(context.Background(), "ws_1", root, agent.CreateRunInput{
+		Prompt:           trigger.Content,
+		ConversationID:   conversation.ID,
+		TriggerMessageID: trigger.ID,
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	waitForAgentStatus(t, fixture.agent, "ws_1", conversation.ID, run.ID, "waiting_tool_approval")
+
+	if err := fixture.server.Shutdown(context.Background(), "backend shutdown"); err != nil {
+		t.Fatalf("first Shutdown returned error: %v", err)
+	}
+	if err := fixture.server.Shutdown(context.Background(), "backend shutdown"); err != nil {
+		t.Fatalf("second Shutdown returned error: %v", err)
+	}
+
+	detail := waitForAgentStatus(t, fixture.agent, "ws_1", conversation.ID, run.ID, "failed")
+	if detail.Run.Error == nil || *detail.Run.Error != "backend shutdown" {
+		t.Fatalf("expected shutdown failure message, got %+v", detail.Run)
+	}
+	loadedConversation, err := fixture.store.GetConversation(context.Background(), "ws_1", conversation.ID)
+	if err != nil {
+		t.Fatalf("GetConversation returned error: %v", err)
+	}
+	if loadedConversation.HasRunningRun {
+		t.Fatalf("expected shutdown to clear active flag, got %+v", loadedConversation)
+	}
+}
+
 func TestConversationRunHandlersValidateInputAndProvider(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	server := newTestServer(t, root)
@@ -911,6 +1013,14 @@ func newTestServer(t *testing.T, allowedRoot string) http.Handler {
 	return newTestServerWithHealth(t, allowedRoot, fakeHealthChecker{})
 }
 
+type serverFixture struct {
+	server *Server
+	store  *database.Store
+	hub    *events.Hub
+	agent  *agent.Manager
+	runner *runner.Runner
+}
+
 func newTestServerWithHealth(t *testing.T, allowedRoot string, health HealthChecker) http.Handler {
 	t.Helper()
 	return newTestServerWithDBPath(t, allowedRoot, filepath.Join(t.TempDir(), "patchpilot.db"), health)
@@ -944,6 +1054,35 @@ func newTestServerWithAgentProvider(t *testing.T, allowedRoot string, dbPath str
 	hub := events.NewHub()
 	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, provider)
 	return NewServer(manager, fileService, gitClient, run, store, hub, agentManager, health).Routes()
+}
+
+func newServerFixture(t *testing.T, allowedRoot string, provider agent.Provider) serverFixture {
+	t.Helper()
+	store, err := database.Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("database.Open returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	})
+	manager, err := workspace.NewManager([]string{allowedRoot}, store, gitrepo.NewClient())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	fileService := filestore.NewService()
+	gitClient := gitrepo.NewClient()
+	run := runner.NewRunner()
+	hub := events.NewHub()
+	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, provider)
+	return serverFixture{
+		server: NewServer(manager, fileService, gitClient, run, store, hub, agentManager, store),
+		store:  store,
+		hub:    hub,
+		agent:  agentManager,
+		runner: run,
+	}
 }
 
 func newAuthenticatedTestServer(t *testing.T, allowedRoot, adminToken string) http.Handler {
@@ -1000,6 +1139,57 @@ func waitForConversationDetail(t *testing.T, handler http.Handler, workspaceID, 
 	}
 	t.Fatalf("run did not reach %s", status)
 	return conversationDetailResponse{}
+}
+
+func waitForAgentStatus(t *testing.T, manager *agent.Manager, workspaceID, conversationID, runID, status string) agent.Detail {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		detail, err := manager.Detail(context.Background(), workspaceID, conversationID, runID)
+		if err != nil {
+			t.Fatalf("Detail returned error: %v", err)
+		}
+		if detail.Run.Status == status {
+			return detail
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("run did not reach %s", status)
+	return agent.Detail{}
+}
+
+func waitForCommandStatus(t *testing.T, store *database.Store, workspaceID, commandID, status string) database.CommandRecord {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		command, err := store.GetCommand(context.Background(), workspaceID, commandID)
+		if err != nil {
+			t.Fatalf("GetCommand returned error: %v", err)
+		}
+		if command.Status == status {
+			return command
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("command did not reach %s", status)
+	return database.CommandRecord{}
+}
+
+func receiveProcessExitedEvents(t *testing.T, eventsCh <-chan events.Event, count int) []events.Event {
+	t.Helper()
+	found := make([]events.Event, 0, count)
+	deadline := time.After(2 * time.Second)
+	for len(found) < count {
+		select {
+		case event := <-eventsCh:
+			if event.Type == "process.exited" {
+				found = append(found, event)
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d process.exited events, got %+v", count, found)
+		}
+	}
+	return found
 }
 
 func getConversationDetail(t *testing.T, handler http.Handler, workspaceID, conversationID string) conversationDetailResponse {

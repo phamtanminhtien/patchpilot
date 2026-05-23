@@ -226,3 +226,47 @@ func TestUpdateAgentRunKeepsConversationActiveWhileAnotherRunIsActive(t *testing
 		t.Fatalf("expected no active runs after terminal transitions, got %+v", conversation)
 	}
 }
+
+func TestListActiveAgentRuns(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	}()
+
+	for _, conversationID := range []string{"conv_1", "conv_2", "conv_3", "conv_4"} {
+		if _, err := store.CreateConversation(ctx, ConversationRecord{
+			ID:          conversationID,
+			WorkspaceID: "ws_1",
+			Title:       "Tracked",
+		}); err != nil {
+			t.Fatalf("CreateConversation returned error: %v", err)
+		}
+	}
+	for _, run := range []AgentRunRecord{
+		{WorkspaceID: "ws_1", ConversationID: "conv_1", TriggerMessageID: "msg_1", Model: "gpt-5.5", ReasoningEffort: "medium", Status: "queued"},
+		{WorkspaceID: "ws_1", ConversationID: "conv_2", TriggerMessageID: "msg_2", Model: "gpt-5.5", ReasoningEffort: "medium", Status: "running"},
+		{WorkspaceID: "ws_1", ConversationID: "conv_3", TriggerMessageID: "msg_3", Model: "gpt-5.5", ReasoningEffort: "medium", Status: "waiting_tool_approval"},
+		{WorkspaceID: "ws_1", ConversationID: "conv_4", TriggerMessageID: "msg_4", Model: "gpt-5.5", ReasoningEffort: "medium", Status: "done"},
+	} {
+		if _, err := store.CreateAgentRun(ctx, run); err != nil {
+			t.Fatalf("CreateAgentRun returned error: %v", err)
+		}
+	}
+
+	active, err := store.ListActiveAgentRuns(ctx)
+	if err != nil {
+		t.Fatalf("ListActiveAgentRuns returned error: %v", err)
+	}
+	if len(active) != 3 {
+		t.Fatalf("expected 3 active runs, got %+v", active)
+	}
+	if active[0].Status != "queued" || active[1].Status != "running" || active[2].Status != "waiting_tool_approval" {
+		t.Fatalf("unexpected active runs: %+v", active)
+	}
+}

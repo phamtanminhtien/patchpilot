@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -156,6 +157,36 @@ func TestRunnerStopsRunningCommand(t *testing.T) {
 	result := waitForFinish(t, finished)
 	if result.Status != "stopped" {
 		t.Fatalf("expected stopped result, got %+v", result)
+	}
+}
+
+func TestRunnerStopAndWaitStopsRunningCommand(t *testing.T) {
+	runner := NewRunner()
+	finished := make(chan FinishResult, 1)
+
+	err := runner.Start(RunSpec{
+		ID:          "cmd_1",
+		WorkspaceID: "ws_1",
+		Command:     "go test ./...",
+		Cwd:         filepath.Join("testdata", "slow"),
+	}, Hooks{
+		OnFinished: func(result FinishResult) {
+			finished <- result
+		},
+	})
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if !runner.StopAndWait(context.Background(), "cmd_1") {
+		t.Fatal("expected StopAndWait to find running command")
+	}
+
+	result := waitForFinish(t, finished)
+	if result.Status != "stopped" {
+		t.Fatalf("expected stopped result, got %+v", result)
+	}
+	if runner.Stop("cmd_1") {
+		t.Fatal("expected command to be removed after StopAndWait")
 	}
 }
 

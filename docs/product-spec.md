@@ -208,6 +208,10 @@ Response contracts:
   `{"content":"...","model":"gpt-5.5","reasoningEffort":"medium"}` and returns
   `202` with the user message and agent run. The run continues on the backend
   if the request client disconnects.
+- Backend shutdown finalizes active agent runs (`queued`, `running`,
+  `waiting_tool_approval`) as `failed` with a durable shutdown error. It also
+  finalizes backend-owned commands/processes in `queued` or `running` as
+  `stopped`.
 - Run cancel marks non-terminal runs `canceled`, stops active run-owned command
   tools, and is safe to call more than once. Terminal runs return their current
   state.
@@ -274,6 +278,9 @@ recovery source.
 `agent.output.snapshot` is a transient run-stream event emitted from in-memory
 active-run draft text on reconnect. It is not stored in SQLite and only restores
 in-flight text while the same backend process still owns the run.
+After a backend restart, active runs do not resume; the durable `failed` run
+state and durable `stopped` process state from shutdown cleanup are the
+recovery source of truth.
 Conversation responses include a `hasRunningRun` boolean derived from durable
 run state for the same conversation.
 

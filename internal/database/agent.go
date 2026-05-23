@@ -113,6 +113,17 @@ func (s *Store) ListAgentRuns(ctx context.Context, workspaceID, conversationID s
 	return runs, nil
 }
 
+func (s *Store) ListActiveAgentRuns(ctx context.Context) ([]AgentRunRecord, error) {
+	var runs []AgentRunRecord
+	if err := s.db.WithContext(ctx).
+		Where("status IN ?", []string{"queued", "running", "waiting_tool_approval"}).
+		Order("created_at ASC, id ASC").
+		Find(&runs).Error; err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
 func (s *Store) UpdateAgentRun(ctx context.Context, workspaceID, conversationID, runID string, updates map[string]any) (AgentRunRecord, error) {
 	updates["updated_at"] = time.Now().UTC()
 	if err := s.db.WithContext(ctx).Model(&AgentRunRecord{}).

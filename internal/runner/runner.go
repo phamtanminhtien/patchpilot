@@ -52,6 +52,7 @@ type Runner struct {
 
 type activeProcess struct {
 	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 func NewRunner() *Runner {
@@ -88,7 +89,7 @@ func (r *Runner) Start(spec RunSpec, hooks Hooks) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r.mu.Lock()
-	r.active[spec.ID] = &activeProcess{cancel: cancel}
+	r.active[spec.ID] = &activeProcess{cancel: cancel, done: make(chan struct{})}
 	r.mu.Unlock()
 
 	go r.run(ctx, spec.ID, spec.Cwd, parts, hooks)
@@ -106,11 +107,31 @@ func (r *Runner) Stop(commandID string) bool {
 	return true
 }
 
+func (r *Runner) StopAndWait(ctx context.Context, commandID string) bool {
+	r.mu.Lock()
+	process, ok := r.active[commandID]
+	r.mu.Unlock()
+	if !ok {
+		return false
+	}
+	process.cancel()
+	select {
+	case <-process.done:
+		return true
+	case <-ctx.Done():
+		return true
+	}
+}
+
 func (r *Runner) run(ctx context.Context, commandID, cwd string, parts []string, hooks Hooks) {
 	defer func() {
 		r.mu.Lock()
+		process := r.active[commandID]
 		delete(r.active, commandID)
 		r.mu.Unlock()
+		if process != nil {
+			close(process.done)
+		}
 	}()
 
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
