@@ -57,6 +57,24 @@ func (s *Server) SetBackendAddr(addr string) {
 	s.backendAddr = strings.TrimSpace(addr)
 }
 
+func (s *Server) Shutdown(ctx context.Context, reason string) error {
+	if s.agent != nil {
+		if err := s.agent.Shutdown(ctx, reason); err != nil {
+			return err
+		}
+	}
+	commands, err := s.store.ListActiveCommands(ctx)
+	if err != nil {
+		return err
+	}
+	for _, command := range commands {
+		if err := s.stopCommandForShutdown(ctx, command); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Server) Routes() http.Handler {
 	return s.RoutesWithStatic("")
 }
@@ -1080,6 +1098,29 @@ func (s *Server) commandHooks(workspaceID, commandID string) runner.Hooks {
 			}
 		},
 	}
+}
+
+func (s *Server) stopCommandForShutdown(ctx context.Context, command database.CommandRecord) error {
+	if command.Status != "queued" && command.Status != "running" {
+		return nil
+	}
+	if stopped := s.runner.StopAndWait(ctx, command.ID); stopped {
+		updated, err := s.store.GetCommand(ctx, command.WorkspaceID, command.ID)
+		if err != nil {
+			return err
+		}
+		if updated.Status != "queued" && updated.Status != "running" {
+			return nil
+		}
+		command = updated
+	}
+	finishedAt := time.Now().UTC()
+	command, err := s.store.FinishCommand(ctx, command.WorkspaceID, command.ID, "stopped", nil, finishedAt)
+	if err != nil {
+		return err
+	}
+	s.publishProcessExited(command)
+	return nil
 }
 
 func (s *Server) pollListeningPorts(ctx context.Context, workspaceID, commandID string, pid int) {

@@ -76,6 +76,17 @@ func (s *Store) ListCommands(ctx context.Context, workspaceID string) ([]Command
 	return commands, nil
 }
 
+func (s *Store) ListActiveCommands(ctx context.Context) ([]CommandRecord, error) {
+	var commands []CommandRecord
+	if err := s.db.WithContext(ctx).
+		Where("status IN ?", []string{"queued", "running"}).
+		Order("created_at ASC, id ASC").
+		Find(&commands).Error; err != nil {
+		return nil, err
+	}
+	return commands, nil
+}
+
 func (s *Store) MarkCommandRunning(ctx context.Context, workspaceID, commandID string, startedAt time.Time) (CommandRecord, error) {
 	if err := s.db.WithContext(ctx).Model(&CommandRecord{}).
 		Where("workspace_id = ? AND id = ?", workspaceID, commandID).

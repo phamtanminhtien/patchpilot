@@ -23,6 +23,14 @@ import (
 	"go.uber.org/zap"
 )
 
+type gracefulShutdowner interface {
+	Shutdown(context.Context, string) error
+}
+
+type httpShutdowner interface {
+	Shutdown(context.Context) error
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -97,7 +105,7 @@ func run(cfg config.Config, logger *zap.Logger) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := httpServer.Shutdown(ctx); err != nil {
+	if err := shutdownServices(ctx, server, httpServer, logger); err != nil {
 		return err
 	}
 
@@ -106,4 +114,13 @@ func run(cfg config.Config, logger *zap.Logger) error {
 	}
 	logger.Info("patchpilot shutdown complete")
 	return nil
+}
+
+func shutdownServices(ctx context.Context, cleaner gracefulShutdowner, server httpShutdowner, logger *zap.Logger) error {
+	if cleaner != nil {
+		if err := cleaner.Shutdown(ctx, "backend shutdown"); err != nil {
+			logger.Error("shutdown cleanup failed", zap.Error(err))
+		}
+	}
+	return server.Shutdown(ctx)
 }

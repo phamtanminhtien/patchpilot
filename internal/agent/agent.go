@@ -194,6 +194,8 @@ type runRuntime struct {
 	draftText           strings.Builder
 }
 
+const shutdownFailureMessage = "backend shutdown"
+
 func NewManager(store *database.Store, files *filestore.Service, git *gitrepo.Client, run *runner.Runner, hub *events.Hub, provider Provider) *Manager {
 	return &Manager{store: store, files: files, git: git, runner: run, events: hub, provider: provider, runtimes: map[string]*runRuntime{}}
 }
@@ -321,6 +323,29 @@ func (m *Manager) Cancel(ctx context.Context, workspaceID, conversationID, runID
 	return publicRun, nil
 }
 
+func (m *Manager) Shutdown(ctx context.Context, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = shutdownFailureMessage
+	}
+	runs, err := m.store.ListActiveAgentRuns(ctx)
+	if err != nil {
+		return err
+	}
+	for _, record := range runs {
+		runtime := m.runtime(record.ID)
+		if runtime != nil {
+			runtime.cancel()
+			m.stopRuntimeCommands(runtime)
+		}
+		m.failRunForShutdown(ctx, record, reason)
+		if runtime != nil {
+			m.deleteRuntime(record.ID)
+		}
+	}
+	return nil
+}
+
 func (m *Manager) cancelActiveToolCalls(ctx context.Context, workspaceID, runID string) {
 	calls, err := m.store.ListAgentToolCalls(ctx, workspaceID, runID)
 	if err != nil {
@@ -331,6 +356,36 @@ func (m *Manager) cancelActiveToolCalls(ctx context.Context, workspaceID, runID 
 	for _, call := range calls {
 		switch call.Status {
 		case ToolStatusPending, ToolStatusApproved, ToolStatusRunning:
+			_, _ = m.store.FinishAgentToolCall(ctx, workspaceID, runID, call.ID, ToolStatusFailed, output, finished)
+		}
+	}
+}
+
+func (m *Manager) failRunForShutdown(ctx context.Context, record database.AgentRunRecord, reason string) {
+	m.failToolCallsForShutdown(ctx, record.WorkspaceID, record.ID, reason)
+	now := time.Now().UTC()
+	updated, err := m.store.UpdateAgentRun(ctx, record.WorkspaceID, record.ConversationID, record.ID, map[string]any{
+		"status":      string(StatusFailed),
+		"error":       reason,
+		"finished_at": now,
+	})
+	if err != nil {
+		return
+	}
+	publicRun := RunFromRecord(updated)
+	_ = m.publish(ctx, publicRun, "agent.run.status_changed", publicRun)
+}
+
+func (m *Manager) failToolCallsForShutdown(ctx context.Context, workspaceID, runID, reason string) {
+	calls, err := m.store.ListAgentToolCalls(ctx, workspaceID, runID)
+	if err != nil {
+		return
+	}
+	finished := time.Now().UTC()
+	output := openToolError(errors.New(reason))
+	for _, call := range calls {
+		switch call.Status {
+		case ToolStatusPending, ToolStatusWaitingApproval, ToolStatusApproved, ToolStatusRunning:
 			_, _ = m.store.FinishAgentToolCall(ctx, workspaceID, runID, call.ID, ToolStatusFailed, output, finished)
 		}
 	}
