@@ -50,6 +50,7 @@ Conversation and agent run:
 ```txt
 open/create conversation -> load messages and visible activity
 -> send user message with model + reasoning effort
+-> build bounded LLM context from conversation summary + recent messages
 -> create linked agent run -> stream assistant text/tool progress
 -> execute safe tools or wait for approval -> append final assistant outcome
 ```
@@ -58,6 +59,14 @@ Agent runs should inspect relevant workspace context, produce a short plan for
 non-trivial work, propose small reviewable patches or answer directly, then run
 or recommend narrow verification. Final output reports changed files,
 verification result, and remaining risks.
+
+Conversation context is assembled server-side from SQLite before provider calls.
+PatchPilot reserves room for agent instructions, the current prompt, tool
+schemas, and active-run tool history before adding prior conversation content.
+When older history would exceed the local context budget, the backend summarizes
+only older messages, stores the summary on the conversation, and keeps the newest
+messages verbatim. Agent instructions are sent separately from conversation
+messages so conversation history cannot displace the system prompt.
 
 Provider settings:
 
@@ -294,7 +303,9 @@ Active tables:
 - `workspaces`: `id`, `name`, `root_path`, `git_remote?`, `default_branch?`,
   `status(indexing|ready|error)`, timestamps.
 - `file_index`: `workspace_id`, `path`, `size`, `modified_at`, `indexed_at`.
-- `conversations`: `id`, `workspace_id`, `title`, timestamps, `last_message_at`.
+- `conversations`: `id`, `workspace_id`, `title`, timestamps,
+  `last_message_at`, `context_summary`, `context_summary_through_message_id?`,
+  `context_summary_updated_at?`.
 - `messages`: `id`, `workspace_id`, `conversation_id`, `run_id?`, `role`,
   `content`, `created_at`.
 - `agent_runs`: `id`, `workspace_id`, `conversation_id`, `trigger_message_id`,

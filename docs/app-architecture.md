@@ -154,6 +154,9 @@ sequenceDiagram
   FE->>BE: Create message and agent run
   BE->>DB: Store conversation message and run
   BE->>Agent: Run agent loop
+  Agent->>DB: Load conversation summary and recent messages
+  Agent->>Agent: Build bounded provider context
+  Agent->>DB: Store older-message summary when needed
   Agent->>Repo: Read/search approved files
   Agent->>DB: Store events and tool calls
   BE-->>FE: Stream progress via SSE
@@ -165,4 +168,7 @@ sequenceDiagram
   FE-->>User: Show Git status
 ```
 
-Agents inspect approved context and request tools. File mutations happen only through approved tool execution.
+Agents inspect approved context and request tools. Conversation history is
+bounded before provider calls: persisted summaries cover older messages, recent
+messages stay verbatim, and PatchPilot agent instructions are kept separate from
+conversation content. File mutations happen only through approved tool execution.

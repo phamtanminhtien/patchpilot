@@ -45,8 +45,9 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, 
 		stream.Delta(ctx, "Calling OpenAI provider.")
 	}
 	body := openAIResponsesRequest{
-		Model: request.Run.Model,
-		Input: buildOpenAIInput(request),
+		Model:        request.Run.Model,
+		Instructions: providerInstructions(),
+		Input:        buildOpenAIInput(request),
 		Reasoning: openAIReasoning{
 			Effort: request.Run.ReasoningEffort,
 		},
@@ -81,6 +82,29 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, 
 	return parseProviderText(text), nil
 }
 
+func (p *OpenAIProvider) Summarize(ctx context.Context, request SummaryRequest) (string, error) {
+	if !p.Configured() {
+		return "", ErrProviderUnavailable
+	}
+	body := openAIResponsesRequest{
+		Model:        request.Run.Model,
+		Instructions: summaryInstructions(),
+		Input:        buildSummaryInput(request),
+		Reasoning: openAIReasoning{
+			Effort: request.Run.ReasoningEffort,
+		},
+	}
+	response, err := p.createResponse(ctx, body)
+	if err != nil {
+		return "", err
+	}
+	text := strings.TrimSpace(extractResponseText(response))
+	if text == "" {
+		return "", fmt.Errorf("%w: empty summary response", ErrOpenAIRequestFailed)
+	}
+	return text, nil
+}
+
 func (p *OpenAIProvider) createResponse(ctx context.Context, body openAIResponsesRequest) (openAIResponsesResponse, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -113,10 +137,11 @@ func (p *OpenAIProvider) createResponse(ctx context.Context, body openAIResponse
 }
 
 type openAIResponsesRequest struct {
-	Model     string          `json:"model"`
-	Input     any             `json:"input"`
-	Reasoning openAIReasoning `json:"reasoning"`
-	Tools     []openAITool    `json:"tools,omitempty"`
+	Model        string          `json:"model"`
+	Instructions string          `json:"instructions,omitempty"`
+	Input        any             `json:"input"`
+	Reasoning    openAIReasoning `json:"reasoning"`
+	Tools        []openAITool    `json:"tools,omitempty"`
 }
 
 type openAIReasoning struct {
@@ -193,17 +218,18 @@ type openAIToolCall struct {
 }
 
 func buildOpenAIInput(request ProviderRequest) []any {
-	input := []any{
-		openAIInputMessage{
-			Type: "message",
-			Role: "user",
-			Content: []openAIInputContent{
-				{
-					Type: "input_text",
-					Text: buildProviderPrompt(request),
-				},
-			},
-		},
+	input := make([]any, 0, 1+len(request.ConversationContext)+len(request.History))
+	if strings.TrimSpace(request.ContextSummary) != "" {
+		input = append(input, openAIMessage("user", "Conversation summary:\n"+strings.TrimSpace(request.ContextSummary)))
+	}
+	for _, message := range request.ConversationContext {
+		if strings.TrimSpace(message.Content) == "" {
+			continue
+		}
+		input = append(input, openAIMessage(message.Role, message.Content))
+	}
+	if len(input) == 0 {
+		input = append(input, openAIMessage("user", strings.TrimSpace(request.Prompt)))
 	}
 	for _, item := range request.History {
 		switch item.Type {
@@ -235,11 +261,43 @@ func buildOpenAIInput(request ProviderRequest) []any {
 	return input
 }
 
+func openAIMessage(role, text string) openAIInputMessage {
+	if role != "assistant" {
+		role = "user"
+	}
+	contentType := "input_text"
+	if role == "assistant" {
+		contentType = "output_text"
+	}
+	return openAIInputMessage{
+		Type: "message",
+		Role: role,
+		Content: []openAIInputContent{
+			{Type: contentType, Text: strings.TrimSpace(text)},
+		},
+	}
+}
+
+func buildSummaryInput(request SummaryRequest) []any {
+	input := make([]any, 0, 1+len(request.Messages))
+	if strings.TrimSpace(request.ExistingSummary) != "" {
+		input = append(input, openAIMessage("user", "Existing conversation summary:\n"+strings.TrimSpace(request.ExistingSummary)))
+	}
+	for _, message := range request.Messages {
+		input = append(input, openAIMessage(message.Role, message.Content))
+	}
+	return input
+}
+
 func buildProviderPrompt(request ProviderRequest) string {
-	return fmt.Sprintf(`You are PatchPilot's coding agent.
+	return providerInstructions() + "\n\nCurrent user prompt:\n" + strings.TrimSpace(request.Prompt)
+}
+
+func providerInstructions() string {
+	return `You are PatchPilot's coding agent.
 
 Rules:
-- Inspect context only from the server-provided prompt and the available workspace tools.
+- Inspect context only from the server-provided conversation context and the available workspace tools.
 - Return assistant text when useful.
 - Use tools for workspace reads, git inspection, commands, and patches.
 - When calling tools, include concise output_text in the same response that tells the user what you are checking or changing so the user sees progress while tool calls are pending.
@@ -251,10 +309,17 @@ Rules:
 - Do not include secrets.
 - apply_patch input must include "summary" and a complete git-apply-compatible unified "diff".
 - Every changed file in a patch diff must include diff --git, ---/+++, and @@ hunk headers with line numbers.
-- Tool calls in one response may run as a batch. Approval-required tools are decided by the user before the batch runs.
+- Tool calls in one response may run as a batch. Approval-required tools are decided by the user before the batch runs.`
+}
 
-User prompt:
-%s`, request.Prompt)
+func summaryInstructions() string {
+	return `Summarize older PatchPilot conversation context for a coding agent.
+
+Rules:
+- Preserve user intent, decisions, constraints, referenced files, commands, applied or rejected changes, and open tasks.
+- Keep the summary concise and factual.
+- Do not invent details.
+- Do not include secrets, raw environment values, or host paths outside the workspace.`
 }
 
 func openAITools() []openAITool {
