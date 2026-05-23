@@ -211,6 +211,15 @@ Response contracts:
   `modifiedAt`; refresh rebuilds and returns the same shape.
 - File read: `{"path":"...","content":"..."}` for readable text files up to
   1 MiB.
+- File write accepts `{"path":"...","content":"..."}` for an existing readable
+  text file up to 1 MiB and returns `{"path":"...","content":"..."}` with the
+  written content. It does not create files. It rejects invalid paths, workspace
+  escapes, ignored paths, symlink paths, secret-like filenames (`.env`,
+  `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`,
+  `.netrc`), binary content, and oversized existing or replacement content.
+  Missing files return `404 path_not_found`; rejected writes use the standard
+  error envelope. Successful writes refresh the file index and publish current
+  Git status through `git.changed`.
 - Search: `{"results":[]}` for filename/content matches.
 - File APIs ignore `.git`, `node_modules`, and `build`, skip symlinks and files
   over 1 MiB; direct invalid reads return the standard error envelope.

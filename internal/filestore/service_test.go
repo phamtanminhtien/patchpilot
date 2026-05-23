@@ -78,6 +78,83 @@ func TestReadRejectsLargeFile(t *testing.T) {
 	}
 }
 
+func TestWriteUpdatesExistingTextFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("before"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	service := NewService()
+
+	file, err := service.Write(root, "note.txt", "after")
+	if err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+	if file.Path != "note.txt" || file.Content != "after" {
+		t.Fatalf("unexpected file: %+v", file)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(got) != "after" {
+		t.Fatalf("expected written content, got %q", got)
+	}
+}
+
+func TestWriteRejectsMissingFile(t *testing.T) {
+	root := t.TempDir()
+	service := NewService()
+
+	_, err := service.Write(root, "missing.txt", "after")
+	if err == nil {
+		t.Fatal("expected missing file error")
+	}
+}
+
+func TestWriteRejectsUnsafePathsAndContent(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "binary.txt"), []byte{0, 1, 2}, 0o644); err != nil {
+		t.Fatalf("write binary file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("TOKEN=value"), 0o644); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "note.txt"), filepath.Join(root, "link.txt")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	service := NewService()
+
+	tests := []struct {
+		name    string
+		path    string
+		content string
+		want    error
+	}{
+		{name: "traversal", path: "../secret.txt", content: "after", want: ErrOutsideRoot},
+		{name: "secret", path: ".env", content: "after", want: ErrSecretPath},
+		{name: "symlink", path: "link.txt", content: "after", want: ErrSymlinkPath},
+		{name: "existing binary", path: "binary.txt", content: "after", want: ErrNotTextFile},
+		{name: "binary content", path: "note.txt", content: "after\x00", want: ErrNotTextFile},
+		{name: "large content", path: "note.txt", content: string(make([]byte, MaxReadableFileSize+1)), want: ErrFileTooLarge},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := service.Write(root, testCase.path, testCase.content)
+			if !errors.Is(err, testCase.want) {
+				t.Fatalf("expected %v, got %v", testCase.want, err)
+			}
+		})
+	}
+}
+
 func TestListReturnsEntries(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello"), 0o644); err != nil {

@@ -93,6 +93,7 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files/index", s.listFileIndex)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/files/index/refresh", s.refreshFileIndex)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/file", s.readFile)
+	mux.HandleFunc("PUT /api/workspaces/{workspaceId}/file", s.writeFile)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/search", s.searchFiles)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/status", s.gitStatus)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/diff", s.gitDiff)
@@ -202,6 +203,11 @@ type createMessageRequest struct {
 
 type loginRequest struct {
 	Token string `json:"token"`
+}
+
+type writeFileRequest struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -344,6 +350,29 @@ func (s *Server) readFile(w http.ResponseWriter, r *http.Request) {
 		writeFileError(w, err)
 		return
 	}
+	writeJSON(w, http.StatusOK, file)
+}
+
+func (s *Server) writeFile(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req writeFileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	file, err := s.files.Write(ws.RootPath, req.Path, req.Content)
+	if err != nil {
+		writeFileError(w, err)
+		return
+	}
+	if err := s.refreshWorkspaceIndex(r.Context(), ws); err != nil {
+		writeIndexRefreshError(w, err)
+		return
+	}
+	s.publishGitChanged(r.Context(), ws)
 	writeJSON(w, http.StatusOK, file)
 }
 
@@ -1504,6 +1533,10 @@ func writeFileError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "not_text_file", "File is not a readable text file", nil)
 	case errors.Is(err, filestore.ErrFileTooLarge):
 		writeError(w, http.StatusBadRequest, "file_too_large", "File exceeds the max readable size", nil)
+	case errors.Is(err, filestore.ErrSecretPath):
+		writeError(w, http.StatusBadRequest, "secret_path", "Secret-like paths cannot be written", nil)
+	case errors.Is(err, filestore.ErrSymlinkPath):
+		writeError(w, http.StatusBadRequest, "symlink_path", "Symlink paths cannot be written", nil)
 	default:
 		writeError(w, http.StatusNotFound, "path_not_found", "Path not found", nil)
 	}
