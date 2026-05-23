@@ -77,7 +77,7 @@
   --pp-color-accent: #8fe6b7;
   --pp-color-accent-hover: #a7efc8;
   --pp-color-accent-ink: #102117;
-  --pp-color-focus: #e0b15d;
+  --pp-color-focus: var(--pp-color-accent);
   --pp-color-warning: #ff9f7a;
   --pp-shadow-sm:
     0 1px 2px 0 rgb(0 0 0 / 0.28), 0 8px 18px -18px rgb(0 0 0 / 0.65);
@@ -101,7 +101,7 @@
     --pp-color-accent: #8fe6b7;
     --pp-color-accent-hover: #a7efc8;
     --pp-color-accent-ink: #102117;
-    --pp-color-focus: #e0b15d;
+    --pp-color-focus: var(--pp-color-accent);
     --pp-color-warning: #ff9f7a;
     --pp-shadow-sm:
       0 1px 2px 0 rgb(0 0 0 / 0.28), 0 8px 18px -18px rgb(0 0 0 / 0.65);
@@ -120,13 +120,13 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-*,
+/* *,
 *::before,
 *::after {
   box-sizing: border-box;
   overscroll-behavior: none;
   -webkit-overflow-scrolling: auto;
-}
+} */
 
 html {
   height: 100%;

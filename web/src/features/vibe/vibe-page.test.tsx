@@ -137,8 +137,10 @@ describe("VibePage", () => {
       expect(promptInput).toBeEnabled();
     });
     await user.type(promptInput, "Fix the failing test");
-    await user.selectOptions(screen.getByLabelText(/Model/), "gpt-5.4-mini");
-    await user.selectOptions(screen.getByLabelText(/Reasoning/), "high");
+    await user.click(screen.getByRole("combobox", { name: "Model" }));
+    await user.click(screen.getByRole("option", { name: "gpt-5.4-mini" }));
+    await user.click(screen.getByRole("combobox", { name: "Reasoning" }));
+    await user.click(screen.getByRole("option", { name: "high" }));
     const startButton = screen.getByRole("button", { name: "Start run" });
     await waitFor(() => {
       expect(startButton).toBeEnabled();

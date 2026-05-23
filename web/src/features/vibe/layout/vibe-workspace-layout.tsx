@@ -1,4 +1,4 @@
-import { Code2, MoreHorizontal } from "lucide-react";
+import { Code2 } from "lucide-react";
 import { type ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -25,13 +25,6 @@ export function VibeWorkspaceLayout({
         <header className="border-line/30 bg-canvas flex min-w-0 items-center justify-between border-b px-4">
           <div className="flex min-w-0 items-center gap-2">
             <h1 className="text-ink truncate text-sm font-semibold">{title}</h1>
-            <Button
-              aria-label="Conversation actions"
-              icon={<MoreHorizontal />}
-              size="icon"
-              type="button"
-              variant="action"
-            />
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <Button

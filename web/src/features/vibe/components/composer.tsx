@@ -2,10 +2,9 @@ import { ArrowUp, ChevronDown, Loader2, ShieldCheck } from "lucide-react";
 import { type FormEvent } from "react";
 
 import type { AgentModel, AgentReasoningEffort } from "@/shared/api";
-import { Button } from "@/shared/ui";
+import { Button, Select } from "@/shared/ui";
 
 import { agentModels, reasoningEfforts } from "../vibe-options";
-import { SelectControl } from "./select-control";
 
 export function Composer({
   error,
@@ -32,39 +31,43 @@ export function Composer({
 }) {
   return (
     <form className="grid gap-2" onSubmit={onSubmit}>
-      <div className="vibe-composer border-line/40 bg-composer focus-within:border-line/40 grid overflow-hidden rounded-xl border shadow-md focus-within:outline-none">
+      <div className="vibe-composer bg-composer grid overflow-hidden rounded-xl transition">
         <label className="sr-only" htmlFor="agent-prompt">
           Ask AI
         </label>
         <textarea
-          className="text-ink placeholder:text-muted min-h-20 resize-none border-0 bg-transparent px-4 py-3 text-sm leading-6 transition outline-none focus:border-0 focus:ring-0 focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          className="text-ink placeholder:text-muted min-h-24 resize-none border-0 bg-transparent px-4 pt-4 pb-3 text-sm leading-6 transition outline-none focus:border-0 focus:ring-0 focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           disabled={!workspaceReady}
           id="agent-prompt"
           onChange={(event) => onPromptChange(event.target.value)}
           placeholder="Ask for follow-up changes"
           value={prompt}
         />
-        <div className="flex min-w-0 flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="bg-composer-bar flex min-w-0 flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="hover:bg-hover text-muted inline-flex min-h-9 min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 text-xs font-medium">
-              <ShieldCheck aria-hidden="true" className="size-4" />
-              Default permissions
-              <ChevronDown aria-hidden="true" className="size-4" />
+            <span className="hover:bg-hover text-muted inline-flex min-h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium transition">
+              <ShieldCheck aria-hidden="true" className="size-3.5" />
+              <span className="truncate">Default permissions</span>
+              <ChevronDown aria-hidden="true" className="size-3.5" />
             </span>
           </div>
-          <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-end">
-            <SelectControl
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
+            <Select
               label="Model"
-              onChange={(value) => onModelChange(value as AgentModel)}
-              options={agentModels}
+              onValueChange={(value) => onModelChange(value as AgentModel)}
+              options={agentModels.map((option) => ({ value: option }))}
+              size="tiny"
+              triggerClassName="w-full"
               value={model}
             />
-            <SelectControl
+            <Select
               label="Reasoning"
-              onChange={(value) =>
+              onValueChange={(value) =>
                 onReasoningEffortChange(value as AgentReasoningEffort)
               }
-              options={reasoningEfforts}
+              options={reasoningEfforts.map((option) => ({ value: option }))}
+              size="tiny"
+              triggerClassName="w-full"
               value={reasoningEffort}
             />
             <Button
@@ -79,6 +82,7 @@ export function Composer({
                   <ArrowUp className="size-4!" />
                 )
               }
+              className="size-8 shrink-0 rounded-md"
               size="icon"
               type="submit"
             />
