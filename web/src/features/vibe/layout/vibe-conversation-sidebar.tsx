@@ -95,7 +95,7 @@ export function VibeConversationSidebar({
         </div>
       </div>
 
-      <div className="grid gap-2">
+      <div className="grid gap-2 px-1.5">
         <Button asChild size="compact" variant="ghost" width="full">
           <Link
             to={`/workspace?workspaceId=${encodeURIComponent(workspaceId)}`}

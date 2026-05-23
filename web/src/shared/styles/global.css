@@ -181,3 +181,165 @@ textarea {
   outline: none;
   box-shadow: none;
 }
+
+.pp-markdown {
+  @apply text-ink grid gap-3 text-sm leading-6;
+}
+
+.pp-markdown a {
+  @apply text-accent underline underline-offset-2;
+}
+
+.pp-markdown blockquote {
+  @apply border-line text-muted border-l pl-3;
+}
+
+.pp-markdown h1 {
+  @apply text-ink text-xl leading-7 font-semibold;
+}
+
+.pp-markdown h2 {
+  @apply text-ink text-lg leading-7 font-semibold;
+}
+
+.pp-markdown h3 {
+  @apply text-ink text-base leading-6 font-semibold;
+}
+
+.pp-markdown hr {
+  @apply border-line;
+}
+
+.pp-markdown li {
+  @apply pl-1;
+}
+
+.pp-markdown li + li {
+  @apply mt-1;
+}
+
+.pp-markdown ol {
+  @apply list-decimal pl-6;
+  display: block;
+  list-style-position: outside;
+}
+
+.pp-markdown p {
+  @apply break-words;
+}
+
+.pp-markdown pre {
+  @apply max-w-full overflow-auto font-mono text-xs leading-5;
+}
+
+.pp-markdown :not(pre) > code {
+  @apply bg-hover rounded-sm px-1 py-0.5 font-mono text-xs break-words;
+}
+
+.pp-markdown .pp-code-block {
+  @apply bg-hover grid max-w-full overflow-hidden rounded-md;
+}
+
+.pp-markdown .pp-code-block__header {
+  @apply border-line flex min-h-7 items-center justify-between gap-2 border-b px-2.5 py-1;
+}
+
+.pp-markdown .pp-code-block__language {
+  @apply text-muted inline-flex min-w-0 items-center gap-1.5 text-xs font-medium;
+}
+
+.pp-markdown .pp-code-block__copy {
+  @apply text-muted hover:bg-panel hover:text-ink inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm transition;
+}
+
+.pp-markdown .pp-code-block__copy svg {
+  @apply size-3;
+}
+
+.pp-markdown .pp-code-block pre {
+  @apply bg-transparent p-3;
+}
+
+.pp-markdown .pp-code-block code {
+  @apply bg-transparent p-0;
+}
+
+.pp-markdown .token.comment,
+.pp-markdown .token.prolog,
+.pp-markdown .token.doctype,
+.pp-markdown .token.cdata {
+  @apply text-muted;
+}
+
+.pp-markdown .token.punctuation {
+  @apply text-muted;
+}
+
+.pp-markdown .token.property,
+.pp-markdown .token.tag,
+.pp-markdown .token.boolean,
+.pp-markdown .token.number,
+.pp-markdown .token.constant,
+.pp-markdown .token.symbol,
+.pp-markdown .token.deleted {
+  @apply text-warning;
+}
+
+.pp-markdown .token.selector,
+.pp-markdown .token.attr-name,
+.pp-markdown .token.string,
+.pp-markdown .token.char,
+.pp-markdown .token.builtin,
+.pp-markdown .token.inserted {
+  @apply text-accent;
+}
+
+.pp-markdown .token.operator,
+.pp-markdown .token.entity,
+.pp-markdown .token.url,
+.pp-markdown .token.variable {
+  @apply text-ink;
+}
+
+.pp-markdown .token.atrule,
+.pp-markdown .token.attr-value,
+.pp-markdown .token.function,
+.pp-markdown .token.class-name {
+  @apply text-accent;
+}
+
+.pp-markdown .token.keyword {
+  @apply text-warning;
+}
+
+.pp-markdown .token.regex,
+.pp-markdown .token.important {
+  @apply text-warning;
+}
+
+.pp-markdown table {
+  @apply border-line block max-w-full overflow-auto border text-left text-xs;
+}
+
+.pp-markdown td {
+  @apply border-line border px-2 py-1 align-top;
+}
+
+.pp-markdown th {
+  @apply border-line bg-hover border px-2 py-1 font-semibold;
+}
+
+.pp-markdown ul {
+  @apply list-disc pl-6;
+  display: block;
+  list-style-position: outside;
+}
+
+.pp-markdown li > ol,
+.pp-markdown li > ul {
+  @apply mt-1;
+}
+
+.pp-markdown li::marker {
+  color: currentColor;
+}

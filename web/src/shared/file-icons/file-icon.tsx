@@ -1,4 +1,4 @@
-import { cn } from "@/shared/ui";
+import { cn } from "@/shared/ui/class-name";
 
 const fileNameIcons: Record<string, string> = {
   ".dockerignore": "file_type_docker",

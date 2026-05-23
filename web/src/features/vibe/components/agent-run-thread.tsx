@@ -4,6 +4,7 @@ import type {
   AgentToolCall,
   Message,
 } from "@/shared/api";
+import { Markdown } from "@/shared/ui";
 
 import {
   assistantMessagesForRun,
@@ -129,9 +130,7 @@ export function AgentRunThread({
                 {timelineItems.map((item) =>
                   item.kind === "assistant" ? (
                     <div className="grid w-full gap-2" key={item.id}>
-                      <p className="text-ink text-sm leading-6 whitespace-pre-wrap">
-                        {item.item.content}
-                      </p>
+                      <Markdown>{item.item.content}</Markdown>
                     </div>
                   ) : (
                     <div className="grid w-full gap-2" key={item.id}>
@@ -141,9 +140,7 @@ export function AgentRunThread({
                 )}
                 {fallbackAssistantText ? (
                   <div className="grid w-full gap-2">
-                    <p className="text-ink text-sm leading-6 whitespace-pre-wrap">
-                      {fallbackAssistantText}
-                    </p>
+                    <Markdown>{fallbackAssistantText}</Markdown>
                   </div>
                 ) : null}
                 {isThinking ? <ThinkingIndicator status={run.status} /> : null}
