@@ -12,6 +12,7 @@ type ConversationRecord struct {
 	ID                             string     `gorm:"primaryKey;column:id"`
 	WorkspaceID                    string     `gorm:"column:workspace_id;not null;index"`
 	Title                          string     `gorm:"column:title;not null"`
+	HasRunningRun                  bool       `gorm:"column:has_running_run;not null"`
 	LastMessageAt                  time.Time  `gorm:"column:last_message_at;not null;index"`
 	ContextSummary                 string     `gorm:"column:context_summary;not null"`
 	ContextSummaryThroughMessageID *string    `gorm:"column:context_summary_through_message_id"`
@@ -107,6 +108,22 @@ func (s *Store) UpdateConversationContextSummary(ctx context.Context, workspaceI
 	if err := s.db.WithContext(ctx).Model(&ConversationRecord{}).
 		Where("workspace_id = ? AND id = ?", workspaceID, conversationID).
 		Updates(updates).Error; err != nil {
+		return ConversationRecord{}, err
+	}
+	return s.GetConversation(ctx, workspaceID, conversationID)
+}
+
+func (s *Store) RefreshConversationHasRunningRun(ctx context.Context, workspaceID, conversationID string) (ConversationRecord, error) {
+	activeStatuses := []string{"queued", "running", "waiting_tool_approval"}
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&AgentRunRecord{}).
+		Where("workspace_id = ? AND conversation_id = ? AND status IN ?", workspaceID, conversationID, activeStatuses).
+		Count(&count).Error; err != nil {
+		return ConversationRecord{}, err
+	}
+	if err := s.db.WithContext(ctx).Model(&ConversationRecord{}).
+		Where("workspace_id = ? AND id = ?", workspaceID, conversationID).
+		Update("has_running_run", count > 0).Error; err != nil {
 		return ConversationRecord{}, err
 	}
 	return s.GetConversation(ctx, workspaceID, conversationID)

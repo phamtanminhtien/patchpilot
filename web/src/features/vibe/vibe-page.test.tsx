@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -15,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@/app/theme";
 import {
   approveAgentToolCall,
+  cancelAgentRun,
   createConversation,
   createMessage,
   createWorkspace,
@@ -25,15 +27,47 @@ import {
   listWorkspaces,
   rejectAgentToolCall,
 } from "@/shared/api";
+import { closeRunEventConnectionsForTest } from "@/shared/events";
 
+import { timeAgo } from "./lib/time";
 import { VibePage } from "./vibe-page";
 
 const queryState = vi.hoisted(() => new Map<string, string>());
+
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+
+  listeners = new Map<string, ((message: MessageEvent<string>) => void)[]>();
+  url: string;
+  withCredentials: boolean;
+
+  constructor(url: string, init?: EventSourceInit) {
+    this.url = url;
+    this.withCredentials = init?.withCredentials ?? false;
+    MockEventSource.instances.push(this);
+  }
+
+  addEventListener(
+    type: string,
+    listener: (message: MessageEvent<string>) => void,
+  ) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  close() {}
+
+  emit(type: string, data: unknown) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data: JSON.stringify(data) } as MessageEvent<string>);
+    }
+  }
+}
 
 vi.mock("@/shared/api", () => ({
   apiErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : "Request failed",
   approveAgentToolCall: vi.fn(),
+  cancelAgentRun: vi.fn(),
   createConversation: vi.fn(),
   createMessage: vi.fn(),
   createWorkspace: vi.fn(),
@@ -90,8 +124,16 @@ const run = {
   workspaceId: "ws_1",
 };
 
+const doneRun = {
+  ...run,
+  finishedAt: "2026-05-20T00:00:01Z",
+  status: "done" as const,
+  summary: "Done",
+};
+
 const conversation = {
   createdAt: "2026-05-20T00:00:00Z",
+  hasRunningRun: false,
   id: "conv_1",
   lastMessageAt: "2026-05-20T00:00:00Z",
   title: "Fix the failing test",
@@ -111,13 +153,20 @@ const message = {
 
 describe("VibePage", () => {
   beforeEach(() => {
+    closeRunEventConnectionsForTest();
     vi.clearAllMocks();
+    MockEventSource.instances = [];
+    vi.stubGlobal("EventSource", MockEventSource);
     vi.mocked(createWorkspace).mockResolvedValue(workspace);
     vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
     vi.mocked(getWorkspace).mockResolvedValue(workspace);
     vi.mocked(listWorkspaces).mockResolvedValue({ workspaces: [] });
     vi.mocked(listConversations).mockResolvedValue({ conversations: [] });
     vi.mocked(approveAgentToolCall).mockResolvedValue(toolCall);
+    vi.mocked(cancelAgentRun).mockResolvedValue({
+      ...run,
+      status: "canceled",
+    });
     vi.mocked(rejectAgentToolCall).mockResolvedValue({
       ...toolCall,
       decision: "rejected",
@@ -166,6 +215,24 @@ describe("VibePage", () => {
     expect(await screen.findAllByText("Fix the failing test")).toHaveLength(3);
   });
 
+  it("shows stop in the send position for an active run", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const stopButton = await screen.findByRole("button", {
+      name: "Stop run",
+    });
+    await user.click(stopButton);
+
+    await waitFor(() => {
+      expect(cancelAgentRun).toHaveBeenCalledWith("ws_1", "conv_1", "run_1");
+    });
+  });
+
   it("starts on a new conversation instead of opening the newest existing one", async () => {
     vi.mocked(listConversations).mockResolvedValue({
       conversations: [conversation],
@@ -184,6 +251,43 @@ describe("VibePage", () => {
       within(timeline).queryByText("Fix the failing test"),
     ).not.toBeInTheDocument();
     expect(getConversation).not.toHaveBeenCalled();
+  });
+
+  it("shows relative time for idle conversations in the sidebar", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    expect(
+      await screen.findByText(timeAgo(conversation.lastMessageAt)),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Conversation run in progress"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a loading spinner in the sidebar when a conversation run is active", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [doneRun],
+      toolCalls: [],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+    await submitPrompt(user, "Continue the fix");
+
+    expect(
+      await screen.findByLabelText("Conversation run in progress"),
+    ).toBeInTheDocument();
   });
 
   it("keeps the run list in a bounded scroll region", async () => {
@@ -215,6 +319,13 @@ describe("VibePage", () => {
     vi.mocked(listConversations).mockResolvedValue({
       conversations: [conversation],
     });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [doneRun],
+      toolCalls: [],
+    });
     vi.mocked(createMessage).mockResolvedValue({
       message: {
         ...message,
@@ -224,7 +335,7 @@ describe("VibePage", () => {
         runId: "run_2",
       },
       run: {
-        ...run,
+        ...doneRun,
         createdAt: "2026-05-20T00:00:02Z",
         id: "run_2",
         triggerMessageId: "msg_2",
@@ -269,6 +380,13 @@ describe("VibePage", () => {
     vi.mocked(listConversations).mockResolvedValue({
       conversations: [conversation],
     });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [doneRun],
+      toolCalls: [],
+    });
     vi.mocked(createMessage).mockResolvedValue({
       message: {
         ...message,
@@ -278,7 +396,7 @@ describe("VibePage", () => {
         runId: "run_2",
       },
       run: {
-        ...run,
+        ...doneRun,
         createdAt: "2026-05-20T00:00:02Z",
         id: "run_2",
         triggerMessageId: "msg_2",
@@ -327,6 +445,13 @@ describe("VibePage", () => {
     vi.mocked(listConversations).mockResolvedValue({
       conversations: [conversation],
     });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [doneRun],
+      toolCalls: [],
+    });
     vi.mocked(createMessage)
       .mockResolvedValueOnce({
         message: {
@@ -337,7 +462,7 @@ describe("VibePage", () => {
           runId: "run_2",
         },
         run: {
-          ...run,
+          ...doneRun,
           createdAt: "2026-05-20T00:00:02Z",
           id: "run_2",
           triggerMessageId: "msg_2",
@@ -353,7 +478,7 @@ describe("VibePage", () => {
           runId: "run_3",
         },
         run: {
-          ...run,
+          ...doneRun,
           createdAt: "2026-05-20T00:00:03Z",
           id: "run_3",
           triggerMessageId: "msg_3",
@@ -606,6 +731,156 @@ describe("VibePage", () => {
     ).toBeTruthy();
   });
 
+  it("renders output snapshot after an existing assistant message", async () => {
+    const progressMessage = {
+      ...message,
+      content: "I will inspect the workspace.",
+      createdAt: "2026-05-20T00:00:01Z",
+      id: "msg_2",
+      role: "assistant" as const,
+      runId: "run_1",
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [
+        {
+          createdAt: "2026-05-20T00:00:00Z",
+          id: "evt_old",
+          payload: { runId: "run_1", text: "I will inspect the workspace." },
+          runId: "run_1",
+          type: "agent.delta",
+          workspaceId: "ws_1",
+        },
+        {
+          createdAt: "2026-05-20T00:00:02Z",
+          id: "evt_snapshot",
+          payload: { runId: "run_1", text: "Final " },
+          runId: "run_1",
+          type: "agent.output.snapshot",
+          workspaceId: "ws_1",
+        },
+        {
+          createdAt: "2026-05-20T00:00:03Z",
+          id: "evt_stream_2",
+          payload: { runId: "run_1", text: "answer" },
+          runId: "run_1",
+          type: "agent.delta",
+          workspaceId: "ws_1",
+        },
+      ],
+      messages: [message, progressMessage],
+      runs: [{ ...run, status: "running" }],
+      toolCalls: [],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    expect(
+      await screen.findByText("I will inspect the workspace."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("replaces stale transient output with a snapshot before appending deltas", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "running" }],
+      toolCalls: [],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+    await screen.findByRole("button", { name: "Stop run" });
+
+    const source = await waitForRunEventSource();
+    act(() => {
+      source.emit("agent.delta", {
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "evt_stale",
+        payload: { runId: "run_1", text: "stale" },
+        type: "agent.delta",
+        workspaceId: "ws_1",
+      });
+    });
+    expect(await screen.findByText("stale")).toBeInTheDocument();
+
+    act(() => {
+      source.emit("agent.output.snapshot", {
+        createdAt: "2026-05-20T00:00:03Z",
+        id: "evt_snapshot",
+        payload: { runId: "run_1", text: "Fresh " },
+        type: "agent.output.snapshot",
+        workspaceId: "ws_1",
+      });
+      source.emit("agent.delta", {
+        createdAt: "2026-05-20T00:00:04Z",
+        id: "evt_delta",
+        payload: { runId: "run_1", text: "text" },
+        type: "agent.delta",
+        workspaceId: "ws_1",
+      });
+    });
+
+    expect(await screen.findByText("Fresh text")).toBeInTheDocument();
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+  });
+
+  it("replaces transient output with the durable assistant message", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "running" }],
+      toolCalls: [],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+    await screen.findByRole("button", { name: "Stop run" });
+
+    const source = await waitForRunEventSource();
+    act(() => {
+      source.emit("agent.delta", {
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "evt_delta",
+        payload: { runId: "run_1", text: "Durable answer" },
+        type: "agent.delta",
+        workspaceId: "ws_1",
+      });
+    });
+    expect(await screen.findByText("Durable answer")).toBeInTheDocument();
+
+    act(() => {
+      source.emit("conversation.message.created", {
+        createdAt: "2026-05-20T00:00:03Z",
+        id: "evt_message",
+        payload: {
+          ...message,
+          content: "Durable answer",
+          createdAt: "2026-05-20T00:00:03Z",
+          id: "msg_2",
+          role: "assistant",
+          runId: "run_1",
+        },
+        type: "conversation.message.created",
+        workspaceId: "ws_1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Durable answer")).toHaveLength(1);
+    });
+  });
+
   it("groups adjacent tool calls behind a collapsed activity block", async () => {
     const finishedPatch = {
       ...toolCall,
@@ -817,6 +1092,23 @@ async function submitPrompt(
     expect(startButton).toBeEnabled();
   });
   await user.click(startButton);
+}
+
+async function waitForRunEventSource() {
+  await waitFor(() => {
+    expect(
+      MockEventSource.instances.some((source) =>
+        source.url.includes("/runs/run_1/events"),
+      ),
+    ).toBe(true);
+  });
+  const source = MockEventSource.instances.find((item) =>
+    item.url.includes("/runs/run_1/events"),
+  );
+  if (source === undefined) {
+    throw new Error("Run EventSource was not found");
+  }
+  return source;
 }
 
 function setScrollMetrics(

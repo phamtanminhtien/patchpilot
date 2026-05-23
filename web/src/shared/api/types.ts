@@ -146,7 +146,8 @@ export type AgentRunStatus =
   | "running"
   | "waiting_tool_approval"
   | "done"
-  | "failed";
+  | "failed"
+  | "canceled";
 
 export type AgentModel = "gpt-5.5" | "gpt-5.4" | "gpt-5.4-mini";
 
@@ -154,6 +155,7 @@ export type AgentReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export interface Conversation {
   createdAt: string;
+  hasRunningRun: boolean;
   id: string;
   lastMessageAt: string;
   title: string;
@@ -213,6 +215,7 @@ export interface AgentRunEvent {
   runId: string;
   type:
     | "agent.delta"
+    | "agent.output.snapshot"
     | "agent.tool.started"
     | "agent.tool.finished"
     | "agent.approval_required"
@@ -287,6 +290,7 @@ export interface WorkspaceEvent {
     | AgentRunEvent["type"]
     | "workspace.indexing"
     | "workspace.ready"
+    | "conversation.message.created"
     | "git.changed"
     | "port.opened"
     | "port.exposed"

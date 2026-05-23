@@ -1,0 +1,2 @@
+ALTER TABLE conversations
+ADD COLUMN has_running_run INTEGER NOT NULL DEFAULT 0;

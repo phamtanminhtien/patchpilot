@@ -92,6 +92,28 @@ func (fakeAgentProvider) Summarize(context.Context, agent.SummaryRequest) (strin
 	return "fake summary", nil
 }
 
+type blockingAgentProvider struct {
+	delta string
+	done  chan struct{}
+}
+
+func (p blockingAgentProvider) Configured() bool {
+	return true
+}
+
+func (p blockingAgentProvider) Generate(ctx context.Context, request agent.ProviderRequest, stream agent.Stream) (agent.ProviderResult, error) {
+	stream.Delta(ctx, p.delta)
+	if p.done != nil {
+		close(p.done)
+	}
+	<-ctx.Done()
+	return agent.ProviderResult{}, ctx.Err()
+}
+
+func (p blockingAgentProvider) Summarize(context.Context, agent.SummaryRequest) (string, error) {
+	return "fake summary", nil
+}
+
 func TestHealthCheckReturnsOK(t *testing.T) {
 	server := newTestServer(t, t.TempDir())
 
@@ -312,6 +334,9 @@ func TestConversationRunHandlersCreateListAndGet(t *testing.T) {
 	}
 	var createdConversation conversationResponse
 	mustDecode(t, conversation, &createdConversation)
+	if createdConversation.HasRunningRun {
+		t.Fatalf("new conversation should not start active: %+v", createdConversation)
+	}
 
 	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
 	if response.Code != http.StatusAccepted {
@@ -327,6 +352,9 @@ func TestConversationRunHandlersCreateListAndGet(t *testing.T) {
 	}
 
 	detail := waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "waiting_tool_approval")
+	if !detail.Conversation.HasRunningRun {
+		t.Fatalf("expected detail conversation to show active run, got %+v", detail.Conversation)
+	}
 	if len(detail.ToolCalls) != 1 || detail.ToolCalls[0].Name != "apply_patch" {
 		t.Fatalf("expected one patch tool call, got %+v", detail.ToolCalls)
 	}
@@ -341,6 +369,9 @@ func TestConversationRunHandlersCreateListAndGet(t *testing.T) {
 	mustDecode(t, list, &listBody)
 	if len(listBody.Conversations) != 1 || listBody.Conversations[0].ID != createdConversation.ID {
 		t.Fatalf("unexpected conversation list: %+v", listBody.Conversations)
+	}
+	if !listBody.Conversations[0].HasRunningRun {
+		t.Fatalf("expected conversation list to show active run, got %+v", listBody.Conversations[0])
 	}
 }
 
@@ -378,6 +409,9 @@ func TestToolApprovalAppliesPatchAndRemovedPatchEndpointsAreGone(t *testing.T) {
 		t.Fatalf("expected approve 200, got %d: %s\nfile:%q", apply.Code, apply.Body.String(), mustReadFile(t, filepath.Join(root, "example.txt")))
 	}
 	detail = waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "done")
+	if detail.Conversation.HasRunningRun {
+		t.Fatalf("expected completed conversation to clear active flag, got %+v", detail.Conversation)
+	}
 	if detail.ToolCalls[0].Status != "finished" {
 		t.Fatalf("expected finished tool call, got %+v", detail.ToolCalls[0])
 	}
@@ -435,6 +469,150 @@ func TestWorkspaceEventsDoesNotReplayHistoricalEvents(t *testing.T) {
 	}
 	if body := recorder.Body.String(); body != "" {
 		t.Fatalf("expected no historical SSE replay, got %q", body)
+	}
+}
+
+func TestAgentRunEventsReplayDurableEventsOnly(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	seedExampleFile(t, root)
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	conversation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{"title":"Fix bug"}`)
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+	var created struct {
+		Message messageResponse `json:"message"`
+		Run     agent.Run       `json:"run"`
+	}
+	mustDecode(t, response, &created)
+	waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "waiting_tool_approval")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/runs/"+created.Run.ID+"/events", nil).WithContext(ctx)
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(recorder, req)
+		close(done)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("run events stream did not close after request cancellation")
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "agent.approval_required") || !strings.Contains(body, "agent.run.status_changed") {
+		t.Fatalf("expected durable run events replay, got %q", body)
+	}
+	if strings.Contains(body, "event: agent.delta") {
+		t.Fatalf("expected transient deltas to be excluded from replay, got %q", body)
+	}
+}
+
+func TestAgentRunEventsEmitsTransientSnapshot(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	store, err := database.Open(filepath.Join(t.TempDir(), "patchpilot.db"))
+	if err != nil {
+		t.Fatalf("database.Open returned error: %v", err)
+	}
+	defer store.Close()
+	manager, err := workspace.NewManager([]string{root}, store, gitrepo.NewClient())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	fileService := filestore.NewService()
+	gitClient := gitrepo.NewClient()
+	run := runner.NewRunner()
+	hub := events.NewHub()
+	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, blockingAgentProvider{delta: "draft text"})
+	server := NewServer(manager, fileService, gitClient, run, store, hub, agentManager, store).Routes()
+
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+	conversation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{"title":"Fix bug"}`)
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	var created struct {
+		Message messageResponse `json:"message"`
+		Run     agent.Run       `json:"run"`
+	}
+	mustDecode(t, response, &created)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if agentManager.DraftText(created.Run.ID) == "draft text" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := agentManager.DraftText(created.Run.ID); got != "draft text" {
+		t.Fatalf("expected draft text, got %q", got)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/runs/"+created.Run.ID+"/events", nil).WithContext(ctx)
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(recorder, req)
+		close(done)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("run events stream did not close after request cancellation")
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "agent.output.snapshot") || !strings.Contains(body, "draft text") {
+		t.Fatalf("expected transient snapshot, got %q", body)
+	}
+	if strings.Contains(body, "event: agent.delta") {
+		t.Fatalf("expected replay to exclude agent.delta, got %q", body)
+	}
+	_ = request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/runs/"+created.Run.ID+"/cancel", "")
+}
+
+func TestCancelAgentRunMarksCanceled(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	seedExampleFile(t, root)
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	conversation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{"title":"Fix bug"}`)
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+
+	response := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix bug","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	var created struct {
+		Message messageResponse `json:"message"`
+		Run     agent.Run       `json:"run"`
+	}
+	mustDecode(t, response, &created)
+	waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "waiting_tool_approval")
+
+	cancel := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/runs/"+created.Run.ID+"/cancel", "")
+	if cancel.Code != http.StatusOK {
+		t.Fatalf("expected cancel 200, got %d: %s", cancel.Code, cancel.Body.String())
+	}
+	var canceled agent.Run
+	mustDecode(t, cancel, &canceled)
+	if canceled.Status != "canceled" {
+		t.Fatalf("expected canceled status, got %+v", canceled)
 	}
 }
 

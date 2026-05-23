@@ -78,7 +78,14 @@ func (s *Store) CreateAgentRun(ctx context.Context, run AgentRunRecord) (AgentRu
 	if run.UpdatedAt.IsZero() {
 		run.UpdatedAt = run.CreatedAt
 	}
-	if err := s.db.WithContext(ctx).Create(&run).Error; err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&run).Error; err != nil {
+			return err
+		}
+		return tx.Model(&ConversationRecord{}).
+			Where("workspace_id = ? AND id = ?", run.WorkspaceID, run.ConversationID).
+			Update("has_running_run", true).Error
+	}); err != nil {
 		return AgentRunRecord{}, err
 	}
 	return run, nil
@@ -111,6 +118,9 @@ func (s *Store) UpdateAgentRun(ctx context.Context, workspaceID, conversationID,
 	if err := s.db.WithContext(ctx).Model(&AgentRunRecord{}).
 		Where("workspace_id = ? AND conversation_id = ? AND id = ?", workspaceID, conversationID, runID).
 		Updates(updates).Error; err != nil {
+		return AgentRunRecord{}, err
+	}
+	if _, err := s.RefreshConversationHasRunningRun(ctx, workspaceID, conversationID); err != nil {
 		return AgentRunRecord{}, err
 	}
 	return s.GetAgentRun(ctx, workspaceID, conversationID, runID)

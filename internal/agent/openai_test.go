@@ -16,7 +16,8 @@ func TestOpenAIProviderUsesCustomBaseURLResponsesPath(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer sk-test" {
 			t.Fatalf("unexpected authorization header: %q", r.Header.Get("Authorization"))
 		}
-		_, _ = w.Write([]byte(`{"output_text":"Done"}`))
+		writeOpenAIStream(w, "response.output_text.delta", `{"delta":"Done"}`)
+		writeOpenAIStream(w, "response.completed", `{"response":{"output_text":"Done"}}`)
 	}))
 	defer server.Close()
 
@@ -36,6 +37,53 @@ func TestOpenAIProviderUsesCustomBaseURLResponsesPath(t *testing.T) {
 	}
 	if result.Text != "Done" || !result.Done {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestOpenAIProviderReadsStreamingEventTypeFromData(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"type":"response.output_text.delta","delta":"Streamed"}` + "\n\n"))
+		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"output_text":"Streamed"}}` + "\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("sk-test", server.URL)
+	run := Run{
+		ID:              "run_1",
+		WorkspaceID:     "ws_1",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+	}
+	result, err := provider.Generate(context.Background(), ProviderRequest{Run: run, Prompt: "fix"}, nil)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if result.Text != "Streamed" {
+		t.Fatalf("expected streamed text, got %+v", result)
+	}
+}
+
+func TestOpenAIProviderFallsBackToJSONResponseWhenStreamingUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output_text":"JSON done"}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("sk-test", server.URL)
+	run := Run{
+		ID:              "run_1",
+		WorkspaceID:     "ws_1",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+	}
+	result, err := provider.Generate(context.Background(), ProviderRequest{Run: run, Prompt: "fix"}, nil)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if result.Text != "JSON done" {
+		t.Fatalf("expected JSON fallback text, got %+v", result)
 	}
 }
 
@@ -65,15 +113,10 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 			if !ok || len(tools) != 7 {
 				t.Fatalf("expected seven tools in initial request, got %#v", body["tools"])
 			}
-			_, _ = w.Write([]byte(`{
-				"id":"resp_1",
-				"output":[
-					{"type":"reasoning","id":"rs_1","summary":[]},
-					{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I will inspect the workspace before patching."}]},
-					{"type":"function_call","call_id":"call_search","name":"search_files","arguments":"{\"query\":\"note\"}"},
-					{"type":"function_call","call_id":"call_patch","name":"apply_patch","arguments":"{\"summary\":\"s\",\"diff\":\"d\"}"}
-				]
-			}`))
+			writeOpenAIStream(w, "response.output_text.delta", `{"delta":"I will inspect the workspace before patching."}`)
+			writeOpenAIStream(w, "response.output_item.done", `{"item":{"type":"function_call","call_id":"call_search","name":"search_files","arguments":"{\"query\":\"note\"}"}}`)
+			writeOpenAIStream(w, "response.output_item.done", `{"item":{"type":"function_call","call_id":"call_patch","name":"apply_patch","arguments":"{\"summary\":\"s\",\"diff\":\"d\"}"}}`)
+			writeOpenAIStream(w, "response.completed", `{"response":{"output_text":"I will inspect the workspace before patching."}}`)
 		case 2:
 			input, ok := body["input"].([]any)
 			if !ok || len(input) != 5 {
@@ -91,7 +134,8 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 			if strings.Contains(string(encoded), "rs_1") || strings.Contains(string(encoded), `"summary":[]`) {
 				t.Fatalf("expected stateless replay without reasoning item, got %s", encoded)
 			}
-			_, _ = w.Write([]byte(`{"output_text":"All done"}`))
+			writeOpenAIStream(w, "response.output_text.delta", `{"delta":"All done"}`)
+			writeOpenAIStream(w, "response.completed", `{"response":{"output_text":"All done"}}`)
 		default:
 			t.Fatalf("unexpected request count: %d", len(requests))
 		}
@@ -134,6 +178,12 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 	if len(requests) != 2 {
 		t.Fatalf("expected two OpenAI requests, got %d", len(requests))
 	}
+}
+
+func writeOpenAIStream(w http.ResponseWriter, eventType, data string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	_, _ = w.Write([]byte("event: " + eventType + "\n"))
+	_, _ = w.Write([]byte("data: " + data + "\n\n"))
 }
 
 func TestOpenAIProviderPromptRejectsReadinessForConcreteTasks(t *testing.T) {

@@ -2,6 +2,7 @@ import {
   Clock3,
   Code2,
   FolderOpen,
+  Loader2,
   MessageSquarePlus,
   Search,
 } from "lucide-react";
@@ -85,8 +86,15 @@ export function VibeConversationSidebar({
                   <span className="text-ink min-w-0 flex-1 truncate text-sm">
                     {conversation.title}
                   </span>
-                  <span className="text-muted shrink-0 text-xs">
-                    {timeAgo(conversation.lastMessageAt)}
+                  <span className="text-muted flex w-8 shrink-0 justify-end text-xs">
+                    {conversation.hasRunningRun ? (
+                      <Loader2
+                        aria-label="Conversation run in progress"
+                        className="size-3.5 animate-spin"
+                      />
+                    ) : (
+                      timeAgo(conversation.lastMessageAt)
+                    )}
                   </span>
                 </button>
               ))}

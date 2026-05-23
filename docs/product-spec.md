@@ -55,6 +55,10 @@ open/create conversation -> load messages and visible activity
 -> execute safe tools or wait for approval -> append final assistant outcome
 ```
 
+Conversation records persist an active-run flag so the Vibe conversation list
+can show in-flight work state from conversation data alone, without fetching
+run lists for every sidebar row.
+
 Agent runs should inspect relevant workspace context, produce a short plan for
 non-trivial work, propose small reviewable patches or answer directly, then run
 or recommend narrow verification. Final output reports changed files,
@@ -161,6 +165,7 @@ GET   /api/workspaces/:workspaceId/conversations/:conversationId
 PATCH /api/workspaces/:workspaceId/conversations/:conversationId
 POST  /api/workspaces/:workspaceId/conversations/:conversationId/messages
 POST  /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/cancel
+GET   /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/events
 POST  /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/tool-calls/:toolCallId/approve
 POST  /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/tool-calls/:toolCallId/reject
 
@@ -201,7 +206,14 @@ Response contracts:
   `{"conversation":{...},"messages":[],"runs":[],"toolCalls":[]}`.
 - Message create accepts
   `{"content":"...","model":"gpt-5.5","reasoningEffort":"medium"}` and returns
-  `202` with the user message and agent run.
+  `202` with the user message and agent run. The run continues on the backend
+  if the request client disconnects.
+- Run cancel marks non-terminal runs `canceled`, stops active run-owned command
+  tools, and is safe to call more than once. Terminal runs return their current
+  state.
+- Run events stream returns SSE for one run. It replays durable stored run
+  events after `Last-Event-ID`, then continues live. Without `Last-Event-ID`,
+  it replays durable stored events for the run from the beginning.
 - Git status returns `{"porcelain":"..."}` including expanded untracked files. By default, it does not include ignored paths. It can be configured using parameters:
   - `ignored` (boolean, default: false): whether to include ignored files in the status.
   - `untracked` (string: "all", "normal", "no", default: "all"): untracked files mode.
@@ -251,13 +263,26 @@ SSE envelope:
 
 Events: `workspace.ready`, `workspace.indexing`, `conversation.created`,
 `conversation.updated`, `conversation.message.created`, `agent.delta`,
-`agent.tool.started`, `agent.tool.finished`, `agent.approval_required`,
-`agent.run.status_changed`, `command.output`, `process.started`,
-`process.exited`, `port.opened`, `port.exposed`, `git.changed`.
-`GET /api/workspaces/:workspaceId/events` is a live stream only; it does not
-replay historical agent or command events on connect. Historical conversation
-state comes from conversation detail, and historical command output comes from
-process detail.
+`agent.output.snapshot`, `agent.tool.started`, `agent.tool.finished`,
+`agent.approval_required`, `agent.run.status_changed`, `command.output`,
+`process.started`, `process.exited`, `port.opened`, `port.exposed`,
+`git.changed`.
+`agent.delta` events carry live token/text deltas, are transient, and are not
+stored in SQLite. Transient deltas may be lost during disconnects; final
+assistant messages, run summaries, tool calls, and run status are the durable
+recovery source.
+`agent.output.snapshot` is a transient run-stream event emitted from in-memory
+active-run draft text on reconnect. It is not stored in SQLite and only restores
+in-flight text while the same backend process still owns the run.
+Conversation responses include a `hasRunningRun` boolean derived from durable
+run state for the same conversation.
+
+`GET /api/workspaces/:workspaceId/events` streams workspace/process/git/port
+events for the workspace. Run activity uses
+`GET /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/events`.
+Run streams replay durable stored run events using `Last-Event-ID` and exclude
+transient `agent.delta`. Historical conversation state comes from conversation
+detail, and historical command output comes from process detail.
 
 ## Agent Tools And Commands
 

@@ -1,19 +1,20 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useQueryState } from "nuqs";
 import {
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useQueryState } from "nuqs";
+import { type FormEvent, useCallback, useState } from "react";
 
 import {
   type AgentModel,
   type AgentReasoningEffort,
   type AgentRun,
+  type AgentToolCall,
   apiErrorMessage,
   approveAgentToolCall,
+  cancelAgentRun,
   type ConversationDetail,
   createConversation,
   createMessage,
@@ -22,18 +23,19 @@ import {
   getWorkspace,
   listConversations,
   listWorkspaces,
+  type Message,
   rejectAgentToolCall,
   type WorkspaceEvent,
 } from "@/shared/api";
-import { useWorkspaceEvents } from "@/shared/events";
+import { useRunEvents, useWorkspaceEvents } from "@/shared/events";
 import { workspaceIdParser } from "@/shared/url";
 
 import {
+  updateConversationRunState,
   updateToolCallCache,
   upsertConversation,
 } from "../lib/conversation-cache";
-import { appendRunEvent, eventRunId, isAgentRunEvent } from "../lib/events";
-import { titleFromPrompt } from "../lib/run-text";
+import { titleFromPrompt, transientAssistantEvent } from "../lib/run-text";
 import { newConversationId } from "../vibe-options";
 
 export function useVibeController() {
@@ -46,6 +48,10 @@ export function useVibeController() {
   const [model, setModel] = useState<AgentModel>("gpt-5.5");
   const [reasoningEffort, setReasoningEffort] =
     useState<AgentReasoningEffort>("medium");
+  const [transientRunText, setTransientRunText] = useState<{
+    conversationId: string;
+    textByRunId: Record<string, string>;
+  }>({ conversationId: "", textByRunId: {} });
   const [activeConversationId, setActiveConversationId] =
     useState(newConversationId);
   const queryClient = useQueryClient();
@@ -77,11 +83,6 @@ export function useVibeController() {
 
   const isNewConversation = activeConversationId === newConversationId;
   const currentConversationId = isNewConversation ? "" : activeConversationId;
-  const currentConversationIdRef = useRef(currentConversationId);
-
-  useEffect(() => {
-    currentConversationIdRef.current = currentConversationId;
-  }, [currentConversationId]);
 
   const conversationDetailQuery = useQuery({
     enabled: workspaceId.length > 0 && currentConversationId.length > 0,
@@ -112,24 +113,29 @@ export function useVibeController() {
     onSuccess: ({ conversation, message, run }) => {
       setPrompt("");
       setActiveConversationId(conversation.id);
+      const nextConversation = {
+        ...conversation,
+        hasRunningRun: isActiveRun(run),
+      };
       queryClient.setQueryData<ConversationDetail>(
         ["conversation", workspaceId, conversation.id],
         (current) =>
           current
             ? {
                 ...current,
+                conversation: nextConversation,
                 messages: [...current.messages, message],
                 runs: [...current.runs, run],
               }
             : {
-                conversation,
+                conversation: nextConversation,
                 events: [],
                 messages: [message],
                 runs: [run],
                 toolCalls: [],
               },
       );
-      upsertConversation(queryClient, workspaceId, conversation);
+      upsertConversation(queryClient, workspaceId, nextConversation);
     },
   });
 
@@ -175,65 +181,123 @@ export function useVibeController() {
       ),
   });
 
+  const cancelRunMutation = useMutation({
+    mutationFn: (input: { conversationId: string; runId: string }) =>
+      cancelAgentRun(workspaceId, input.conversationId, input.runId),
+    onSuccess: (run) =>
+      updateConversationRunState(queryClient, workspaceId, run),
+  });
+
   const workspace = workspaceQuery.data;
   const error = createWorkspaceMutation.error ?? workspaceQuery.error;
+  const activeRun = latestActiveRun(conversationDetailQuery.data?.runs ?? []);
 
-  const handleAgentEvent = useCallback(
+  const handleWorkspaceEvent = useCallback(
     (event: WorkspaceEvent) => {
+      if (event.type === "conversation.message.created") {
+        upsertMessageCache(queryClient, workspaceId, event.payload as Message);
+        return;
+      }
       if (event.type === "agent.run.status_changed") {
-        const run = event.payload as AgentRun;
-        queryClient.setQueryData<ConversationDetail>(
-          ["conversation", workspaceId, run.conversationId],
-          (current) =>
-            current
-              ? {
-                  ...current,
-                  events: appendRunEvent(current.events, event),
-                  runs: [
-                    ...current.runs.filter((item) => item.id !== run.id),
-                    run,
-                  ],
-                }
-              : current,
+        updateConversationRunState(
+          queryClient,
+          workspaceId,
+          event.payload as AgentRun,
         );
-        return;
       }
-      if (!isAgentRunEvent(event)) {
-        return;
-      }
-      const runId = eventRunId(event);
-      if (runId.length === 0) {
-        return;
-      }
-      const eventConversationId = currentConversationIdRef.current;
-      if (eventConversationId.length === 0) {
-        return;
-      }
-      queryClient.setQueryData<ConversationDetail>(
-        ["conversation", workspaceId, eventConversationId],
-        (current) =>
-          current
-            ? {
-                ...current,
-                events: appendRunEvent(current.events, event),
-              }
-            : current,
-      );
-      void queryClient.invalidateQueries({
-        queryKey: ["conversation", workspaceId, eventConversationId],
-      });
     },
     [queryClient, workspaceId],
   );
 
-  useWorkspaceEvents(workspaceId, handleAgentEvent);
+  const handleRunEvent = useCallback(
+    (event: WorkspaceEvent) => {
+      if (event.type === "agent.delta") {
+        const runId = runIdFromEvent(event);
+        const text = textFromEvent(event);
+        if (runId.length > 0 && text.length > 0) {
+          setTransientRunText((current) => ({
+            conversationId: currentConversationId,
+            textByRunId: {
+              ...(current.conversationId === currentConversationId
+                ? current.textByRunId
+                : {}),
+              [runId]: `${
+                current.conversationId === currentConversationId
+                  ? (current.textByRunId[runId] ?? "")
+                  : ""
+              }${text}`,
+            },
+          }));
+        }
+        return;
+      }
+      if (event.type === "agent.output.snapshot") {
+        const runId = runIdFromEvent(event);
+        if (runId.length > 0) {
+          setTransientRunText((current) => ({
+            conversationId: currentConversationId,
+            textByRunId: {
+              ...(current.conversationId === currentConversationId
+                ? current.textByRunId
+                : {}),
+              [runId]: textFromEvent(event),
+            },
+          }));
+        }
+        return;
+      }
+      if (event.type === "agent.run.status_changed") {
+        const run = event.payload as AgentRun;
+        updateConversationRunState(queryClient, workspaceId, run);
+        if (isTerminalRun(run)) {
+          setTransientRunText((current) =>
+            omitRunText(current, currentConversationId, run.id),
+          );
+        }
+        return;
+      }
+      if (event.type === "conversation.message.created") {
+        const message = event.payload as Message;
+        upsertMessageCache(queryClient, workspaceId, message);
+        const messageRunId = message.runId ?? "";
+        if (message.role === "assistant" && messageRunId.length > 0) {
+          setTransientRunText((current) =>
+            omitRunText(current, currentConversationId, messageRunId),
+          );
+        }
+        return;
+      }
+      if (
+        event.type === "agent.tool.started" ||
+        event.type === "agent.tool.finished" ||
+        event.type === "agent.approval_required"
+      ) {
+        upsertToolCallCache(
+          queryClient,
+          workspaceId,
+          currentConversationId,
+          event.payload as AgentToolCall,
+        );
+      }
+    },
+    [currentConversationId, queryClient, workspaceId],
+  );
+
+  useWorkspaceEvents(workspaceId, handleWorkspaceEvent);
+  useRunEvents(
+    workspaceId,
+    currentConversationId,
+    activeRun?.id ?? "",
+    handleRunEvent,
+  );
 
   function handleTaskSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
       prompt.trim().length === 0 ||
       workspace === undefined ||
-      createMessageMutation.isPending
+      createMessageMutation.isPending ||
+      activeRun !== undefined
     ) {
       return;
     }
@@ -244,12 +308,23 @@ export function useVibeController() {
 
   return {
     composer: {
+      activeRun: activeRun !== undefined,
       error: error ? apiErrorMessage(error) : undefined,
       isPending: createMessageMutation.isPending,
+      isStopping: cancelRunMutation.isPending,
       model,
       onModelChange: setModel,
       onPromptChange: setPrompt,
       onReasoningEffortChange: setReasoningEffort,
+      onStop: () => {
+        if (activeRun === undefined || currentConversationId.length === 0) {
+          return;
+        }
+        cancelRunMutation.mutate({
+          conversationId: currentConversationId,
+          runId: activeRun.id,
+        });
+      },
       onSubmit: handleTaskSubmit,
       prompt,
       reasoningEffort,
@@ -291,8 +366,17 @@ export function useVibeController() {
         : undefined,
       createError: createMessageMutation.error
         ? apiErrorMessage(createMessageMutation.error)
-        : undefined,
-      events: conversationDetailQuery.data?.events ?? [],
+        : cancelRunMutation.error
+          ? apiErrorMessage(cancelRunMutation.error)
+          : undefined,
+      events: [
+        ...(conversationDetailQuery.data?.events ?? []),
+        ...(transientRunText.conversationId === currentConversationId
+          ? Object.entries(transientRunText.textByRunId).map(([runId, text]) =>
+              transientAssistantEvent(runId, text),
+            )
+          : []),
+      ],
       isApproving: toolApproveMutation.isPending,
       isRejecting: toolRejectMutation.isPending,
       messages: conversationDetailQuery.data?.messages ?? [],
@@ -319,4 +403,82 @@ export function useVibeController() {
       id: workspaceId,
     },
   };
+}
+
+function runIdFromEvent(event: WorkspaceEvent) {
+  const payload = event.payload as Record<string, unknown>;
+  return typeof payload.runId === "string" ? payload.runId : "";
+}
+
+function textFromEvent(event: WorkspaceEvent) {
+  const payload = event.payload as Record<string, unknown>;
+  return typeof payload.text === "string" ? payload.text : "";
+}
+
+function latestActiveRun(runs: AgentRun[]) {
+  return [...runs]
+    .filter((run) => isActiveRun(run))
+    .sort(
+      (first, second) =>
+        second.createdAt.localeCompare(first.createdAt) ||
+        second.id.localeCompare(first.id),
+    )[0];
+}
+
+function isActiveRun(run: AgentRun) {
+  return ["queued", "running", "waiting_tool_approval"].includes(run.status);
+}
+
+function isTerminalRun(run: AgentRun) {
+  return ["done", "failed", "canceled"].includes(run.status);
+}
+
+function omitRunText(
+  current: {
+    conversationId: string;
+    textByRunId: Record<string, string>;
+  },
+  conversationId: string,
+  runId: string,
+) {
+  if (
+    current.conversationId !== conversationId ||
+    !(runId in current.textByRunId)
+  ) {
+    return current;
+  }
+  const next = { ...current.textByRunId };
+  delete next[runId];
+  return { conversationId, textByRunId: next };
+}
+
+function upsertMessageCache(
+  queryClient: QueryClient,
+  workspaceId: string,
+  message: Message,
+) {
+  queryClient.setQueryData<ConversationDetail>(
+    ["conversation", workspaceId, message.conversationId],
+    (current) =>
+      current
+        ? {
+            ...current,
+            messages: [
+              ...current.messages.filter((item) => item.id !== message.id),
+              message,
+            ],
+          }
+        : current,
+  );
+}
+
+function upsertToolCallCache(
+  queryClient: QueryClient,
+  workspaceId: string,
+  conversationId: string,
+  toolCall: AgentToolCall,
+) {
+  if (conversationId.length > 0) {
+    updateToolCallCache(queryClient, workspaceId, conversationId, toolCall);
+  }
 }

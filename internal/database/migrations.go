@@ -25,6 +25,7 @@ var migrations = []migration{
 	{version: 1, name: "create_initial_schema", path: "migrations/001_create_initial_schema.sql"},
 	{version: 2, name: "align_conversation_run_model", path: "migrations/002_align_conversation_run_model.sql"},
 	{version: 3, name: "conversation_context_summary", path: "migrations/003_conversation_context_summary.sql"},
+	{version: 4, name: "conversation_active_run_flag", path: "migrations/004_conversation_active_run_flag.sql"},
 }
 
 func (s *Store) Migrate() error {
