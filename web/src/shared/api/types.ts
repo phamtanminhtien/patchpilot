@@ -62,6 +62,11 @@ export interface FileContent {
   path: string;
 }
 
+export interface FileWriteRequest {
+  content: string;
+  path: string;
+}
+
 export interface FileSearchResult {
   kind: "filename" | "content";
   line?: number;

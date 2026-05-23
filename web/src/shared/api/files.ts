@@ -4,6 +4,7 @@ import type {
   FileIndexResponse,
   FileListResponse,
   FileSearchResponse,
+  FileWriteRequest,
 } from "./types";
 
 export async function listFiles(
@@ -28,6 +29,17 @@ export async function readFile(
     {
       params: { path },
     },
+  );
+  return response.data;
+}
+
+export async function writeFile(
+  workspaceId: string,
+  request: FileWriteRequest,
+): Promise<FileContent> {
+  const response = await apiClient.put<FileContent>(
+    `/workspaces/${workspaceId}/file`,
+    request,
   );
   return response.data;
 }

@@ -17,6 +17,8 @@ var (
 	ErrIgnoredPath  = errors.New("path is ignored")
 	ErrNotTextFile  = errors.New("file is not a readable text file")
 	ErrFileTooLarge = errors.New("file exceeds max readable size")
+	ErrSecretPath   = errors.New("secret-like paths cannot be written")
+	ErrSymlinkPath  = errors.New("symlink paths cannot be written")
 )
 
 const MaxReadableFileSize int64 = 1 << 20
@@ -174,6 +176,46 @@ func (s *Service) Read(root, relPath string) (File, error) {
 	return File{Path: filepath.ToSlash(cleanRel), Content: string(content)}, nil
 }
 
+func (s *Service) Write(root, relPath, content string) (File, error) {
+	abs, cleanRel, err := safePath(root, relPath)
+	if err != nil {
+		return File{}, err
+	}
+	if isIgnoredPath(cleanRel) {
+		return File{}, ErrIgnoredPath
+	}
+	if isSecretPath(cleanRel) {
+		return File{}, ErrSecretPath
+	}
+	if hasSymlinkPath(root, cleanRel) {
+		return File{}, ErrSymlinkPath
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return File{}, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return File{}, ErrSymlinkPath
+	}
+	if info.IsDir() {
+		return File{}, ErrNotTextFile
+	}
+	if info.Size() > MaxReadableFileSize || int64(len([]byte(content))) > MaxReadableFileSize {
+		return File{}, ErrFileTooLarge
+	}
+	existing, err := os.ReadFile(abs)
+	if err != nil {
+		return File{}, err
+	}
+	if !isText(existing) || !isText([]byte(content)) {
+		return File{}, ErrNotTextFile
+	}
+	if err := os.WriteFile(abs, []byte(content), info.Mode().Perm()); err != nil {
+		return File{}, err
+	}
+	return File{Path: filepath.ToSlash(cleanRel), Content: content}, nil
+}
+
 func (s *Service) Search(root, query string) ([]SearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -292,6 +334,33 @@ func isIgnoredPath(relPath string) bool {
 	}
 	for _, part := range strings.Split(relPath, "/") {
 		if isIgnoredName(part) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSecretPath(relPath string) bool {
+	name := filepath.Base(filepath.ToSlash(filepath.Clean(relPath)))
+	if name == ".env" || strings.HasPrefix(name, ".env.") || name == ".npmrc" || name == ".pypirc" || name == ".netrc" || name == "id_rsa" || name == "id_ed25519" {
+		return true
+	}
+	return strings.HasSuffix(name, ".pem") || strings.HasSuffix(name, ".key")
+}
+
+func hasSymlinkPath(root, relPath string) bool {
+	cleanRel := filepath.Clean(relPath)
+	if cleanRel == "." {
+		return false
+	}
+	current := root
+	for _, part := range strings.Split(cleanRel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return false
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
 			return true
 		}
 	}

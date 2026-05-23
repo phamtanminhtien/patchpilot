@@ -418,6 +418,84 @@ func TestFileAndCommandHandlers(t *testing.T) {
 	}
 }
 
+func TestWriteFileHandlerUpdatesFileIndexAndGitStatus(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	configureCommitter(t, root)
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("before"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	run(t, root, "git", "add", "note.txt")
+	run(t, root, "git", "commit", "-m", "initial")
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	response := request(server, http.MethodPut, "/api/workspaces/"+ws.ID+"/file", `{"path":"note.txt","content":"after"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var file filestore.File
+	mustDecode(t, response, &file)
+	if file.Path != "note.txt" || file.Content != "after" {
+		t.Fatalf("unexpected write response: %+v", file)
+	}
+
+	index := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/files/index", "")
+	var indexBody struct {
+		Entries []workspace.FileIndexEntry `json:"entries"`
+	}
+	mustDecode(t, index, &indexBody)
+	if len(indexBody.Entries) != 1 || indexBody.Entries[0].Path != "note.txt" || indexBody.Entries[0].Size != 5 {
+		t.Fatalf("expected refreshed index, got %+v", indexBody)
+	}
+
+	status := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/git/status", "")
+	var statusBody gitrepo.Status
+	mustDecode(t, status, &statusBody)
+	if !strings.Contains(statusBody.Porcelain, " M note.txt") {
+		t.Fatalf("expected modified git status, got %q", statusBody.Porcelain)
+	}
+}
+
+func TestWriteFileHandlerRejectsUnsafeWrites(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("before"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("TOKEN=value"), 0o644); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	tests := []struct {
+		name string
+		body string
+		code string
+	}{
+		{name: "traversal", body: `{"path":"../secret.txt","content":"after"}`, code: "path_outside_workspace"},
+		{name: "secret", body: `{"path":".env","content":"after"}`, code: "secret_path"},
+		{name: "binary", body: "{\"path\":\"note.txt\",\"content\":\"after\\u0000\"}", code: "not_text_file"},
+		{name: "missing", body: `{"path":"missing.txt","content":"after"}`, code: "path_not_found"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			response := request(server, http.MethodPut, "/api/workspaces/"+ws.ID+"/file", testCase.body)
+			if response.Code < 400 {
+				t.Fatalf("expected error response, got %d: %s", response.Code, response.Body.String())
+			}
+			var body map[string]map[string]any
+			mustDecode(t, response, &body)
+			if body["error"]["code"] != testCase.code {
+				t.Fatalf("expected %s, got %+v", testCase.code, body)
+			}
+		})
+	}
+}
+
 func TestCommandHandlersConfirmAndBlockBySafety(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	server := newTestServer(t, root)
@@ -542,6 +620,7 @@ func TestToolApprovalAppliesPatchAndRemovedPatchEndpointsAreGone(t *testing.T) {
 		t.Fatalf("unexpected approve body: %+v", applyBody)
 	}
 	detail = waitForConversationDetail(t, server, ws.ID, createdConversation.ID, created.Run.ID, "done")
+	detail = waitForConversationActiveState(t, server, ws.ID, createdConversation.ID, false)
 	if detail.Conversation.HasRunningRun {
 		t.Fatalf("expected completed conversation to clear active flag, got %+v", detail.Conversation)
 	}
@@ -1271,6 +1350,25 @@ func waitForConversationDetail(t *testing.T, handler http.Handler, workspaceID, 
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("run did not reach %s", status)
+	return conversationDetailResponse{}
+}
+
+func waitForConversationActiveState(t *testing.T, handler http.Handler, workspaceID, conversationID string, hasRunningRun bool) conversationDetailResponse {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		response := request(handler, http.MethodGet, "/api/workspaces/"+workspaceID+"/conversations/"+conversationID, "")
+		if response.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+		}
+		var detail conversationDetailResponse
+		mustDecode(t, response, &detail)
+		if detail.Conversation.HasRunningRun == hasRunningRun {
+			return detail
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("conversation active state did not become %v", hasRunningRun)
 	return conversationDetailResponse{}
 }
 
