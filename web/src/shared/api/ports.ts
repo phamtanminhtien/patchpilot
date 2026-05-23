@@ -1,11 +1,18 @@
 import { apiClient } from "./client";
-import type { Port, PortListResponse, PortResponse } from "./types";
+import type {
+  PaginationParams,
+  Port,
+  PortListResponse,
+  PortResponse,
+} from "./types";
 
 export async function listPorts(
   workspaceId: string,
+  params?: PaginationParams,
 ): Promise<PortListResponse> {
   const response = await apiClient.get<PortListResponse>(
     `/workspaces/${workspaceId}/ports`,
+    { params },
   );
   return response.data;
 }

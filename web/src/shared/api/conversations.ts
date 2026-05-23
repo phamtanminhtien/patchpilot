@@ -9,6 +9,7 @@ import type {
   CreateConversationRequest,
   CreateMessageRequest,
   MessageRunResponse,
+  PaginationParams,
 } from "./types";
 
 export async function createConversation(
@@ -24,9 +25,11 @@ export async function createConversation(
 
 export async function listConversations(
   workspaceId: string,
+  params?: PaginationParams,
 ): Promise<ConversationListResponse> {
   const response = await apiClient.get<ConversationListResponse>(
     `/workspaces/${workspaceId}/conversations`,
+    { params },
   );
   return response.data;
 }

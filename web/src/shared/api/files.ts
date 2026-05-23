@@ -5,6 +5,7 @@ import type {
   FileListResponse,
   FileSearchResponse,
   FileWriteRequest,
+  PaginationParams,
 } from "./types";
 
 export async function listFiles(
@@ -46,9 +47,11 @@ export async function writeFile(
 
 export async function listFileIndex(
   workspaceId: string,
+  params?: PaginationParams,
 ): Promise<FileIndexResponse> {
   const response = await apiClient.get<FileIndexResponse>(
     `/workspaces/${workspaceId}/files/index`,
+    { params },
   );
   return response.data;
 }
@@ -65,11 +68,12 @@ export async function refreshFileIndex(
 export async function searchFiles(
   workspaceId: string,
   query: string,
+  params?: PaginationParams,
 ): Promise<FileSearchResponse> {
   const response = await apiClient.get<FileSearchResponse>(
     `/workspaces/${workspaceId}/search`,
     {
-      params: { q: query },
+      params: { ...params, q: query },
     },
   );
   return response.data;

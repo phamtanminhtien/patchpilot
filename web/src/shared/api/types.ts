@@ -8,6 +8,11 @@ export interface RestErrorResponse {
   error: RestErrorBody;
 }
 
+export interface PaginationParams {
+  cursor?: string;
+  limit?: number;
+}
+
 export interface HealthResponse {
   status: "ok";
 }
@@ -32,6 +37,7 @@ export interface Workspace {
 }
 
 export interface WorkspaceListResponse {
+  nextCursor?: string | null;
   workspaces: Workspace[];
 }
 
@@ -55,6 +61,7 @@ export interface FileIndexEntry {
 
 export interface FileIndexResponse {
   entries: FileIndexEntry[];
+  nextCursor?: string | null;
 }
 
 export interface FileContent {
@@ -75,6 +82,7 @@ export interface FileSearchResult {
 }
 
 export interface FileSearchResponse {
+  nextCursor?: string | null;
   results: FileSearchResult[];
 }
 
@@ -135,6 +143,7 @@ export interface CommandDetail {
 }
 
 export interface CommandListResponse {
+  nextCursor?: string | null;
   processes: Command[];
 }
 
@@ -170,6 +179,7 @@ export interface Conversation {
 
 export interface ConversationListResponse {
   conversations: Conversation[];
+  nextCursor?: string | null;
 }
 
 export interface CreateConversationRequest {
@@ -271,6 +281,7 @@ export interface Port {
 }
 
 export interface PortListResponse {
+  nextCursor?: string | null;
   ports: Port[];
 }
 

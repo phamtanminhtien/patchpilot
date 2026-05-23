@@ -1,5 +1,9 @@
 import { apiClient } from "./client";
-import type { Workspace, WorkspaceListResponse } from "./types";
+import type {
+  PaginationParams,
+  Workspace,
+  WorkspaceListResponse,
+} from "./types";
 
 export async function createWorkspace(rootPath: string): Promise<Workspace> {
   const response = await apiClient.post<Workspace>("/workspaces", { rootPath });
@@ -12,7 +16,19 @@ export async function getWorkspace(workspaceId: string): Promise<Workspace> {
 }
 
 export async function listWorkspaces(): Promise<WorkspaceListResponse> {
-  const response = await apiClient.get<WorkspaceListResponse>("/workspaces");
+  const response = await apiClient.get<WorkspaceListResponse>(
+    "/workspaces",
+    {},
+  );
+  return response.data;
+}
+
+export async function listWorkspacesPage(
+  params?: PaginationParams,
+): Promise<WorkspaceListResponse> {
+  const response = await apiClient.get<WorkspaceListResponse>("/workspaces", {
+    params,
+  });
   return response.data;
 }
 
