@@ -191,7 +191,21 @@ Response contracts:
 
 - REST errors: `{ "error": { "code": "snake_case", "message": "...", "details": {} } }`.
 - Health: `{"status":"ok"}`; returns `503` with error envelope if DB is unavailable.
-- Workspace list: `{"workspaces":[]}` newest-first.
+- Auth login accepts `{"token":"..."}` and returns
+  `{"session":{"id":"auth_...","expiresAt":"...","lastSeenAt":"..."}}`.
+  It sets an HTTP-only `patchpilot_session` cookie scoped to `/`; `Secure` is
+  set for HTTPS requests. Invalid tokens return `401 invalid_auth_token`.
+- Auth session returns the same `{"session":{...}}` shape for a valid cookie and
+  `401 unauthorized` when the cookie is missing, expired, or invalid. Logout
+  accepts no body, clears the session cookie, and returns `{"status":"ok"}`.
+- Workspace create accepts `{"rootPath":"/absolute/git/repo"}` and returns a
+  workspace object. Invalid roots return `400 invalid_workspace_root`,
+  disallowed roots return `400 workspace_root_not_allowed`, and non-Git roots
+  return `400 not_git_repository`.
+- Workspace list returns `{"workspaces":[]}` newest-first. Workspace get returns
+  one workspace object and refreshes the file index. Workspace delete removes
+  PatchPilot metadata for that workspace and returns `{"status":"deleted"}`.
+  Unknown workspace IDs return `404 workspace_not_found`.
 - Files list: `{"entries":[]}` for a workspace-relative directory.
 - File index: `{"entries":[]}` with workspace-relative `path`, `size`,
   `modifiedAt`; refresh rebuilds and returns the same shape.
@@ -213,8 +227,13 @@ Response contracts:
   finalizes backend-owned commands/processes in `queued` or `running` as
   `stopped`.
 - Run cancel marks non-terminal runs `canceled`, stops active run-owned command
-  tools, and is safe to call more than once. Terminal runs return their current
-  state.
+  tools, and is safe to call more than once. It returns the run object. Terminal
+  runs return their current state. Missing runs return `404 agent_run_not_found`.
+- Tool approve/reject endpoints accept no body and return
+  `{"toolCall":{...}}`. Approve runs the selected pending approval-required
+  tool, while reject records the rejection and does not run the tool. Missing
+  calls return `404 agent_tool_call_not_found`; non-waiting calls return
+  `409 agent_tool_not_approvable`.
 - Run events stream returns SSE for one run. It replays durable stored run
   events after `Last-Event-ID`, then continues live. Without `Last-Event-ID`,
   it replays durable stored events for the run from the beginning.
@@ -236,6 +255,12 @@ Response contracts:
 - Process list returns `{"processes":[]}` newest-first; process detail returns
   `{"command":{...},"output":[]}` with latest output replay.
 - Process stop stops running commands; finished commands return current state.
+- Port list refreshes current reachability and returns `{"ports":[]}` with
+  detected, exposed, and closed ports. Port expose accepts no body and returns
+  `{"port":{...}}` with `exposedPath` and same-origin `exposedUrl`. Closed or
+  unreachable ports return `502 port_unreachable` and are marked closed. Unknown
+  ports return `404 port_not_found`; invalid port path values return
+  `400 invalid_port`.
 
 Primary fields:
 
