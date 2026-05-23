@@ -382,11 +382,28 @@ Agent auto-run requires exact allowlist match and no shell control operators:
 - `cargo test`, `cargo build`
 - `make test|lint|build|dev`
 
-Everything else requires explicit approval. Direct user commands use a broader
-common-command allowlist but still execute without a shell, block control
-operators/redirection/substitution, block workspace escapes, and block patterns
-such as `rm -rf`, `git reset --hard`, `git clean`, `sudo`, `chmod -R`, and
-`chown -R`.
+Direct user commands are classified before queueing:
+
+- Safe commands run immediately with `202`: `git status|diff|log`,
+  `npm run test|lint|build|dev`, `pnpm test|lint|build|dev`,
+  `pnpm --dir <safe-relative-dir> test|lint|build|dev`,
+  `yarn test|lint|build|dev`,
+  `yarn --dir <safe-relative-dir> test|lint|build|dev`, `bun test`,
+  `bun run lint|build|dev`, `go test ./...`, `go test ./<package>`,
+  `go build ./...`, `pytest`, `python -m pytest`, `python3 -m pytest`,
+  `cargo test|build`, and `make test|lint|build|dev`.
+- Risky commands are syntactically valid but outside the exact allowlist. They
+  return `409 confirmation_required` unless `confirmed:true` is supplied.
+- Blocked commands always return `400 blocked_command`. Blocks include shell
+  control or shell expansion syntax (`&&`, `||`, `;`, `|`, `>`,
+  `<`, backticks, `$(`, or newlines); absolute executable paths; absolute path
+  arguments; workspace escape arguments; `sudo`; `su`; `rm` with recursive
+  forced flags; `git clean`; `git reset --hard`; `chmod -R`; and `chown -R`.
+
+Command execution always uses argument parsing without a shell, runs at the
+workspace root, and never accepts traversal or shell operators. Both
+`confirmation_required` and `blocked_command` responses include
+`details.decision` with `level`, `reason`, and parsed `parts`.
 
 ## Data Model
 
