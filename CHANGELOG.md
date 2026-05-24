@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.2.0...patchpilot-v0.2.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* **deps:** update x/sys vulnerability ([5d9bbc7](https://github.com/phamtanminhtien/patchpilot/commit/5d9bbc7b14c50acd375e39a3a464d17897d36be8))
+* implement command execution allowlisting and safely isolate git path processing ([6272174](https://github.com/phamtanminhtien/patchpilot/commit/62721744e6ed090ff6348719983076ec754002bb))
+* **security:** block unsafe command execution ([dc36eef](https://github.com/phamtanminhtien/patchpilot/commit/dc36eefb859991a6b4e12e3a96114c882bed1425))
+* **security:** harden high code scanning findings ([3790631](https://github.com/phamtanminhtien/patchpilot/commit/37906316bc5d7f95ae892c054358c0f03ae3fef6))
+* **vibe:** keep auto-scroll following streamed updates ([aa2f368](https://github.com/phamtanminhtien/patchpilot/commit/aa2f36883370de7020029638663decbe106890fe))
+
 ## [0.2.0](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.1.0...patchpilot-v0.2.0) (2026-05-24)
 
 
