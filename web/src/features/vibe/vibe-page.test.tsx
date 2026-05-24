@@ -27,7 +27,10 @@ import {
   listWorkspaces,
   rejectAgentToolCall,
 } from "@/shared/api";
-import { closeRunEventConnectionsForTest } from "@/shared/events";
+import {
+  closeRunEventConnectionsForTest,
+  closeWorkspaceEventConnectionsForTest,
+} from "@/shared/events";
 
 import { timeAgo } from "./lib/time";
 import { VibePage } from "./vibe-page";
@@ -167,6 +170,7 @@ const message = {
 describe("VibePage", () => {
   beforeEach(() => {
     closeRunEventConnectionsForTest();
+    closeWorkspaceEventConnectionsForTest();
     vi.clearAllMocks();
     MockEventSource.instances = [];
     vi.stubGlobal("EventSource", MockEventSource);
@@ -524,6 +528,210 @@ describe("VibePage", () => {
     expect(
       screen.queryByRole("button", { name: "Jump to latest" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps following when rapid activity pushes the bottom away before the effect runs", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [doneRun],
+      toolCalls: [],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const timeline = await screen.findByRole("region", {
+      name: "Conversation timeline",
+    });
+    await within(timeline).findByText("Fix the failing test");
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 960,
+      scrollTop: 576,
+    });
+    fireEvent.scroll(timeline);
+    scrollIntoView.mockClear();
+
+    const source = await waitForWorkspaceEventSource();
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 1240,
+      scrollTop: 576,
+    });
+    act(() => {
+      source.emit("conversation.message.created", {
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "evt_message_2",
+        payload: {
+          ...message,
+          content: "First rapid update",
+          createdAt: "2026-05-20T00:00:02Z",
+          id: "msg_2",
+          role: "assistant",
+          runId: "run_1",
+        },
+        type: "conversation.message.created",
+        workspaceId: "ws_1",
+      });
+      source.emit("conversation.message.created", {
+        createdAt: "2026-05-20T00:00:03Z",
+        id: "evt_message_3",
+        payload: {
+          ...message,
+          content: "Second rapid update",
+          createdAt: "2026-05-20T00:00:03Z",
+          id: "msg_3",
+          role: "assistant",
+          runId: "run_1",
+        },
+        type: "conversation.message.created",
+        workspaceId: "ws_1",
+      });
+    });
+
+    expect(await screen.findByText("Second rapid update")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Jump to latest" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("auto-scrolls as streamed assistant text grows while following", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "running" }],
+      toolCalls: [],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+    await screen.findByRole("button", { name: "Stop run" });
+
+    const timeline = await screen.findByRole("region", {
+      name: "Conversation timeline",
+    });
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 960,
+      scrollTop: 576,
+    });
+    fireEvent.scroll(timeline);
+
+    const source = await waitForRunEventSource();
+    act(() => {
+      source.emit("agent.delta", {
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "evt_delta_1",
+        payload: { runId: "run_1", text: "Streaming" },
+        type: "agent.delta",
+        workspaceId: "ws_1",
+      });
+    });
+    expect(await screen.findByText("Streaming")).toBeInTheDocument();
+
+    scrollIntoView.mockClear();
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 1240,
+      scrollTop: 576,
+    });
+    act(() => {
+      source.emit("agent.delta", {
+        createdAt: "2026-05-20T00:00:03Z",
+        id: "evt_delta_2",
+        payload: { runId: "run_1", text: " text" },
+        type: "agent.delta",
+        workspaceId: "ws_1",
+      });
+    });
+
+    expect(await screen.findByText("Streaming text")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Jump to latest" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not auto-scroll streamed assistant text when reading older activity", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "running" }],
+      toolCalls: [],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+    await screen.findByRole("button", { name: "Stop run" });
+
+    const timeline = await screen.findByRole("region", {
+      name: "Conversation timeline",
+    });
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
+    setScrollMetrics(timeline, {
+      clientHeight: 320,
+      scrollHeight: 960,
+      scrollTop: 120,
+    });
+    fireEvent.scroll(timeline);
+    scrollIntoView.mockClear();
+
+    const source = await waitForRunEventSource();
+    act(() => {
+      source.emit("agent.delta", {
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "evt_delta",
+        payload: { runId: "run_1", text: "Offscreen stream" },
+        type: "agent.delta",
+        workspaceId: "ws_1",
+      });
+    });
+
+    expect(await screen.findByText("Offscreen stream")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Jump to latest" }),
+      ).toBeInTheDocument();
+    });
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it("pauses auto-scroll and shows a jump control when newer activity arrives off-bottom", async () => {
@@ -1264,6 +1472,23 @@ async function waitForRunEventSource() {
   );
   if (source === undefined) {
     throw new Error("Run EventSource was not found");
+  }
+  return source;
+}
+
+async function waitForWorkspaceEventSource() {
+  await waitFor(() => {
+    expect(
+      MockEventSource.instances.some((source) =>
+        source.url.includes("/workspaces/ws_1/events"),
+      ),
+    ).toBe(true);
+  });
+  const source = MockEventSource.instances.find((item) =>
+    item.url.includes("/workspaces/ws_1/events"),
+  );
+  if (source === undefined) {
+    throw new Error("Workspace EventSource was not found");
   }
   return source;
 }
