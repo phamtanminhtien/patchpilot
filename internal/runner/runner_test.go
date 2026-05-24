@@ -44,19 +44,25 @@ func TestClassifyAllowsCommonProjectCommands(t *testing.T) {
 	}
 }
 
-func TestClassifyRequiresConfirmationForUnknownCommands(t *testing.T) {
+func TestClassifyBlocksCommandsOutsideSafeTable(t *testing.T) {
 	for _, command := range []string{
 		"node scripts/check.js",
 		"pnpm exec tsc",
 		"git show HEAD",
+		"go test ./internal/runner",
+		"python -m pytest",
+		"python -c print",
+		"python3 -c print",
+		"node -e console.log",
+		"git -c core.hooksPath=/tmp/hooks status",
 	} {
 		t.Run(command, func(t *testing.T) {
 			decision, err := Classify(command)
 			if err != nil {
 				t.Fatalf("Classify returned error: %v", err)
 			}
-			if decision.Level != SafetyNeedsConfirmation {
-				t.Fatalf("expected needs_confirmation, got %+v", decision)
+			if decision.Level != SafetyBlocked {
+				t.Fatalf("expected blocked, got %+v", decision)
 			}
 			if len(decision.Parts) == 0 || decision.Reason == "" {
 				t.Fatalf("expected decision details, got %+v", decision)

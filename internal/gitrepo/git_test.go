@@ -581,6 +581,21 @@ func TestStatusUntrackedFiles(t *testing.T) {
 	}
 }
 
+func TestStatusRejectsInvalidOptions(t *testing.T) {
+	root := initGitRepo(t)
+	client := NewClient()
+
+	_, err := client.Status(context.Background(), root, StatusOptions{Untracked: "--upload-pack=helper"})
+	if err == nil || !strings.Contains(err.Error(), "invalid untracked option") {
+		t.Fatalf("expected invalid untracked option error, got %v", err)
+	}
+
+	_, err = client.Status(context.Background(), root, StatusOptions{IgnoreSubmodules: "--config=core.hooksPath=/tmp/hooks"})
+	if err == nil || !strings.Contains(err.Error(), "invalid ignore_submodules option") {
+		t.Fatalf("expected invalid ignore_submodules option error, got %v", err)
+	}
+}
+
 func TestStatusWithSpecificPaths(t *testing.T) {
 	root := initGitRepo(t)
 	if err := os.WriteFile(filepath.Join(root, "file1.txt"), []byte("1"), 0o644); err != nil {
