@@ -134,6 +134,17 @@ review staged/unstaged status and diff -> stage explicit paths
 Stage/commit requests always send explicit paths from visible Git sections.
 Push/pull/branch management are outside current scope.
 
+Workspace Git review:
+
+```txt
+review staged/unstaged paths -> choose section or row action
+-> confirm discard when needed -> review commit paths -> commit staged paths
+```
+
+Discard always requires confirmation that names the affected path count before
+calling the API. Commit opens a review dialog that shows the exact message and
+staged paths that will be sent to the commit API.
+
 ## API
 
 All endpoints except `GET /api/health` and `POST /api/auth/login` require a

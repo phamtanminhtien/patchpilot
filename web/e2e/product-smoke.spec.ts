@@ -90,6 +90,7 @@ test("covers workspace files, Git, commands, and preview smoke flows", async ({
 
   await page.getByRole("button", { name: "Git" }).click();
   await expect(page.getByText("full workspace diff")).toBeVisible();
+  await page.getByRole("button", { name: "Changes actions" }).click();
   await expect(
     page.getByRole("button", { name: "Stage all changes" }),
   ).toBeVisible();
