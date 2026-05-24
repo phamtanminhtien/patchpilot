@@ -189,6 +189,22 @@ func TestStageRejectsTraversalPath(t *testing.T) {
 	}
 }
 
+func TestRemoveWorkspacePathRejectsTraversalPath(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(filepath.Dir(root), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	err := removeWorkspacePath(root, "../outside.txt")
+	if !errors.Is(err, ErrInvalidPath) {
+		t.Fatalf("expected ErrInvalidPath, got %v", err)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("outside file should remain: %v", err)
+	}
+}
+
 func TestStageStagesOnlyExplicitPaths(t *testing.T) {
 	root := initGitRepo(t)
 	if err := os.WriteFile(filepath.Join(root, "first.txt"), []byte("first\n"), 0o644); err != nil {

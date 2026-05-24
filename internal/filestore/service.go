@@ -187,7 +187,12 @@ func (s *Service) Write(root, relPath, content string) (File, error) {
 	if isSecretPath(cleanRel) {
 		return File{}, ErrSecretPath
 	}
-	if hasSymlinkPath(root, cleanRel) {
+	rootDir, err := os.OpenRoot(root)
+	if err != nil {
+		return File{}, fmt.Errorf("%w: %s", ErrInvalidPath, root)
+	}
+	defer rootDir.Close()
+	if hasSymlinkPath(rootDir, cleanRel) {
 		return File{}, ErrSymlinkPath
 	}
 	info, err := os.Lstat(abs)
@@ -348,20 +353,29 @@ func isSecretPath(relPath string) bool {
 	return strings.HasSuffix(name, ".pem") || strings.HasSuffix(name, ".key")
 }
 
-func hasSymlinkPath(root, relPath string) bool {
-	cleanRel := filepath.Clean(relPath)
+func hasSymlinkPath(root *os.Root, relPath string) bool {
+	cleanRel, err := filepath.Localize(filepath.ToSlash(filepath.Clean(relPath)))
+	if err != nil {
+		return true
+	}
 	if cleanRel == "." {
 		return false
 	}
-	current := root
 	for _, part := range strings.Split(cleanRel, string(filepath.Separator)) {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
+		info, err := root.Lstat(part)
 		if err != nil {
 			return false
 		}
 		if info.Mode()&fs.ModeSymlink != 0 {
 			return true
+		}
+		if info.IsDir() {
+			nextRoot, err := root.OpenRoot(part)
+			if err != nil {
+				return true
+			}
+			defer nextRoot.Close()
+			root = nextRoot
 		}
 	}
 	return false
