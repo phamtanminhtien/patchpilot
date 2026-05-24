@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.2.1...patchpilot-v0.2.2) (2026-05-24)
+
+
+### Bug Fixes
+
+* **docker:** publish multi-arch release images ([#29](https://github.com/phamtanminhtien/patchpilot/issues/29)) ([f5358df](https://github.com/phamtanminhtien/patchpilot/commit/f5358df794351e7af682d1e04b63da3b7863c832))
+
 ## [0.2.1](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.2.0...patchpilot-v0.2.1) (2026-05-24)
 
 
