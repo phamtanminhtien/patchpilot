@@ -11,4 +11,5 @@ export const panelParser = parseAsStringLiteral([
   "preview",
 ] as const).withDefault("files");
 export const pathParser = parseAsString.withDefault("");
+export const conversationIdParser = parseAsString.withDefault("");
 export const workspaceIdParser = parseAsString.withDefault("");

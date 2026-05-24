@@ -78,6 +78,9 @@ Provider settings:
 - Vibe sends `model` and `reasoningEffort` with each user message.
 - Vibe renders assistant text as Markdown with GitHub-flavored Markdown support;
   raw HTML in messages is escaped.
+- Vibe keeps the selected workspace and current conversation in URL state:
+  `workspaceId` identifies the workspace and `conversationId` identifies the
+  open conversation; an absent `conversationId` starts a new conversation.
 - Vibe timeline auto-scroll follows the latest activity only while the user is
   already at or near the bottom of the thread.
 - Scrolling up to read older activity pauses auto-follow until the user returns
