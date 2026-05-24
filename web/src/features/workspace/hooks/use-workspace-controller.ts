@@ -35,10 +35,12 @@ import {
   queueCommand,
   readFile,
   refreshFileIndex,
+  searchFiles,
   stageGitFiles,
   stopProcess,
   unstageGitFiles,
   type WorkspaceEvent,
+  writeFile,
 } from "@/shared/api";
 import { useWorkspaceEvents } from "@/shared/events";
 
@@ -82,6 +84,10 @@ export function useWorkspaceController({
     command: "",
     workspaceId: "",
   });
+  const [fileSearchState, setFileSearchState] = useState({
+    query: "",
+    workspaceId: "",
+  });
   const commitMessage = useWorkspaceUiStore((state) => state.commitMessage);
   const setCommitMessage = useWorkspaceUiStore(
     (state) => state.setCommitMessage,
@@ -119,16 +125,22 @@ export function useWorkspaceController({
     queryKey: ["workspace-file-index", workspaceId],
   });
 
-  const selectedFileEntry = filesQuery.data?.entries.find(
-    (entry) => entry.path === selectedPath,
-  );
+  const fileSearchQuery =
+    fileSearchState.workspaceId === workspaceId ? fileSearchState.query : "";
+  const trimmedFileSearchQuery = fileSearchQuery.trim();
 
-  const fileQuery = useQuery({
+  const fileSearchQueryResult = useQuery({
     enabled:
       workspaceId.length > 0 &&
       panel === "files" &&
-      selectedPath.length > 0 &&
-      selectedFileEntry !== undefined,
+      trimmedFileSearchQuery.length > 0,
+    queryFn: () => searchFiles(workspaceId, trimmedFileSearchQuery),
+    queryKey: ["workspace-file-search", workspaceId, trimmedFileSearchQuery],
+  });
+
+  const fileQuery = useQuery({
+    enabled:
+      workspaceId.length > 0 && panel === "files" && selectedPath.length > 0,
     queryFn: () => readFile(workspaceId, selectedPath),
     queryKey: ["workspace-file", workspaceId, selectedPath],
   });
@@ -286,19 +298,43 @@ export function useWorkspaceController({
     },
   });
 
+  const writeFileMutation = useMutation({
+    mutationFn: (content: string) =>
+      writeFile(workspaceId, { content, path: selectedPath }),
+    onSuccess: (file) => {
+      queryClient.setQueryData(
+        ["workspace-file", workspaceId, file.path],
+        file,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-file-index", workspaceId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-status", workspaceId],
+      });
+    },
+  });
+
   const resetCommandMutation = commandMutation.reset;
   const resetCommitMutation = commitMutation.reset;
+  const resetWriteFileMutation = writeFileMutation.reset;
 
   useEffect(() => {
     resetWorkspaceScopedState();
     resetCommandMutation();
     resetCommitMutation();
+    resetWriteFileMutation();
   }, [
     resetCommandMutation,
     resetCommitMutation,
     resetWorkspaceScopedState,
+    resetWriteFileMutation,
     workspaceId,
   ]);
+
+  useEffect(() => {
+    resetWriteFileMutation();
+  }, [resetWriteFileMutation, selectedPath]);
 
   const handleWorkspaceEvent = useCallback(
     (event: WorkspaceEvent) => {
@@ -342,6 +378,10 @@ export function useWorkspaceController({
 
   function handlePathSelect(path: string) {
     void setSelectedPath(path);
+  }
+
+  function handleFileSearchQueryChange(query: string) {
+    setFileSearchState({ query, workspaceId });
   }
 
   function handleWorkspaceSelect(selectedWorkspaceId: string) {
@@ -463,7 +503,20 @@ export function useWorkspaceController({
       isFileLoading: fileQuery.isPending,
       isLoading: filesQuery.isPending,
       isRefreshing: refreshFilesMutation.isPending,
+      isSaving: writeFileMutation.isPending,
       onRefresh: () => refreshFilesMutation.mutate(),
+      onSave: (content: string) => writeFileMutation.mutate(content),
+      onSearchQueryChange: handleFileSearchQueryChange,
+      saveError: writeFileMutation.error
+        ? apiErrorMessage(writeFileMutation.error)
+        : undefined,
+      searchError: fileSearchQueryResult.error
+        ? apiErrorMessage(fileSearchQueryResult.error)
+        : undefined,
+      searchQuery: fileSearchQuery,
+      searchResults: fileSearchQueryResult.data?.results ?? [],
+      searchTrimmedQuery: trimmedFileSearchQuery,
+      isSearching: fileSearchQueryResult.isFetching,
     },
     git: {
       changes: gitChanges,

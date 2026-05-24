@@ -87,6 +87,7 @@ export function WorkspacePage() {
             isGitCommitPending={controller.git.isCommitPending}
             isGitLoading={controller.git.isLoading}
             isLoadingPorts={controller.preview.isLoading}
+            isSearchingFiles={controller.files.isSearching}
             exposingPort={controller.preview.exposingPort}
             isRefreshingFiles={controller.files.isRefreshing}
             isStagingChanges={controller.git.isStagingChanges}
@@ -94,6 +95,7 @@ export function WorkspacePage() {
             onChangesDiscard={controller.git.onChangesDiscard}
             onChangesStage={controller.git.onChangesStage}
             onFileIndexRefresh={controller.files.onRefresh}
+            onFileSearchQueryChange={controller.files.onSearchQueryChange}
             onGitCommitMessageChange={controller.git.onCommitMessageChange}
             onGitCommitSubmit={controller.git.onCommitSubmit}
             onPathSelect={controller.workspace.onPathSelect}
@@ -102,6 +104,10 @@ export function WorkspacePage() {
             portExposeError={controller.preview.exposeError}
             ports={controller.preview.ports}
             portsError={controller.preview.error}
+            fileSearchError={controller.files.searchError}
+            fileSearchQuery={controller.files.searchQuery}
+            fileSearchResults={controller.files.searchResults}
+            fileSearchTrimmedQuery={controller.files.searchTrimmedQuery}
             selectedPath={selectedPath}
             workspace={controller.workspace.data}
             workspaceError={controller.workspace.error}

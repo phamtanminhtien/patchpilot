@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type * as NuqsModule from "nuqs";
 import type * as ReactModule from "react";
@@ -24,9 +30,11 @@ import {
   queueCommand,
   readFile,
   refreshFileIndex,
+  searchFiles,
   stageGitFiles,
   stopProcess,
   unstageGitFiles,
+  writeFile,
 } from "@/shared/api";
 
 import { WorkspacePage } from "./workspace-page";
@@ -55,9 +63,11 @@ vi.mock("@/shared/api", () => ({
   queueCommand: vi.fn(),
   readFile: vi.fn(),
   refreshFileIndex: vi.fn(),
+  searchFiles: vi.fn(),
   stageGitFiles: vi.fn(),
   stopProcess: vi.fn(),
   unstageGitFiles: vi.fn(),
+  writeFile: vi.fn(),
 }));
 
 vi.mock("nuqs", async () => {
@@ -135,6 +145,25 @@ describe("WorkspacePage", () => {
     });
     vi.mocked(readFile).mockResolvedValue({
       content: "export function App() {\n  return null;\n}",
+      path: "web/src/app.tsx",
+    });
+    vi.mocked(searchFiles).mockResolvedValue({
+      results: [
+        {
+          kind: "filename",
+          path: "README.md",
+          preview: "README.md",
+        },
+        {
+          kind: "content",
+          line: 12,
+          path: "docs/product-spec.md",
+          preview: "Workspace Mode supports files",
+        },
+      ],
+    });
+    vi.mocked(writeFile).mockResolvedValue({
+      content: "export function App() {\n  return true;\n}",
       path: "web/src/app.tsx",
     });
     vi.mocked(getGitStatus).mockResolvedValue({
@@ -296,6 +325,105 @@ describe("WorkspacePage", () => {
     expect(
       await screen.findByRole("treeitem", { name: /README\.md/i }),
     ).toBeInTheDocument();
+  });
+
+  it("searches workspace files and opens a selected result", async () => {
+    const user = userEvent.setup();
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    fireEvent.change(screen.getByLabelText("Search files"), {
+      target: { value: "workspace" },
+    });
+
+    expect(await screen.findAllByText("README.md")).toHaveLength(2);
+    expect(screen.getByText("Filename")).toBeInTheDocument();
+    expect(screen.getByText("Content line 12")).toBeInTheDocument();
+    expect(
+      screen.getByText("Workspace Mode supports files"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /README\.md/i }));
+
+    await waitFor(() => {
+      expect(searchFiles).toHaveBeenLastCalledWith("ws_1", "workspace");
+      expect(readFile).toHaveBeenLastCalledWith("ws_1", "README.md");
+    });
+  });
+
+  it("shows empty and error states for file search", async () => {
+    vi.mocked(searchFiles).mockResolvedValueOnce({ results: [] });
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    fireEvent.change(screen.getByLabelText("Search files"), {
+      target: { value: "missing" },
+    });
+
+    expect(await screen.findByText("No matching files.")).toBeInTheDocument();
+
+    vi.mocked(searchFiles).mockRejectedValueOnce(new Error("Search failed"));
+    fireEvent.change(screen.getByLabelText("Search files"), {
+      target: { value: "broken" },
+    });
+
+    expect(await screen.findByText("Search failed")).toBeInTheDocument();
+  });
+
+  it("shows file search loading state", async () => {
+    vi.mocked(searchFiles).mockReturnValue(new Promise(() => {}));
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    fireEvent.change(screen.getByLabelText("Search files"), {
+      target: { value: "slow" },
+    });
+
+    expect(await screen.findByText(/Searching files/)).toBeInTheDocument();
+  });
+
+  it("edits and saves a selected text file", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(
+      "/workspace?workspaceId=ws_1&panel=files&path=web/src/app.tsx",
+    );
+
+    expect(
+      await screen.findByText(/export function App\(\)/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit file" }));
+
+    const editor = screen.getByLabelText("File content");
+    fireEvent.change(editor, {
+      target: { value: "export function App() {\n  return true;\n}" },
+    });
+    await user.click(screen.getByRole("button", { name: "Save file" }));
+
+    await waitFor(() => {
+      expect(writeFile).toHaveBeenCalledWith("ws_1", {
+        content: "export function App() {\n  return true;\n}",
+        path: "web/src/app.tsx",
+      });
+    });
+    expect(await screen.findByText(/return true/)).toBeInTheDocument();
+  });
+
+  it("shows save rejection and keeps edited content", async () => {
+    const user = userEvent.setup();
+    vi.mocked(writeFile).mockRejectedValue(new Error("File is too large"));
+    renderWorkspace(
+      "/workspace?workspaceId=ws_1&panel=files&path=web/src/app.tsx",
+    );
+
+    await screen.findByText(/export function App\(\)/);
+    await user.click(screen.getByRole("button", { name: "Edit file" }));
+    const editor = screen.getByLabelText("File content");
+    fireEvent.change(editor, {
+      target: { value: "oversized content" },
+    });
+    await user.click(screen.getByRole("button", { name: "Save file" }));
+
+    expect(await screen.findByText("File is too large")).toBeInTheDocument();
+    expect(screen.getByLabelText("File content")).toHaveValue(
+      "oversized content",
+    );
   });
 
   it("shows interactive file details that can copy paths", async () => {

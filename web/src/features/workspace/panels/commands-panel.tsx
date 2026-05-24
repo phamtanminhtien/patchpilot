@@ -11,7 +11,7 @@ import {
 import type { FormEvent } from "react";
 
 import type { Command, CommandOutput } from "@/shared/api";
-import { Button, cn, StatusPill } from "@/shared/ui";
+import { Button, cn, StatusPill, TextField } from "@/shared/ui";
 
 import { ErrorState } from "../components/error-state";
 import { LoadingState } from "../components/loading-state";
@@ -70,19 +70,16 @@ export function CommandsPanel({
     <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <div className="border-line bg-panel grid gap-2 border-b p-3">
         <form className="grid gap-1.5" onSubmit={onSubmit}>
-          <label
-            className="text-muted text-xs font-semibold"
-            htmlFor="workspace-command"
-          >
-            Command
-          </label>
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <input
-              className="bg-hover text-ink placeholder:text-muted min-h-10 w-full rounded-sm px-3 py-2 text-sm shadow-sm transition focus-visible:shadow-[inset_0_0_0_1px_var(--pp-color-focus)] focus-visible:!outline-none"
+            <TextField
+              className="bg-hover"
               id="workspace-command"
+              label="Command"
+              labelClassName="text-muted font-semibold"
               name="workspace-command"
               onChange={(event) => onCommandChange(event.target.value)}
               placeholder="pnpm --dir web test"
+              size="compact"
               value={commandText}
             />
             <Button
