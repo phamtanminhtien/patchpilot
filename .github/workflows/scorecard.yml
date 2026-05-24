@@ -12,12 +12,16 @@ permissions:
   actions: read
   contents: read
   id-token: write
-  security-events: write
 
 jobs:
   scorecard:
     name: OpenSSF Scorecard
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      security-events: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
