@@ -1,38 +1,35 @@
 # PatchPilot Product Spec
 
-`docs/project-rules.md` owns locked rules. This file owns active v0.2 product
-scope, flows, API, data, and acceptance.
+`docs/project-rules.md` owns locked rules. This file owns active v0.3 scope, flows, API, data, and acceptance.
 
 ## Objective
 
-PatchPilot v0.2 is a self-hosted, single-user AI coding workspace centered on
-workspace conversations:
+PatchPilot v0.3 is a self-hosted, single-user AI coding workspace centered on workspace conversations with managed agent context/runtime:
 
 ```txt
-open repo -> open/create conversation -> send message
--> stream agent text/tools -> approve/reject mutating tools
--> execute approved tools -> summarize outcome
--> run/review verification -> commit selected paths
+open repo -> index instructions/skills/MCP -> open/create conversation
+-> send message -> build agent context -> stream agent text/tools
+-> approve/reject mutating or unknown tools -> execute approved tools
+-> summarize outcome -> run/review verification -> commit selected paths
 ```
 
 Core decisions:
 
 - Local filesystem + SQLite; multiple conversations per workspace.
-- v0.2 public product model is `conversation -> message -> agent run`;
-  product APIs, DTOs, and database tables use conversation/run naming. `session`
-  remains only for authentication cookies and auth session storage.
+- Public model: `conversation -> message -> agent run`. Product APIs, DTOs, and DB tables use conversation/run naming; `session` is auth-only.
 - REST mutations, SSE realtime, no WebSocket.
 - Admin-token login with HTTP-only session cookie.
-- Commands run as the server OS user at the workspace root, without a shell.
+- Commands run as the server OS user at workspace root, without a shell.
 - Agent changes happen through tool calls; mutating tools require approval.
-- Workspace Mode supports files, search, diffs, small edits, command output,
-  preview, and Git status.
-- Manual edits are limited to small text files under the workspace root.
+- Agent context may include repo `AGENTS.md`, enabled local skills, MCP tool metadata, bounded conversation context, and active-run tool history.
+- Skills are local PatchPilot-managed directories; remote install/marketplaces are outside v0.3.
+- MCP supports explicit per-workspace stdio/HTTP server configs; tools execute only through the backend bridge.
+- Workspace Mode supports files, search, diffs, small edits, command output, preview, and Git status.
+- Manual edits are limited to small text files under workspace root.
 - Agent commands auto-run only when exactly allowlisted below.
-- Command replay keeps the latest 1 MiB per command.
+- Command replay keeps latest 1 MiB per command.
 - Commits require explicit selected paths; no push.
-- Schema changes use explicit manual migrations; GORM models are persistence
-  structs, not automatic schema sources.
+- Schema changes use explicit manual migrations; GORM models are persistence structs, not schema sources.
 
 ## Flows
 
@@ -43,68 +40,75 @@ choose local repo -> validate allowed Git repo -> create/restore metadata
 -> refresh recursive file index -> open Vibe Mode with recent conversations
 ```
 
-Show readiness while indexing and Git status after load.
+Readiness covers file indexing, effective instructions, skill metadata, MCP server status, and Git status.
 
-Conversation and agent run:
+Conversation/run:
 
 ```txt
-open/create conversation -> load messages and visible activity
+open/create conversation -> load messages/activity
 -> send user message with model + reasoning effort
--> build bounded LLM context from conversation summary + recent messages
--> create linked agent run -> stream assistant text/tool progress
+-> build bounded context from effective instructions + selected skills
+   + MCP registry + conversation summary + recent messages
+-> create linked run -> stream assistant text/tool progress
 -> execute safe tools or wait for approval -> append final assistant outcome
 ```
 
-Conversation records persist an active-run flag so the Vibe conversation list
-can show in-flight work state from conversation data alone, without fetching
-run lists for every sidebar row.
+- Conversation records persist `hasRunningRun` so sidebars show in-flight state without listing runs for every row.
+- Runs inspect relevant workspace context, produce a short plan for non-trivial work, propose reviewable patches or answer directly, then run/recommend narrow verification.
+- Final output reports changed files, verification, and remaining risks.
+- Context is assembled server-side from SQLite/workspace metadata. PatchPilot reserves room for system instructions, repo instructions, enabled skills, MCP registry, current prompt, tool schemas, and active-run tool history before prior conversation content.
+- Older history over budget is summarized onto the conversation; newest messages stay verbatim. Agent instructions are separate from conversation messages so history cannot displace the system prompt.
 
-Agent runs should inspect relevant workspace context, produce a short plan for
-non-trivial work, propose small reviewable patches or answer directly, then run
-or recommend narrow verification. Final output reports changed files,
-verification result, and remaining risks.
+Agent instructions:
 
-Conversation context is assembled server-side from SQLite before provider calls.
-PatchPilot reserves room for agent instructions, the current prompt, tool
-schemas, and active-run tool history before adding prior conversation content.
-When older history would exceed the local context budget, the backend summarizes
-only older messages, stores the summary on the conversation, and keeps the newest
-messages verbatim. Agent instructions are sent separately from conversation
-messages so conversation history cannot displace the system prompt.
+```txt
+workspace opened/context refreshed -> discover applicable AGENTS.md
+-> validate path/size/secret rules -> include effective instructions in future runs
+```
 
-Provider settings:
+PatchPilot reads root and task-relevant descendant `AGENTS.md` files. Effective instructions preserve source order, precedence, and skipped-file warnings. Files outside root, symlink escapes, secret-like paths, binaries, and oversized files are rejected. Discovery reads filesystem during context refresh/run creation; v0.3 has no DB registry/cache table for instruction sources.
+
+Skills:
+
+```txt
+add local skill directory -> index SKILL.md -> enable/disable
+-> select relevant enabled skills for a run -> inject bounded skill context
+```
+
+Skills are local directories with `SKILL.md`. Discovery roots: `~/.patchpilot/skills` (user override) then `~/.agent/skills` (fallback). Duplicate keys use only the `~/.patchpilot/skills` copy for effective skills and agent context. Enablement comes from `~/.patchpilot/config.json`; skills missing from `config.skills` default enabled. Runs inject concise selected skill instructions plus directly needed supporting context, not whole directories.
+
+MCP:
+
+```txt
+add stdio/http MCP server -> check health -> discover tools/resources
+-> expose namespaced tools to provider -> execute through approval policy
+```
+
+MCP configs come only from `mcpServers` in `~/.patchpilot/config.json`. Stdio servers are managed backend child processes. HTTP servers use configured URLs only; no network scanning or public discovery. MCP tools use namespaced IDs and the same durable tool-call, event, and approval flow as built-ins.
+
+Provider/Vibe settings:
 
 - Backend-controlled tools enforce path, secret, ignore, and size checks.
 - Vibe sends `model` and `reasoningEffort` with each user message.
-- Vibe renders assistant text as Markdown with GitHub-flavored Markdown support;
-  raw HTML in messages is escaped.
-- Vibe keeps the selected workspace and current conversation in URL state:
-  `workspaceId` identifies the workspace and `conversationId` identifies the
-  open conversation; an absent `conversationId` starts a new conversation.
-- Vibe timeline auto-scroll follows the latest activity only while the user is
-  already at or near the bottom of the thread.
-- Scrolling up to read older activity pauses auto-follow until the user returns
-  to the bottom or uses a visible jump-to-latest control.
-- New activity that arrives while auto-follow is paused shows a compact control
-  that jumps back to the latest activity and re-enables follow mode.
-- Markdown fenced code blocks show syntax highlighting, language context, and a
-  copy action for the raw code.
+- Assistant text renders as GFM Markdown; raw HTML is escaped.
+- URL state holds `workspaceId` and optional `conversationId`; absent `conversationId` starts a new conversation.
+- Timeline auto-follow runs only while the user is at/near bottom; scrolling up pauses follow until returning to bottom or using the jump-to-latest control.
+- New activity while paused shows a compact jump-to-latest control.
+- Fenced code blocks show syntax highlighting, language, and copy action.
 - Initial models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`; default `gpt-5.5`.
 - Initial reasoning: `low`, `medium`, `high`, `xhigh`; default `medium`.
 - `PATCHPILOT_OPENAI_API_KEY` is backend-only.
-- `PATCHPILOT_OPENAI_BASE_URL` defaults to `https://api.openai.com/v1`; provider
-  calls `/responses` under that base URL.
+- `PATCHPILOT_OPENAI_BASE_URL` defaults to `https://api.openai.com/v1`; provider calls `/responses`.
 
 Tool approval:
 
 ```txt
 approval-required batch -> show approvals one at a time
 -> record approve/reject decisions -> execute only approved tools
--> append tool results to the run
+-> append tool results
 ```
 
-Patch approval verifies clean apply, applies server-side, updates Git status, and
-returns the result. Reject leaves files unchanged. Invalid applies fail safely.
+Patch approval verifies clean apply, applies server-side, updates Git status, and returns the result. Reject leaves files unchanged; invalid applies fail safely. MCP tools require approval unless PatchPilot policy and server/tool metadata both mark the tool read-only and safe. Approval review shows server, tool name, source, input summary, and policy reason.
 
 Commands:
 
@@ -113,12 +117,7 @@ enter/select command -> classify -> start at workspace root
 -> stream stdout/stderr -> show exit code/duration
 ```
 
-Common user commands run immediately. Commands outside the explicit safe command
-table are blocked until they are added deliberately. Commands are executed
-without a shell and only as exact, enumerated executable/argument shapes. Shell
-syntax, absolute executable paths, workspace-escape paths, interpreter snippets,
-and unsupported arbitrary binaries are blocked before execution. Dangerous agent
-commands need approval.
+Common user commands run immediately. Other commands are blocked until deliberately added. Commands execute without a shell and only as exact enumerated executable/argument shapes. Shell syntax, absolute executable paths, workspace escapes, interpreter snippets, and unsupported arbitrary binaries are blocked. Dangerous agent commands need approval.
 
 Preview:
 
@@ -127,36 +126,20 @@ run dev server -> poll listening sockets every 1s -> user exposes
 -> open backend-origin preview URL
 ```
 
-Agents never expose ports. Proxy route:
-`/workspaces/:workspaceId/ports/:port/proxy/*`. Port responses include an
-absolute backend-generated `exposedUrl`.
+Agents never expose ports. Proxy route: `/workspaces/:workspaceId/ports/:port/proxy/*`. Port responses include backend-generated absolute `exposedUrl`.
 
-Commit:
+Git/commit:
 
 ```txt
-review staged/unstaged status and diff -> stage explicit paths
--> enter message -> commit selected paths -> return hash
+review status/diff -> stage explicit paths -> enter message
+-> commit selected paths -> return hash
 ```
 
-Stage/commit requests always send explicit paths from visible Git sections.
-Push/pull/branch management are outside current scope.
-
-Workspace Git review:
-
-```txt
-review staged/unstaged paths -> choose section or row action
--> confirm discard when needed -> review commit paths -> commit staged paths
-```
-
-Discard always requires confirmation that names the affected path count before
-calling the API. Commit opens a review dialog that shows the exact message and
-staged paths that will be sent to the commit API.
+Stage/commit requests send explicit paths from visible Git sections. Discard requires confirmation naming affected path count. Commit dialog shows exact message and staged paths. Push/pull/branch management are outside scope.
 
 ## API
 
-All endpoints except `GET /api/health` and `POST /api/auth/login` require a
-session cookie. Workspace APIs are scoped by `workspaceId`. Responses are JSON
-except SSE/proxy.
+All endpoints except `GET /api/health` and `POST /api/auth/login` require a session cookie. Workspace APIs are scoped by `workspaceId`. Responses are JSON except SSE/proxy.
 
 ```txt
 GET  /api/health
@@ -187,6 +170,20 @@ GET   /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/eve
 POST  /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/tool-calls/:toolCallId/approve
 POST  /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/tool-calls/:toolCallId/reject
 
+GET  /api/workspaces/:workspaceId/agent/context
+POST /api/workspaces/:workspaceId/agent/context/refresh
+
+GET   /api/workspaces/:workspaceId/skills
+POST  /api/workspaces/:workspaceId/skills
+PATCH /api/workspaces/:workspaceId/skills/:skillId
+POST  /api/workspaces/:workspaceId/skills/refresh
+
+GET   /api/workspaces/:workspaceId/mcp/servers
+POST  /api/workspaces/:workspaceId/mcp/servers
+PATCH /api/workspaces/:workspaceId/mcp/servers/:serverId
+POST  /api/workspaces/:workspaceId/mcp/servers/:serverId/refresh
+GET   /api/workspaces/:workspaceId/mcp/servers/:serverId/tools
+
 POST /api/workspaces/:workspaceId/commands
 GET  /api/workspaces/:workspaceId/processes
 GET  /api/workspaces/:workspaceId/processes/:processId
@@ -205,127 +202,57 @@ GET  /workspaces/:workspaceId/ports/:port/proxy/*
 GET  /api/workspaces/:workspaceId/events
 ```
 
-Large REST lists support cursor pagination with `limit` and `cursor`. The
-default `limit` is `50`; the max is `100`, and larger or non-positive limits
-return `400 invalid_limit`. Cursors are opaque strings from the previous
-response. Invalid cursors return `400 invalid_cursor`. Paginated responses keep
-their existing array field and add optional `nextCursor`.
+Pagination:
 
-Paginated endpoints:
-
-- `GET /api/workspaces`: newest-first by `updatedAt`, then `id`.
-- `GET /api/workspaces/:workspaceId/files/index`: ascending by `path`.
-- `GET /api/workspaces/:workspaceId/search`: ascending by `path`, `kind`, then
-  line.
-- `GET /api/workspaces/:workspaceId/conversations`: newest-first by
-  `lastMessageAt`, `updatedAt`, then `id`.
-- `GET /api/workspaces/:workspaceId/processes`: newest-first by `createdAt`,
-  then `id`.
-- `GET /api/workspaces/:workspaceId/ports`: ascending by port number.
+- Large REST lists use `limit`/`cursor`; default `limit=50`, max `100`.
+- Larger/non-positive limits return `400 invalid_limit`; invalid cursors return `400 invalid_cursor`.
+- Cursors are opaque strings from previous responses.
+- Paginated responses keep their array field and add optional `nextCursor`.
+- Sorts: workspaces newest by `updatedAt,id`; file index by `path`; search by `path,kind,line`; conversations newest by `lastMessageAt,updatedAt,id`; skills/MCP servers/tools by `name,id`; processes newest by `createdAt,id`; ports by port number.
 
 Response contracts:
 
 - REST errors: `{ "error": { "code": "snake_case", "message": "...", "details": {} } }`.
-- Health: `{"status":"ok"}`; returns `503` with error envelope if DB is unavailable.
-- Auth login accepts `{"token":"..."}` and returns
-  `{"session":{"id":"auth_...","expiresAt":"...","lastSeenAt":"..."}}`.
-  It sets an HTTP-only `patchpilot_session` cookie scoped to `/`; `Secure` is
-  set for HTTPS requests. Invalid tokens return `401 invalid_auth_token`.
-- Auth session returns the same `{"session":{...}}` shape for a valid cookie and
-  `401 unauthorized` when the cookie is missing, expired, or invalid. Logout
-  accepts no body, clears the session cookie, and returns `{"status":"ok"}`.
-- Workspace create accepts `{"rootPath":"/absolute/git/repo"}` and returns a
-  workspace object. Invalid roots return `400 invalid_workspace_root`,
-  disallowed roots return `400 workspace_root_not_allowed`, and non-Git roots
-  return `400 not_git_repository`.
-- Workspace list returns `{"workspaces":[],"nextCursor":"..."}` newest-first.
-  Workspace get returns one workspace object and refreshes the file index.
-  Workspace delete removes PatchPilot metadata for that workspace and returns
-  `{"status":"deleted"}`. Unknown workspace IDs return `404 workspace_not_found`.
+- Health: `{"status":"ok"}`; DB unavailable returns `503` with error envelope.
+- Auth login accepts `{"token":"..."}`, returns `{"session":{"id":"auth_...","expiresAt":"...","lastSeenAt":"..."}}`, and sets HTTP-only `patchpilot_session` scoped to `/`; `Secure` is set on HTTPS. Invalid token: `401 invalid_auth_token`.
+- Auth session returns same session shape for valid cookie; missing/expired/invalid cookie: `401 unauthorized`. Logout clears cookie and returns `{"status":"ok"}`.
+- Workspace create accepts `{"rootPath":"/absolute/git/repo"}`. Invalid/disallowed/non-Git roots return `400 invalid_workspace_root`, `400 workspace_root_not_allowed`, or `400 not_git_repository`.
+- Workspace list returns `{"workspaces":[],"nextCursor":"..."}`. Get returns one workspace and refreshes file index. Delete removes PatchPilot metadata and returns `{"status":"deleted"}`. Unknown workspace: `404 workspace_not_found`.
 - Files list: `{"entries":[]}` for a workspace-relative directory.
-- File index: `{"entries":[],"nextCursor":"..."}` with workspace-relative
-  `path`, `size`, `modifiedAt`; refresh rebuilds and returns the same shape.
-- File read: `{"path":"...","content":"..."}` for readable text files up to
-  1 MiB.
-- File write accepts `{"path":"...","content":"..."}` for an existing readable
-  text file up to 1 MiB and returns `{"path":"...","content":"..."}` with the
-  written content. It does not create files. It rejects invalid paths, workspace
-  escapes, ignored paths, symlink paths, secret-like filenames (`.env`,
-  `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`,
-  `.netrc`), binary content, and oversized existing or replacement content.
-  Missing files return `404 path_not_found`; rejected writes use the standard
-  error envelope. Successful writes refresh the file index and publish current
-  Git status through `git.changed`.
-- Search: `{"results":[],"nextCursor":"..."}` for filename/content matches.
-- File APIs ignore `.git`, `node_modules`, and `build`, skip symlinks and files
-  over 1 MiB; direct invalid reads return the standard error envelope.
-- Conversation create/update accept `{"title":"..."}`.
-- Conversation list: `{"conversations":[],"nextCursor":"..."}` newest-first by
-  last activity. Optional `q` trims whitespace and filters conversations by
-  case-insensitive title match while preserving cursor pagination.
-- Conversation detail:
-  `{"conversation":{...},"messages":[],"runs":[],"toolCalls":[]}`.
-- Message create accepts
-  `{"content":"...","model":"gpt-5.5","reasoningEffort":"medium"}` and returns
-  `202` with the user message and agent run. The run continues on the backend
-  if the request client disconnects.
-- Backend shutdown finalizes active agent runs (`queued`, `running`,
-  `waiting_tool_approval`) as `failed` with a durable shutdown error. It also
-  finalizes backend-owned commands/processes in `queued` or `running` as
-  `stopped`.
-- Run cancel marks non-terminal runs `canceled`, stops active run-owned command
-  tools, and is safe to call more than once. It returns the run object. Terminal
-  runs return their current state. Missing runs return `404 agent_run_not_found`.
-- Tool approve/reject endpoints accept no body and return
-  `{"toolCall":{...}}`. Approve runs the selected pending approval-required
-  tool, while reject records the rejection and does not run the tool. Missing
-  calls return `404 agent_tool_call_not_found`; non-waiting calls return
-  `409 agent_tool_not_approvable`.
-- Run events stream returns SSE for one run. It replays durable stored run
-  events after `Last-Event-ID`, then continues live. Without `Last-Event-ID`,
-  it replays durable stored events for the run from the beginning.
-- Git status returns `{"porcelain":"..."}` including expanded untracked files. By default, it does not include ignored paths. It can be configured using parameters:
-  - `ignored` (boolean, default: false): whether to include ignored files in the status.
-  - `untracked` (string: "all", "normal", "no", default: "all"): untracked files mode.
-  - `ignore_submodules` (string: "none", "untracked", "dirty", "all", default: ""): ignore changes to submodules mode.
-  - `paths` (string array / workspace-relative paths): limit status check to specific paths.
-- Git diff returns `{"path":"...","diff":"..."}` for workspace or path; untracked
-  diffs are shown without staging.
-- Git stage/unstage/discard accept explicit non-empty workspace-relative
-  `{"paths":["..."]}` and return updated status; discard only affects unstaged
-  selected paths and removes selected untracked paths.
-- Git commit accepts exact user `message` plus explicit non-empty `paths`, stages
-  only those paths, commits, returns `{"hash":"..."}`, and never pushes.
-- Commands accept `{"command":"...","confirmed":false}`; safe commands return
-  `202`, risky commands return `409 confirmation_required`, blocked commands
-  return `400 blocked_command`.
-- Process list returns `{"processes":[],"nextCursor":"..."}` newest-first;
-  process detail returns `{"command":{...},"output":[]}` with latest output
-  replay.
-- Process stop stops running commands; finished commands return current state.
-- Port list refreshes current reachability and returns
-  `{"ports":[],"nextCursor":"..."}` with detected, exposed, and closed ports.
-  Port expose accepts no body and returns
-  `{"port":{...}}` with `exposedPath` and same-origin `exposedUrl`. Closed or
-  unreachable ports return `502 port_unreachable` and are marked closed. Unknown
-  ports return `404 port_not_found`; invalid port path values return
-  `400 invalid_port`.
+- File index: `{"entries":[],"nextCursor":"..."}` with `path`, `size`, `modifiedAt`; refresh rebuilds and returns same shape.
+- File read: `{"path":"...","content":"..."}` for readable text files up to 1 MiB.
+- File write accepts `{"path":"...","content":"..."}` for an existing readable text file up to 1 MiB and returns written content. It does not create files. It rejects invalid paths, workspace escapes, ignored/symlink paths, secret-like names (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`), binary content, and oversized existing/replacement content. Missing files: `404 path_not_found`. Success refreshes index and emits `git.changed`.
+- File APIs ignore `.git`, `node_modules`, `build`, symlinks, and files over 1 MiB; invalid reads use standard error envelope.
+- Search returns `{"results":[],"nextCursor":"..."}` for filename/content matches.
+- Conversation create/update accept `{"title":"..."}`. List returns `{"conversations":[],"nextCursor":"..."}` newest-first; optional `q` trims whitespace and filters title case-insensitively. Detail returns `{"conversation":{...},"messages":[],"runs":[],"toolCalls":[]}`.
+- Message create accepts `{"content":"...","model":"gpt-5.5","reasoningEffort":"medium"}`, returns `202` with user message and run, and backend run continues if client disconnects.
+- Backend shutdown finalizes active runs (`queued`, `running`, `waiting_tool_approval`) as `failed` with durable shutdown error and backend-owned queued/running commands as `stopped`.
+- Run cancel marks non-terminal runs `canceled`, stops active run-owned command tools, is idempotent, and returns the run. Terminal runs return current state. Missing run: `404 agent_run_not_found`.
+- Tool approve/reject accept no body and return `{"toolCall":{...}}`. Approve runs the selected pending approval-required tool; reject records rejection. Missing/non-waiting calls return `404 agent_tool_call_not_found` or `409 agent_tool_not_approvable`.
+- Agent context returns effective instruction sources, enabled skill summaries, MCP server/tool summaries, context-budget warnings, and refresh time. Refresh rereads instructions, enabled skills, and MCP discovery state where possible; failures use standard errors without leaking host paths.
+- Skill create accepts a local directory path. Patch accepts `{"enabled":true|false}` plus optional display metadata. Refresh reparses enabled/disabled directories. Invalid skill directories stay visible with warnings.
+- MCP server create accepts `{"name":"...","transport":"stdio|http",...}` with transport-specific config. Patch can enable/disable, update policy, or replace config. Refresh updates health/tools/resources. Tool list returns cached metadata, source server, read-only hints, and effective approval policy.
+- Run event stream replays durable run events after `Last-Event-ID`; without it, replays durable run events from the beginning, then continues live.
+- Git status returns `{"porcelain":"..."}` with expanded untracked files. Optional params: `ignored` boolean default `false`; `untracked` `"all"|"normal"|"no"` default `"all"`; `ignore_submodules` `"none"|"untracked"|"dirty"|"all"` default `""`; `paths` workspace-relative array.
+- Git diff returns `{"path":"...","diff":"..."}` for workspace/path; untracked diffs show without staging.
+- Git stage/unstage/discard accept explicit non-empty `{"paths":["..."]}` and return updated status; discard affects only selected unstaged paths and selected untracked paths.
+- Git commit accepts exact user `message` plus explicit non-empty `paths`, stages only those paths, commits, returns `{"hash":"..."}`, and never pushes.
+- Commands accept `{"command":"...","confirmed":false}`; safe returns `202`, risky returns `409 confirmation_required`, blocked returns `400 blocked_command`.
+- Process list returns `{"processes":[],"nextCursor":"..."}`; detail returns `{"command":{...},"output":[]}` with latest retained output; stop stops running commands and returns current state for finished commands.
+- Port list refreshes reachability and returns `{"ports":[],"nextCursor":"..."}`. Expose returns `{"port":{...}}` with `exposedPath` and same-origin `exposedUrl`. Closed/unreachable ports return `502 port_unreachable` and are marked closed; unknown `404 port_not_found`; invalid path value `400 invalid_port`.
 
 Primary fields:
 
-- Conversation: `id`, `workspaceId`, `title`, `createdAt`, `updatedAt`,
-  `lastMessageAt`.
-- Message: `id`, `workspaceId`, `conversationId`, `role`, `content`, `runId?`,
-  `createdAt`.
-- Agent run: `id`, `workspaceId`, `conversationId`, `triggerMessageId`, `model`,
-  `reasoningEffort`, `status`, `summary`, `error?`, timestamps.
-- Tool call: `id`, `workspaceId`, `conversationId`, `runId`, `batchId`,
-  `sequence`, `name`, `input`, `output`, `status`, `requiresApproval`,
-  `decision?`, timestamps.
-- Command: `id`, `workspaceId`, `runId?`, `command`, `cwd`, `status`,
-  `exitCode?`, `startedAt?`, `finishedAt?`, `createdAt`, `durationMs?`.
-- Command output: `id`, `commandId`, `stream(stdout|stderr)`, `chunk`,
-  `createdAt`.
+- Conversation: `id`, `workspaceId`, `title`, `createdAt`, `updatedAt`, `lastMessageAt`.
+- Message: `id`, `workspaceId`, `conversationId`, `role`, `content`, `runId?`, `createdAt`.
+- Agent run: `id`, `workspaceId`, `conversationId`, `triggerMessageId`, `model`, `reasoningEffort`, `status`, `summary`, `error?`, timestamps.
+- Tool call: `id`, `workspaceId`, `conversationId`, `runId`, `batchId`, `sequence`, `name`, `source(builtin|mcp|skill)`, `sourceRef?`, `input`, `output`, `status`, `requiresApproval`, `decision?`, timestamps.
+- Agent instruction source: `id`, `workspaceId`, `path`, `precedence`, `status`, `warning?`, `indexedAt`.
+- Skill: `id`, `workspaceId`, `name`, `description`, `directory`, `enabled`, `status`, `warning?`, `updatedAt`.
+- MCP server: `id`, `workspaceId`, `name`, `transport`, `enabled`, `status`, `approvalPolicy`, `lastError?`, timestamps.
+- MCP tool: `id`, `workspaceId`, `serverId`, `name`, `description`, `inputSchema`, `readOnlyHint?`, `approvalPolicy`, `discoveredAt`.
+- Command: `id`, `workspaceId`, `runId?`, `command`, `cwd`, `status`, `exitCode?`, `startedAt?`, `finishedAt?`, `createdAt`, `durationMs?`.
+- Command output: `id`, `commandId`, `stream(stdout|stderr)`, `chunk`, `createdAt`.
 
 SSE envelope:
 
@@ -339,55 +266,21 @@ SSE envelope:
 }
 ```
 
-Events: `workspace.ready`, `workspace.indexing`, `conversation.created`,
-`conversation.updated`, `conversation.message.created`, `agent.delta`,
-`agent.output.snapshot`, `agent.tool.started`, `agent.tool.finished`,
-`agent.approval_required`, `agent.run.status_changed`, `command.output`,
-`process.started`, `process.exited`, `port.opened`, `port.exposed`,
-`git.changed`.
-`agent.delta` events carry live token/text deltas, are transient, and are not
-stored in SQLite. Transient deltas may be lost during disconnects; final
-assistant messages, run summaries, tool calls, and run status are the durable
-recovery source.
-`agent.output.snapshot` is a transient run-stream event emitted from in-memory
-active-run draft text on reconnect. It is not stored in SQLite and only restores
-in-flight text while the same backend process still owns the run.
-After a backend restart, active runs do not resume; the durable `failed` run
-state and durable `stopped` process state from shutdown cleanup are the
-recovery source of truth.
-Conversation responses include a `hasRunningRun` boolean derived from durable
-run state for the same conversation.
+Events: `workspace.ready`, `workspace.indexing`, `conversation.created`, `conversation.updated`, `conversation.message.created`, `agent.delta`, `agent.output.snapshot`, `agent.tool.started`, `agent.tool.finished`, `agent.approval_required`, `agent.run.status_changed`, `command.output`, `process.started`, `process.exited`, `port.opened`, `port.exposed`, `git.changed`, `agent.context.refreshed`, `skill.changed`, `mcp.server.status_changed`, `mcp.tools.refreshed`.
 
-`GET /api/workspaces/:workspaceId/events` streams workspace/process/git/port
-events for the workspace. Run activity uses
-`GET /api/workspaces/:workspaceId/conversations/:conversationId/runs/:runId/events`.
-Run streams replay durable stored run events using `Last-Event-ID` and exclude
-transient `agent.delta`. Historical conversation state comes from conversation
-detail, and historical command output comes from process detail.
+- `agent.delta` carries live token/text, is transient, and is not stored. Durable recovery source: final assistant messages, run summaries, tool calls, and run status.
+- `agent.output.snapshot` is transient, in-memory, not stored, and only restores in-flight text while the same backend process owns the run.
+- After backend restart, active runs do not resume; durable `failed` run state and `stopped` process state from shutdown cleanup are source of truth.
+- Conversation responses include `hasRunningRun` derived from durable run state.
+- Workspace stream `GET /api/workspaces/:workspaceId/events` covers workspace/process/git/port events. Run stream covers run activity. Run streams replay durable events via `Last-Event-ID` and exclude transient `agent.delta`. Historical conversation state comes from conversation detail; command output from process detail.
 
 ## Agent Tools And Commands
 
-Tools:
+Tools: `list_files`, `read_file`, `search_files`, `git_status`, `git_diff`, `run_command`, approval-required `apply_patch`, and `mcp:<server>:<tool>` through backend bridge/policy.
 
-- `list_files`, `read_file`, `search_files`.
-- `git_status`, `git_diff`.
-- `run_command` for approved commands with possible side effects.
-- `apply_patch` for approval-required server-side patch apply.
+Vibe renders tool calls as compact activity rows with icons, human status text, concise labels, source metadata, and grouped consecutive calls per run. Approval, patch, command, diff, search, status, and list calls can expand; `read_file` stays one-line and does not expose file output. Groups/calls open by default when attention is needed: waiting approval, running, or failed. Completed calls stay collapsed.
 
-Vibe Mode renders tool calls as compact activity rows with icons, human status
-text, and concise tool-specific labels such as read path, edited path, command,
-or search query. Consecutive tool calls in the same run are grouped into a
-collapsible activity block. Individual tool calls may be expandable or
-non-expandable by tool type: approval, patch, command, diff, search, status, and
-list calls can expose relevant detail, while `read_file` remains a one-line
-activity and does not expose file output. Tool call groups and expandable calls
-open by default when a decision or attention is needed, including waiting
-approval, running, or failed states; completed calls stay collapsed by default.
-
-Agents must not read outside workspace root, access secrets, expose ports, or run
-approval-required tools without approval. Backend preserves provider tool-call
-order. If any tool in a batch requires approval, no tool in that batch runs
-until all approval-required calls have decisions. Rejected tools do not run.
+Agents must not read outside workspace root, access secrets, expose ports, call MCP servers directly, or run approval-required tools without approval. Backend preserves provider tool-call order. If any tool in a batch requires approval, no tool in that batch runs until all approval-required calls have decisions. Rejected tools do not run.
 
 Agent auto-run requires exact allowlist match and no shell control operators:
 
@@ -401,72 +294,63 @@ Agent auto-run requires exact allowlist match and no shell control operators:
 - `cargo test`, `cargo build`
 - `make test|lint|build|dev`
 
-Direct user commands are classified before queueing:
+Direct user command classification:
 
-- Safe commands run immediately with `202`: `git status|diff|log`,
-  `npm run test|lint|build|dev`, `pnpm test|lint|build|dev`,
-  `pnpm --dir <safe-relative-dir> test|lint|build|dev`,
-  `yarn test|lint|build|dev`,
-  `yarn --dir <safe-relative-dir> test|lint|build|dev`, `bun test`,
-  `bun run lint|build|dev`, `go test ./...`, `go test ./<package>`,
-  `go build ./...`, `pytest`, `python -m pytest`, `python3 -m pytest`,
-  `cargo test|build`, and `make test|lint|build|dev`.
-- Risky commands are syntactically valid but outside the exact allowlist. They
-  return `409 confirmation_required` unless `confirmed:true` is supplied.
-- Blocked commands always return `400 blocked_command`. Blocks include shell
-  control or shell expansion syntax (`&&`, `||`, `;`, `|`, `>`,
-  `<`, backticks, `$(`, or newlines); absolute executable paths; absolute path
-  arguments; workspace escape arguments; `sudo`; `su`; `rm` with recursive
-  forced flags; `git clean`; `git reset --hard`; `chmod -R`; and `chown -R`.
+- Safe `202`: `git status|diff|log`; `npm run test|lint|build|dev`; `pnpm test|lint|build|dev`; `pnpm --dir <safe-relative-dir> test|lint|build|dev`; `yarn test|lint|build|dev`; `yarn --dir <safe-relative-dir> test|lint|build|dev`; `bun test`; `bun run lint|build|dev`; `go test ./...`; `go test ./<package>`; `go build ./...`; `pytest`; `python -m pytest`; `python3 -m pytest`; `cargo test|build`; `make test|lint|build|dev`.
+- Risky: syntactically valid but outside allowlist; returns `409 confirmation_required` unless `confirmed:true`.
+- Blocked `400 blocked_command`: shell control/expansion (`&&`, `||`, `;`, `|`, `>`, `<`, backticks, `$(`, newlines), absolute executable paths, absolute path arguments, workspace escapes, `sudo`, `su`, forced recursive `rm`, `git clean`, `git reset --hard`, `chmod -R`, `chown -R`.
 
-Command execution always uses argument parsing without a shell, runs at the
-workspace root, and never accepts traversal or shell operators. Both
-`confirmation_required` and `blocked_command` responses include
-`details.decision` with `level`, `reason`, and parsed `parts`.
+Execution always parses arguments without a shell, runs at workspace root, and rejects traversal/shell operators. `confirmation_required` and `blocked_command` include `details.decision` with `level`, `reason`, and parsed `parts`.
 
 ## Data Model
 
-SQLite stores app state; source files stay in their original repositories; Git
-owns repo history. PatchPilot-owned state may live under `~/.patchpilot`.
+SQLite stores app state; source files stay in original repos; Git owns repo history. PatchPilot-owned state may live under `~/.patchpilot`.
 
-Runtime config uses OS environment variables, falling back to local `.env`.
-Variables:
-`PATCHPILOT_ADDR`, `PATCHPILOT_ALLOWED_ROOTS`, `PATCHPILOT_STATIC_DIR`,
-`PATCHPILOT_LOG_FORMAT`, `PATCHPILOT_ADMIN_TOKEN`,
-`PATCHPILOT_OPENAI_API_KEY`, `PATCHPILOT_OPENAI_BASE_URL`,
-`PATCHPILOT_DB_PATH`, `PATCHPILOT_DATA_DIR`. If `PATCHPILOT_DB_PATH` is unset,
-`PATCHPILOT_DATA_DIR` controls the directory for `patchpilot.db`; otherwise the
-default is `~/.patchpilot/patchpilot.db`.
+Runtime config uses OS env, falling back to local `.env`: `PATCHPILOT_ADDR`, `PATCHPILOT_ALLOWED_ROOTS`, `PATCHPILOT_STATIC_DIR`, `PATCHPILOT_LOG_FORMAT`, `PATCHPILOT_ADMIN_TOKEN`, `PATCHPILOT_OPENAI_API_KEY`, `PATCHPILOT_OPENAI_BASE_URL`, `PATCHPILOT_DB_PATH`, `PATCHPILOT_DATA_DIR`. If `PATCHPILOT_DB_PATH` is unset, `PATCHPILOT_DATA_DIR` controls `patchpilot.db`; default is `~/.patchpilot/patchpilot.db`.
 
-Migrations are explicit, versioned, manually authored, tracked in SQLite
-metadata, run before API traffic, and fail startup on error. GORM `AutoMigrate`
-is not used for product schema changes.
+Global agent runtime config lives at `~/.patchpilot/config.json`, loaded at startup and explicit agent-context refresh. Missing `enabled` fields default `true`.
+
+```json
+{
+  "skills": {
+    "coding": { "enabled": true },
+    "review": { "enabled": false }
+  },
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "enabled": true
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" },
+      "enabled": false
+    }
+  }
+}
+```
+
+`skills` controls enablement by discovered key. `mcpServers` is authoritative. `${ENV_NAME}` placeholders resolve from server OS env at runtime; unresolved placeholders mark the server with safe warning and do not expose secret values.
+
+Migrations are explicit, versioned, manually authored, tracked in SQLite metadata, run before API traffic, and fail startup on error. GORM `AutoMigrate` is not used for product schema changes.
 
 Active tables:
 
 - `app_metadata`: migration/version metadata and app key-value state.
 - `auth_sessions`: `id`, `session_hash`, `created_at`, `last_seen_at`, `expires_at`.
-- `workspaces`: `id`, `name`, `root_path`, `git_remote?`, `default_branch?`,
-  `status(indexing|ready|error)`, timestamps.
+- `workspaces`: `id`, `name`, `root_path`, `git_remote?`, `default_branch?`, `status(indexing|ready|error)`, timestamps.
 - `file_index`: `workspace_id`, `path`, `size`, `modified_at`, `indexed_at`.
-- `conversations`: `id`, `workspace_id`, `title`, timestamps,
-  `last_message_at`, `context_summary`, `context_summary_through_message_id?`,
-  `context_summary_updated_at?`.
-- `messages`: `id`, `workspace_id`, `conversation_id`, `run_id?`, `role`,
-  `content`, `created_at`.
-- `agent_runs`: `id`, `workspace_id`, `conversation_id`, `trigger_message_id`,
-  `model`, `reasoning_effort`, `status`, `summary?`, `error?`, timestamps.
-- `agent_run_events`: `id`, `workspace_id`, `run_id`, `type`, `payload_json`,
-  `created_at`.
-- `agent_tool_calls`: `id`, `workspace_id`, `run_id`, `batch_id`, `sequence`,
-  `name`, `input_json`, `output_json`, `status`, `requires_approval`,
-  `decision?`, timestamps.
-- `commands`: `id`, `workspace_id`, `run_id?`, `command`, `cwd`, `status`,
-  `exit_code?`, `started_at?`, `finished_at?`, `created_at`.
-- `command_output`: `id`, `command_id`, `stream(stdout|stderr)`, `chunk`,
-  `created_at`.
-- `ports`: `id`, `workspace_id`, `process_id?`, `port`,
-  `status(detected|exposed|closed)`, `exposed_path?`, timestamps.
+- `conversations`: `id`, `workspace_id`, `title`, timestamps, `last_message_at`, `context_summary`, `context_summary_through_message_id?`, `context_summary_updated_at?`.
+- `messages`: `id`, `workspace_id`, `conversation_id`, `run_id?`, `role`, `content`, `created_at`.
+- `agent_runs`: `id`, `workspace_id`, `conversation_id`, `trigger_message_id`, `model`, `reasoning_effort`, `status`, `summary?`, `error?`, timestamps.
+- `agent_run_events`: `id`, `workspace_id`, `run_id`, `type`, `payload_json`, `created_at`.
+- `agent_tool_calls`: `id`, `workspace_id`, `run_id`, `batch_id`, `sequence`, `name`, `source`, `source_ref?`, `input_json`, `output_json`, `status`, `requires_approval`, `decision?`, timestamps.
+- Optional skill/MCP cache tables may store metadata, health, and discovery results for efficiency; `~/.patchpilot/config.json` plus filesystem skill discovery remain source of truth.
+- `commands`: `id`, `workspace_id`, `run_id?`, `command`, `cwd`, `status`, `exit_code?`, `started_at?`, `finished_at?`, `created_at`.
+- `command_output`: `id`, `command_id`, `stream(stdout|stderr)`, `chunk`, `created_at`.
+- `ports`: `id`, `workspace_id`, `process_id?`, `port`, `status(detected|exposed|closed)`, `exposed_path?`, timestamps.
 - `git_snapshots`: `id`, `workspace_id`, `commit_sha?`, `status_json`, `created_at`.
 
 Statuses:
@@ -481,52 +365,34 @@ command: running -> failed
 
 ## Frontend Structure
 
-Feature screens keep route entry files thin. Vibe feature code is grouped under
-`web/src/features/vibe` with `hooks` for orchestration, `layout` for shell
-regions, `components` for Vibe-only UI, and `lib` for local pure helpers.
+Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestration, `layout` for shell regions, `components` for Vibe-only UI, and `lib` for pure helpers. Vibe owns context, instructions, skills, MCP, approvals, and run details. Workspace Mode stays a compact support console for files, Git, commands, and preview.
 
 ## Acceptance
 
 - Open local Git repo workspace.
 - Create, list, open, rename, and continue conversations per workspace.
 - Send chat messages that start agent runs.
-- Agent starts non-trivial work with a short plan.
-- Agent reads/searches approved files before code changes.
-- Agent returns assistant messages and tool calls, not direct file mutations.
-- User approves/rejects approval-required tools.
-- Server executes only approved mutating tools.
-- Agent produces small reviewable patches and reports changed files.
-- Agent runs or recommends narrow verification after edits.
-- User sees streamed command output plus exit status.
-- User views Git status/diff.
-- User commits explicit non-empty selected paths.
-- User previews app through same-host proxy.
-- Mobile/iPad user completes a chat-driven AI coding loop from Vibe Mode.
-- Auth/session expiry: expired, missing, or invalid session cookies return
-  `401 unauthorized` and valid logout clears the session cookie. Verification:
-  backend auth/API handler tests.
-- Indexing failure: workspace create/get/index refresh return the standard error
-  envelope without exposing host paths outside the workspace root, and no stale
-  successful index response is sent for the failed refresh. Verification:
-  backend API handler tests with a failing file index/read path.
-- SSE replay: run event streams replay durable run events after
-  `Last-Event-ID`, exclude transient `agent.delta`, and emit an in-memory
-  `agent.output.snapshot` only for active local runs. Verification: backend SSE
-  handler tests.
-- Command truncation: command output persistence keeps only the latest 1 MiB per
-  command and process detail replays only retained output. Verification:
-  database command-output tests and API process detail tests.
-- Closed ports: unreachable exposed or detected ports are marked `closed`, emit
-  `port.closed`, and expose/proxy requests return `502 port_unreachable`.
-  Verification: backend port/API handler tests.
-- Patch apply conflict: failed patch application marks the tool call failed,
-  leaves source files unchanged, records an actionable tool error, and keeps the
-  run recoverable without executing later approval-required tools in that batch.
-  Verification: backend agent/tool approval tests.
-- Invalid paths: file, Git, command, and agent tool paths reject absolute paths,
-  traversal, and symlink escapes with standard error envelopes and without host
-  path leakage. Verification: filestore, gitrepo, runner, agent, and API tests.
-- Secret protection: agent file reads reject `.env`, `.env.*`, `*.pem`,
-  `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, and `.netrc`; manual
-  file writes reject the same secret-like paths. Verification: agent tool,
-  filestore, and API tests.
+- Workspace refresh reads applicable `AGENTS.md` files and shows effective sources, precedence, and warnings in Vibe.
+- Agent-context refresh reloads `~/.patchpilot/config.json`, scans `~/.patchpilot/skills` and `~/.agent/skills`, and shows safe warnings for invalid config.
+- Users can enable/disable discovered local skills through config without remote installs; missing `config.skills` entries default enabled.
+- Duplicate skill keys select only the `~/.patchpilot/skills` copy for effective list/context.
+- Enabled skills influence future runs through bounded context; disabled/invalid skills are not injected.
+- Users can inspect stdio/HTTP MCP servers from `config.mcpServers`.
+- MCP discovery shows server, transport, tool/resource metadata, health, disabled state, last error, read-only hints, and effective approval policy.
+- Agent starts non-trivial work with a short plan, reads/searches approved files before changes, returns messages/tool calls rather than direct mutations, produces small reviewable patches, reports changed files, and runs/recommends narrow verification.
+- Users approve/reject approval-required tools; server executes only approved mutating tools.
+- MCP tools execute only through the backend bridge and share durable tool-call/event/approval flow with built-ins.
+- Users see streamed command output and exit status, view Git status/diff, commit explicit non-empty selected paths, and preview through same-host proxy.
+- Mobile/iPad users complete a Vibe Mode chat-driven AI coding loop and inspect the agent cockpit through tabs/sheets without losing primary flow.
+- Auth/session expiry: expired/missing/invalid cookies return `401 unauthorized`; valid logout clears cookie. Verification: backend auth/API handler tests.
+- Indexing failure: workspace create/get/index refresh return standard error envelope without host-path leakage and do not send stale successful index responses. Verification: backend API handler tests.
+- SSE replay: run streams replay durable events after `Last-Event-ID`, exclude transient `agent.delta`, and emit in-memory `agent.output.snapshot` only for active local runs. Verification: backend SSE handler tests.
+- Command truncation: persistence keeps only latest 1 MiB per command; process detail replays retained output only. Verification: DB command-output and API process-detail tests.
+- Closed ports: unreachable exposed/detected ports become `closed`, emit `port.closed`, and expose/proxy returns `502 port_unreachable`. Verification: backend port/API handler tests.
+- Patch conflict: failed apply marks tool call failed, leaves files unchanged, records actionable error, and keeps run recoverable without executing later approval-required tools in that batch. Verification: backend agent/tool approval tests.
+- Invalid paths: file, Git, command, and agent tool paths reject absolute paths, traversal, and symlink escapes with standard errors and no host-path leakage. Verification: filestore, gitrepo, runner, agent, API tests.
+- Secret protection: agent reads and manual writes reject `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`. Verification: agent tool, filestore, API tests.
+- Instruction context safety: `AGENTS.md` discovery rejects escapes, external symlinks, secret-like paths, binaries, oversized files, and shows safe warnings. Verification: agent context and API handler tests.
+- Skill manager safety: parser validates `SKILL.md`, preserves invalid-skill warnings, respects config enablement, applies `~/.patchpilot/skills` duplicate precedence, and injects bounded selected context only. Verification: skill repository/parser and agent context tests.
+- MCP safety: stdio/HTTP fake servers can be added, refreshed, listed, and called from config; disabled servers do not start; unresolved env placeholders produce safe warnings; unknown/mutating tools require approval; read-only auto-run requires both metadata and PatchPilot policy. Verification: MCP client, approval-policy, API handler, agent manager tests.
+- Agent cockpit UI: context, skills, MCP, approvals, and run details are visible on desktop/mobile; long paths/tool names/server names/JSON summaries wrap or truncate without layout shifts. Verification: frontend component tests and Playwright smoke.
