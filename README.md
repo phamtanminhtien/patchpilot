@@ -124,6 +124,14 @@ The repository includes a Dockerfile and Compose service that build the frontend
 docker compose up --build
 ```
 
+If `docker compose pull` reports that no `linux/arm64` manifest exists, build
+the service locally instead:
+
+```sh
+docker compose build patchpilot
+docker compose up patchpilot
+```
+
 The container listens on:
 
 ```txt
@@ -150,7 +158,7 @@ Use a version tag such as `0.2.0` instead of `latest` for reproducible runs.
 
 PatchPilot uses Release Please to create release pull requests from Conventional
 Commits. Merging a Release Please PR creates the GitHub Release and tag, then
-publishes Docker image tags to GHCR:
+publishes multi-architecture Docker image tags to GHCR:
 
 ```txt
 ghcr.io/phamtanminhtien/patchpilot:patchpilot-v<version>
