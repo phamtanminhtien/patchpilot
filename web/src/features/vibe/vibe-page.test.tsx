@@ -141,6 +141,15 @@ const conversation = {
   workspaceId: "ws_1",
 };
 
+const searchConversation = {
+  ...conversation,
+  createdAt: "2026-05-20T00:00:01Z",
+  id: "conv_2",
+  lastMessageAt: "2026-05-20T00:00:01Z",
+  title: "Search conversation modal",
+  updatedAt: "2026-05-20T00:00:01Z",
+};
+
 const message = {
   content: "Fix the failing test",
   conversationId: "conv_1",
@@ -307,6 +316,119 @@ describe("VibePage", () => {
     expect(taskList).toHaveClass("min-h-0", "min-w-0", "overflow-auto");
     expect(taskList.parentElement).toHaveClass("grid", "overflow-hidden");
     expect(timeline).toHaveClass("overflow-auto");
+  });
+
+  it("opens conversation search from the sidebar and searches by title", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listConversations).mockImplementation((_workspaceId, params) =>
+      Promise.resolve({
+        conversations: params?.q ? [searchConversation] : [conversation],
+      }),
+    );
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    await user.click(await screen.findByRole("button", { name: "Search" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Search conversations" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Search by conversation title."),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search conversations"), {
+      target: { value: "search" },
+    });
+
+    expect(
+      await screen.findByText(searchConversation.title),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(listConversations).toHaveBeenCalledWith("ws_1", {
+        limit: 50,
+        q: "search",
+      });
+    });
+  });
+
+  it("selects a searched conversation and closes the search dialog", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listConversations).mockImplementation((_workspaceId, params) =>
+      Promise.resolve({
+        conversations: params?.q ? [searchConversation] : [conversation],
+      }),
+    );
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation: searchConversation,
+      events: [],
+      messages: [{ ...message, conversationId: searchConversation.id }],
+      runs: [],
+      toolCalls: [],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    await user.click(await screen.findByRole("button", { name: "Search" }));
+    fireEvent.change(screen.getByPlaceholderText("Search conversations"), {
+      target: { value: "search" },
+    });
+    await user.click(await screen.findByText(searchConversation.title));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Search conversations" }),
+      ).not.toBeInTheDocument();
+      expect(getConversation).toHaveBeenCalledWith("ws_1", "conv_2");
+    });
+  });
+
+  it("opens conversation search from the mobile header trigger", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Search conversations" }),
+    );
+
+    expect(
+      await screen.findByRole("dialog", { name: "Search conversations" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows loading, empty, and error states while searching conversations", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listConversations).mockImplementation((_workspaceId, params) => {
+      if (params?.q === "loading") {
+        return new Promise(() => {});
+      }
+      if (params?.q === "error") {
+        return Promise.reject(new Error("Search failed"));
+      }
+      return Promise.resolve({ conversations: [] });
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    await user.click(await screen.findByRole("button", { name: "Search" }));
+    fireEvent.change(screen.getByPlaceholderText("Search conversations"), {
+      target: { value: "missing" },
+    });
+    expect(
+      await screen.findByText("No matching conversations."),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search conversations"), {
+      target: { value: "loading" },
+    });
+    expect(
+      await screen.findByText("Searching conversations"),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search conversations"), {
+      target: { value: "error" },
+    });
+    expect(await screen.findByText("Search failed")).toBeInTheDocument();
   });
 
   it("auto-scrolls to the latest activity when the timeline is near the bottom", async () => {

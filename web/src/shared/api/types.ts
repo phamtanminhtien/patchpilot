@@ -13,6 +13,10 @@ export interface PaginationParams {
   limit?: number;
 }
 
+export interface ConversationListParams extends PaginationParams {
+  q?: string;
+}
+
 export interface HealthResponse {
   status: "ok";
 }

@@ -1,8 +1,11 @@
+import { useState } from "react";
+
 import { useThemePreference } from "@/app/theme";
 import { StarterScreen, ThemeSwitcher } from "@/shared/ui";
 
 import { AgentRunThread } from "./components/agent-run-thread";
 import { Composer } from "./components/composer";
+import { ConversationSearchDialog } from "./components/conversation-search-dialog";
 import { useSmartAutoScroll } from "./hooks/use-smart-auto-scroll";
 import { useVibeController } from "./hooks/use-vibe-controller";
 import { VibeConversationSidebar } from "./layout/vibe-conversation-sidebar";
@@ -10,6 +13,8 @@ import { VibeWorkspaceLayout } from "./layout/vibe-workspace-layout";
 
 export function VibePage() {
   const controller = useVibeController();
+  const [isConversationSearchOpen, setIsConversationSearchOpen] =
+    useState(false);
   const { preference, setPreference } = useThemePreference();
   const scroll = useSmartAutoScroll({
     contentKey: [
@@ -61,6 +66,7 @@ export function VibePage() {
         )
       }
       onJumpToLatest={() => scroll.scrollToLatest()}
+      onSearchConversations={() => setIsConversationSearchOpen(true)}
       onScroll={scroll.handleScroll}
       scrollContainerRef={scroll.scrollContainerRef}
       sidebar={
@@ -69,6 +75,7 @@ export function VibePage() {
           conversations={controller.conversation.conversations}
           isLoading={controller.conversation.isListLoading}
           onNewConversation={controller.conversation.onNewConversation}
+          onSearchConversations={() => setIsConversationSearchOpen(true)}
           onSelectConversation={controller.conversation.onSelectConversation}
           workspaceId={controller.workspace.id}
         />
@@ -90,6 +97,13 @@ export function VibePage() {
           </div>
         </div>
       )}
+      <ConversationSearchDialog
+        activeConversationId={controller.conversation.activeConversationId}
+        onOpenChange={setIsConversationSearchOpen}
+        onSelectConversation={controller.conversation.onSelectConversation}
+        open={isConversationSearchOpen}
+        workspaceId={controller.workspace.id}
+      />
     </VibeWorkspaceLayout>
   );
 }

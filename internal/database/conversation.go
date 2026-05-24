@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -74,10 +75,14 @@ func (s *Store) GetConversation(ctx context.Context, workspaceID, conversationID
 	return conversation, nil
 }
 
-func (s *Store) ListConversations(ctx context.Context, workspaceID string) ([]ConversationRecord, error) {
+func (s *Store) ListConversations(ctx context.Context, workspaceID, query string) ([]ConversationRecord, error) {
 	var conversations []ConversationRecord
-	if err := s.db.WithContext(ctx).
-		Where("workspace_id = ?", workspaceID).
+	db := s.db.WithContext(ctx).
+		Where("workspace_id = ?", workspaceID)
+	if trimmed := strings.TrimSpace(query); trimmed != "" {
+		db = db.Where("LOWER(title) LIKE ?", "%"+strings.ToLower(trimmed)+"%")
+	}
+	if err := db.
 		Order("last_message_at DESC, updated_at DESC, id DESC").
 		Find(&conversations).Error; err != nil {
 		return nil, err
