@@ -32,7 +32,7 @@ export function VibePage() {
       controller.thread.runs
         .map((item) => `${item.id}:${item.status}:${item.updatedAt}`)
         .join("|"),
-      controller.thread.events.map((item) => item.id).join("|"),
+      controller.thread.events.map(eventContentKey).join("|"),
     ].join("::"),
     resetKey: controller.conversation.activeConversationId,
   });
@@ -106,4 +106,23 @@ export function VibePage() {
       />
     </VibeWorkspaceLayout>
   );
+}
+
+function eventContentKey(event: {
+  id: string;
+  payload: unknown;
+  runId?: string | null;
+  type: string;
+}) {
+  const payload = event.payload as Record<string, unknown>;
+  const text = typeof payload.text === "string" ? payload.text : "";
+  return `${event.id}:${event.type}:${event.runId ?? ""}:${hashText(text)}`;
+}
+
+function hashText(text: string) {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return `${text.length}:${hash.toString(36)}`;
 }
