@@ -28,4 +28,11 @@ ghcr.io/phamtanminhtien/patchpilot:<version>
 ghcr.io/phamtanminhtien/patchpilot:latest
 ```
 
+- Confirm each GHCR image tag includes both supported Linux platforms:
+
+```txt
+linux/amd64
+linux/arm64
+```
+
 - Prefer a version tag instead of `latest` for reproducible Docker runs.
