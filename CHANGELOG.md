@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.2.0](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.1.0...patchpilot-v0.2.0) (2026-05-24)
+
+
+### Features
+
+* add CodeQL and OpenSSF Scorecard workflows for security analysis ([81c75cd](https://github.com/phamtanminhtien/patchpilot/commit/81c75cd67066bb0eb4d7055873abe48411b22f18))
+* add conversationId to URL state and include E2E tests in the build pipeline ([4f2be12](https://github.com/phamtanminhtien/patchpilot/commit/4f2be12ebfbeec6ff7db27b46878c5d84b5d1c51))
+* add file search functionality to the workspace sidebar ([5c53039](https://github.com/phamtanminhtien/patchpilot/commit/5c530393ba112518306968304192f8fb3a85fc30))
+* add Markdown rendering with GitHub-flavored Markdown support, syntax highlighting, and copyable code blocks to Vibe chat messages ([0c3b7ee](https://github.com/phamtanminhtien/patchpilot/commit/0c3b7eea2a5c117de85fd6558c5347e16c4f1339))
+* align conversation run model ([0d59280](https://github.com/phamtanminhtien/patchpilot/commit/0d5928091c10f7bc1aa14e00fd0b06257dc0c2cb))
+* **api:** add cursor pagination ([db4fd61](https://github.com/phamtanminhtien/patchpilot/commit/db4fd61f867742d96a9ad3c82047768150552552))
+* implement auto-scroll timeline with jump-to-latest control and set default Vibe page state to new conversation ([7b2bcb7](https://github.com/phamtanminhtien/patchpilot/commit/7b2bcb785eb51417164288c40206036c6e92e64d))
+* implement comprehensive database schema and repository layer for managing workspaces, commands, auth, and file indexing ([8adaf29](https://github.com/phamtanminhtien/patchpilot/commit/8adaf29b4189214c75a93a9ba787ec4c8a4bfd31))
+* implement confirmation dialog for discarding git changes and add supporting UI components ([5bf2560](https://github.com/phamtanminhtien/patchpilot/commit/5bf25600b23cc56b9dcaab2fb85afe9554e0b527))
+* implement conversation context summarization with sliding window message management and database tracking ([3b3ee9d](https://github.com/phamtanminhtien/patchpilot/commit/3b3ee9dc36322ff177800be0b6c647f20513f270))
+* implement conversation search functionality with new UI dialog and backend filtering ([a0f26b0](https://github.com/phamtanminhtien/patchpilot/commit/a0f26b03a592d4b67ce5c84a5934cbda70185809))
+* implement graceful shutdown for agent runs and active commands during server termination ([3a99682](https://github.com/phamtanminhtien/patchpilot/commit/3a99682e4258b5f149c5ac868881c2f50dfeab21))
+* implement streaming support for OpenAI responses, add active run tracking, and enable run cancellation ([c294cef](https://github.com/phamtanminhtien/patchpilot/commit/c294cef4aa8b9d1056a62abafd03aff142315a64))
+* replace custom select control with reusable Radix UI-based Select component ([68e4b8e](https://github.com/phamtanminhtien/patchpilot/commit/68e4b8e8ffadfde5900aafcfe41d75b872e6d742))
+
+
+### Bug Fixes
+
+* **commands:** lock user command safety policy ([e8ef080](https://github.com/phamtanminhtien/patchpilot/commit/e8ef0800ba623a940b99f9d9baf4c554fa36c5a0))
+* **files:** implement manual text writes ([e42b8c6](https://github.com/phamtanminhtien/patchpilot/commit/e42b8c671d6cada1347f775e099b2692c182254d))
+
 ## 0.1.0 (2026-05-22)
 
 
