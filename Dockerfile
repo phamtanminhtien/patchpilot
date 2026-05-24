@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /out/patchpilot ./cmd/patchpilot
 
-FROM alpine:3.22
+FROM alpine:3.23
 
 RUN apk add --no-cache ca-certificates git
 WORKDIR /app
