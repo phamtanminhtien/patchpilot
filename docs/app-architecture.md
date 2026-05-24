@@ -1,6 +1,6 @@
 # PatchPilot Architecture
 
-This document summarizes the current architecture. `docs/project-rules.md` and `docs/product-spec.md` remain the source of truth for locked rules, scope, APIs, and data contracts.
+Current architecture summary. `docs/project-rules.md` and `docs/product-spec.md` remain authoritative for locked rules, scope, APIs, and data contracts.
 
 ## Overview
 
@@ -21,7 +21,7 @@ flowchart TB
   DB --> AppData
 ```
 
-PatchPilot is a single-user, self-hosted app. The browser UI talks to the Go backend through REST and SSE. SQLite stores PatchPilot metadata. Workspace files stay in their original Git repository.
+PatchPilot is a single-user, self-hosted app. Browser UI talks to the Go backend through REST and SSE. SQLite stores PatchPilot metadata. Workspace files remain in their Git repo.
 
 ## Backend
 
@@ -31,6 +31,8 @@ flowchart TB
   Auth["Auth/session"]
   Workspace["Workspace"]
   Agent["Agent runs"]
+  Skills["Skills"]
+  MCP["MCP bridge"]
   Patch["Patch review/apply"]
   Runner["Command runner"]
   Git["Git adapter"]
@@ -43,6 +45,8 @@ flowchart TB
   API --> Auth
   API --> Workspace
   API --> Agent
+  API --> Skills
+  API --> MCP
   API --> Patch
   API --> Runner
   API --> Git
@@ -53,6 +57,8 @@ flowchart TB
   Auth --> DB
   Workspace --> DB
   Agent --> DB
+  Skills --> DB
+  MCP --> DB
   Patch --> DB
   Runner --> DB
   Events --> DB
@@ -61,30 +67,31 @@ flowchart TB
   Agent --> Files
   Agent --> Git
   Agent --> Runner
+  Agent --> Skills
+  Agent --> MCP
   Patch --> Repo
   Runner --> Repo
   Git --> Repo
   Files --> Repo
   Ports --> Runner
+  MCP --> Repo
 ```
 
-Backend modules:
+Modules:
 
-- `cmd/patchpilot`: application entrypoint.
-- `internal/api`: HTTP routes, handlers, SSE, and preview proxy.
-- `internal/config`: runtime configuration.
+- `cmd/patchpilot`: entrypoint.
+- `internal/api`: routes, handlers, SSE, preview proxy.
+- `internal/config`: runtime config.
 - `internal/database`: SQLite connection and manual migrations.
 - `internal/workspace`: allowed workspace validation and metadata.
 - `internal/filestore`: safe workspace file access.
-- `internal/gitrepo`: Git status, diff, and commit operations.
+- `internal/gitrepo`: Git status, diff, commit operations.
 - `internal/runner`: workspace-root command execution.
-- `internal/events`: SSE fan-out for realtime command lifecycle and output.
+- `internal/skills`: local skill registry, `SKILL.md` indexing, bounded skill context.
+- `internal/mcp`: MCP stdio/HTTP registry, discovery cache, health checks, backend-only tool bridge.
+- `internal/events`: SSE fan-out for command lifecycle/output.
 
-The command runner creates durable command records before process start, runs
-commands without a shell from the workspace root, appends stdout/stderr chunks
-to SQLite, and publishes `process.started`, `command.output`, and
-`process.exited` events. SSE clients receive live events plus durable command
-replay for the latest output.
+Command runner flow: create durable record before process start, run without shell at workspace root, append stdout/stderr chunks to SQLite, publish `process.started`, `command.output`, `process.exited`, and replay latest retained output to SSE clients.
 
 ## Frontend
 
@@ -95,7 +102,7 @@ flowchart TB
   Query["TanStack Query"]
   API["Shared API client"]
   Launcher["Launcher"]
-  Vibe["Vibe Mode"]
+  Vibe["Vibe Mode<br/>Agent cockpit"]
   Workspace["Workspace Mode"]
   UI["Shared UI"]
   BE["Go backend"]
@@ -112,14 +119,14 @@ flowchart TB
   API --> BE
 ```
 
-Frontend modules:
+Modules:
 
-- `web/src/app`: shell, routes, theme, default route behavior.
-- `web/src/features/vibe`: conversation chat, agent run activity, and tool approval.
-- `web/src/features/workspace`: files, Git, commands, and preview tools.
-- `web/src/shared/api`: typed API functions over the shared Axios client.
+- `web/src/app`: shell, routes, theme, default routing.
+- `web/src/features/vibe`: conversation chat, agent cockpit, run activity, tool approval.
+- `web/src/features/workspace`: files, Git, commands, preview tools.
+- `web/src/shared/api`: typed API functions over shared Axios client.
 - `web/src/shared/ui`: reusable UI primitives.
-- `web/src/shared/styles`: global Tailwind theme and CSS.
+- `web/src/shared/styles`: global Tailwind theme/CSS.
 
 ## Storage
 
@@ -137,11 +144,34 @@ flowchart LR
   Repo --> Git
 ```
 
-SQLite stores conversations, messages, agent runs, events, tool calls, commands,
-command output, ports, and Git snapshots. Conversation records also persist a
-conversation-level active-run flag so the Vibe sidebar can show in-flight work
-without listing runs for every conversation. Source files remain on disk in the
-workspace repo.
+SQLite stores conversations, messages, agent runs/events/tool calls, command records/output, ports, Git snapshots, and optional skill/MCP cache/status data. `AGENTS.md` is read directly from workspace filesystem on context refresh/run creation. `~/.patchpilot/config.json` plus filesystem skill discovery remain source of truth for Skills/MCP lists. Conversations persist `hasRunningRun` so Vibe can show in-flight state without listing every run. Source files stay in the workspace repo.
+
+## Agent Context
+
+```mermaid
+flowchart TB
+  System["PatchPilot system instructions"]
+  Config["~/.patchpilot/config.json"]
+  RepoInstructions["Repo AGENTS.md sources"]
+  Skills["Enabled local skills"]
+  MCP["MCP server/tool registry"]
+  Summary["Conversation summary"]
+  Recent["Recent messages"]
+  History["Active-run tool history"]
+  Provider["Provider request"]
+
+  System --> Provider
+  Config --> Skills
+  Config --> MCP
+  RepoInstructions --> Provider
+  Skills --> Provider
+  MCP --> Provider
+  Summary --> Provider
+  Recent --> Provider
+  History --> Provider
+```
+
+Agent context is assembled server-side. PatchPilot loads `~/.patchpilot/config.json`, reads applicable `AGENTS.md`, discovers skills from `~/.patchpilot/skills` then `~/.agent/skills`, and discovers enabled MCP servers from config before a run. Duplicate skill keys select only the `~/.patchpilot/skills` copy. Provider priority: system instructions, repo instructions, selected skills, MCP registry, current prompt, tool schemas, active-run history, conversation summary, recent messages. Instruction/skill/MCP context passes workspace-root, symlink, secret, size, and host-path redaction checks before provider use.
 
 ## Agent Tool Flow
 
@@ -151,28 +181,29 @@ sequenceDiagram
   participant FE as Frontend
   participant BE as Backend
   participant Agent as Agent run
+  participant Context as Context registry
+  participant MCP as MCP bridge
   participant Repo as Workspace repo
   participant DB as SQLite
 
   User->>FE: Send chat message
-  FE->>BE: Create message and agent run
-  BE->>DB: Store conversation message and run
+  FE->>BE: Create message and run
+  BE->>DB: Store message and run
   BE->>Agent: Run agent loop
-  Agent->>DB: Load conversation summary and recent messages
+  Agent->>Context: Load instructions, skills, MCP registry
+  Agent->>DB: Load summary and recent messages
   Agent->>Agent: Build bounded provider context
   Agent->>DB: Store older-message summary when needed
   Agent->>Repo: Read/search approved files
+  Agent->>MCP: Execute approved MCP tools when requested
   Agent->>DB: Store events and tool calls
   BE-->>FE: Stream progress via SSE
-  FE-->>User: Show tool output or approval request
-  User->>FE: Approve or reject approval-required tools
-  FE->>BE: Record tool decision
+  FE-->>User: Show output or approval request
+  User->>FE: Approve/reject approval-required tools
+  FE->>BE: Record decision
   BE->>Repo: Execute approved mutating tools
   BE->>DB: Update status
   FE-->>User: Show Git status
 ```
 
-Agents inspect approved context and request tools. Conversation history is
-bounded before provider calls: persisted summaries cover older messages, recent
-messages stay verbatim, and PatchPilot agent instructions are kept separate from
-conversation content. File mutations happen only through approved tool execution.
+Agents inspect approved context and request built-in/MCP tools. Conversation history is bounded before provider calls: summaries cover older messages, recent messages stay verbatim, and system/repo instructions, selected skills, and MCP metadata remain separate from conversation content. File mutations and unknown/mutating MCP calls happen only through approved tool execution.

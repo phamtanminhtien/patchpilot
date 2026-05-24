@@ -144,7 +144,7 @@ docker run --rm \
   ghcr.io/phamtanminhtien/patchpilot:latest
 ```
 
-Use a version tag such as `v0.1.0` instead of `latest` for reproducible runs.
+Use a version tag such as `0.2.0` instead of `latest` for reproducible runs.
 
 ## Releases 🚢
 
@@ -153,12 +153,12 @@ Commits. Merging a Release Please PR creates the GitHub Release and tag, then
 publishes Docker image tags to GHCR:
 
 ```txt
-ghcr.io/phamtanminhtien/patchpilot:v<version>
+ghcr.io/phamtanminhtien/patchpilot:patchpilot-v<version>
 ghcr.io/phamtanminhtien/patchpilot:<version>
 ghcr.io/phamtanminhtien/patchpilot:latest
 ```
 
-See `docs/release.md` for the release checklist.
+See [docs/release.md](docs/release.md) for the release checklist.
 
 ## Common Commands ⌨️
 
@@ -204,6 +204,7 @@ Commands run from the workspace root without a shell. Shell control operators, w
 - `docs/product-spec.md`: v0.2 scope, flows, API, and data contracts.
 - `docs/app-architecture.md`: architecture overview.
 - `docs/design-language.md`: frontend design system and UI rules.
+- `docs/release.md`: release checklist and post-release verification.
 
 ## License
 
