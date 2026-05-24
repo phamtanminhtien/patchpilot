@@ -12,13 +12,16 @@ pre-commit:
 	go test ./...
 	pnpm --dir $(WEB_DIR) lint-staged
 
-test: test-go test-web
+test: test-go test-web test-web-e2e
 
 test-go:
 	go test ./...
 
 test-web:
 	pnpm --dir $(WEB_DIR) test
+
+test-web-e2e:
+	pnpm --dir $(WEB_DIR) test:e2e
 
 format: format-go format-web
 

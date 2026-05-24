@@ -90,7 +90,11 @@ vi.mock("nuqs", async () => {
       return [
         value,
         (nextValue: string) => {
-          queryState.set(key, nextValue);
+          if (nextValue.length > 0) {
+            queryState.set(key, nextValue);
+          } else {
+            queryState.delete(key);
+          }
           setValue(nextValue);
           return Promise.resolve(new URLSearchParams([...queryState]));
         },
@@ -260,6 +264,36 @@ describe("VibePage", () => {
       within(timeline).queryByText("Fix the failing test"),
     ).not.toBeInTheDocument();
     expect(getConversation).not.toHaveBeenCalled();
+  });
+
+  it("opens the conversation from URL state", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    renderVibe("/vibe?workspaceId=ws_1&conversationId=conv_1");
+
+    const timeline = await screen.findByRole("region", {
+      name: "Conversation timeline",
+    });
+    expect(
+      await within(timeline).findByText("Fix the failing test"),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getConversation).toHaveBeenCalledWith("ws_1", "conv_1");
+    });
+  });
+
+  it("stores selected conversations in URL state", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    await openExistingConversation();
+
+    await waitFor(() => {
+      expect(queryState.get("conversationId")).toBe("conv_1");
+    });
   });
 
   it("shows relative time for idle conversations in the sidebar", async () => {
@@ -1166,9 +1200,10 @@ const toolCall = {
 function renderVibe(initialEntry: string) {
   queryState.clear();
   const url = new URL(initialEntry, "http://localhost");
-  const workspaceId = url.searchParams.get("workspaceId");
-  if (workspaceId !== null) {
-    queryState.set("workspaceId", workspaceId);
+  for (const [key, value] of url.searchParams) {
+    if (value.length > 0) {
+      queryState.set(key, value);
+    }
   }
 
   const queryClient = new QueryClient({

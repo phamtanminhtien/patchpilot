@@ -28,7 +28,7 @@ import {
   type WorkspaceEvent,
 } from "@/shared/api";
 import { useRunEvents, useWorkspaceEvents } from "@/shared/events";
-import { workspaceIdParser } from "@/shared/url";
+import { conversationIdParser, workspaceIdParser } from "@/shared/url";
 
 import {
   updateConversationRunState,
@@ -52,8 +52,10 @@ export function useVibeController() {
     conversationId: string;
     textByRunId: Record<string, string>;
   }>({ conversationId: "", textByRunId: {} });
-  const [activeConversationId, setActiveConversationId] =
-    useState(newConversationId);
+  const [activeConversationId, setActiveConversationId] = useQueryState(
+    "conversationId",
+    conversationIdParser,
+  );
   const queryClient = useQueryClient();
 
   const workspaceQuery = useQuery({
@@ -72,6 +74,7 @@ export function useVibeController() {
     mutationFn: createWorkspace,
     onSuccess: (workspace) => {
       void setWorkspaceId(workspace.id);
+      void setActiveConversationId("");
     },
   });
 
@@ -81,7 +84,9 @@ export function useVibeController() {
     queryKey: ["conversations", workspaceId],
   });
 
-  const isNewConversation = activeConversationId === newConversationId;
+  const isNewConversation =
+    activeConversationId.length === 0 ||
+    activeConversationId === newConversationId;
   const currentConversationId = isNewConversation ? "" : activeConversationId;
 
   const conversationDetailQuery = useQuery({
@@ -112,7 +117,7 @@ export function useVibeController() {
     },
     onSuccess: ({ conversation, message, run }) => {
       setPrompt("");
-      setActiveConversationId(conversation.id);
+      void setActiveConversationId(conversation.id);
       const nextConversation = {
         ...conversation,
         hasRunningRun: isActiveRun(run),
@@ -337,8 +342,12 @@ export function useVibeController() {
       isLoading:
         conversationsQuery.isPending || conversationDetailQuery.isPending,
       isListLoading: conversationsQuery.isPending,
-      onNewConversation: () => setActiveConversationId(newConversationId),
-      onSelectConversation: setActiveConversationId,
+      onNewConversation: () => {
+        void setActiveConversationId("");
+      },
+      onSelectConversation: (conversationId: string) => {
+        void setActiveConversationId(conversationId);
+      },
       title:
         conversationDetailQuery.data?.conversation.title ??
         "PatchPilot conversation",
@@ -352,6 +361,7 @@ export function useVibeController() {
       onRootPathChange: setRootPath,
       onSelectWorkspace: (selectedWorkspaceId: string) => {
         void setWorkspaceId(selectedWorkspaceId);
+        void setActiveConversationId("");
       },
       onSubmit: () => createWorkspaceMutation.mutate(rootPath),
       recentError: workspacesQuery.error
