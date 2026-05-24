@@ -544,6 +544,7 @@ export function useWorkspaceController({
       onStagedChangesUnstage: handleUnstageChanges,
       rawStatus: gitQuery.data?.porcelain,
       stagedPathCount: stagedGitPaths.length,
+      stagedPathsForCommit: stagedGitPaths,
       stageError: stageMutation.error
         ? apiErrorMessage(stageMutation.error)
         : undefined,

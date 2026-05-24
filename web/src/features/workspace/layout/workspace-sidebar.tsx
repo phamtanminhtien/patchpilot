@@ -8,10 +8,22 @@ import {
   RotateCw,
 } from "lucide-react";
 import type { FormEvent } from "react";
+import { useState } from "react";
 
 import type { FileIndexEntry, FileSearchResult, Port } from "@/shared/api";
 import { FileIcon } from "@/shared/file-icons";
-import { Button, cn, StatusPill, TextField } from "@/shared/ui";
+import {
+  Button,
+  cn,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogRoot,
+  DialogTitle,
+  StatusPill,
+  TextField,
+} from "@/shared/ui";
 
 import { ErrorState } from "../components/error-state";
 import { LoadingState } from "../components/loading-state";
@@ -35,6 +47,7 @@ export function WorkspaceSidebar({
   gitCommitMessage,
   gitError,
   gitLastCommitHash,
+  gitStagedPathsForCommit,
   gitStageError,
   isDiscardingChanges,
   isGitCommitPending,
@@ -75,6 +88,7 @@ export function WorkspaceSidebar({
   gitCommitMessage: string;
   gitError?: string;
   gitLastCommitHash?: string;
+  gitStagedPathsForCommit: string[];
   gitStageError?: string;
   isDiscardingChanges: boolean;
   isGitCommitPending: boolean;
@@ -153,6 +167,7 @@ export function WorkspaceSidebar({
               lastCommitHash={gitLastCommitHash}
               onCommitMessageChange={onGitCommitMessageChange}
               onCommitSubmit={onGitCommitSubmit}
+              pathsForCommit={gitStagedPathsForCommit}
               stagedCount={stagedGitPathCount(gitChanges)}
               stageError={gitStageError}
             />
@@ -385,6 +400,7 @@ function GitCommitBox({
   lastCommitHash,
   onCommitMessageChange,
   onCommitSubmit,
+  pathsForCommit,
   stagedCount,
   stageError,
 }: {
@@ -394,37 +410,108 @@ function GitCommitBox({
   lastCommitHash?: string;
   onCommitMessageChange: (value: string) => void;
   onCommitSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  pathsForCommit: string[];
   stagedCount: number;
   stageError?: string;
 }) {
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const canCommit =
+    stagedCount > 0 && commitMessage.trim().length > 0 && !isCommitPending;
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canCommit) {
+      return;
+    }
+    setIsReviewOpen(true);
+  }
+
   return (
-    <form className="grid gap-2 px-2 pb-1" onSubmit={onCommitSubmit}>
-      <TextField
-        className="bg-hover"
-        id="commit-message"
-        label="Commit message"
-        labelHidden
-        name="commit-message"
-        onChange={(event) => onCommitMessageChange(event.target.value)}
-        placeholder="Message"
-        size="small"
-        value={commitMessage}
-      />
-      <Button
-        className="min-h-9"
-        disabled={
-          stagedCount === 0 ||
-          commitMessage.trim().length === 0 ||
-          isCommitPending
-        }
-        icon={
-          isCommitPending ? <Loader2 className="animate-spin" /> : <GitCommit />
-        }
-        size="small"
-        width="full"
-      >
-        Commit
-      </Button>
+    <form className="grid gap-2 px-2 pb-1" onSubmit={handleSubmit}>
+      <DialogRoot onOpenChange={setIsReviewOpen} open={isReviewOpen}>
+        <TextField
+          className="bg-hover"
+          id="commit-message"
+          label="Commit message"
+          labelHidden
+          name="commit-message"
+          onChange={(event) => onCommitMessageChange(event.target.value)}
+          placeholder="Message"
+          size="small"
+          value={commitMessage}
+        />
+        <Button
+          className="min-h-9"
+          disabled={!canCommit}
+          icon={
+            isCommitPending ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <GitCommit />
+            )
+          }
+          size="small"
+          width="full"
+        >
+          Review commit
+        </Button>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Review commit</DialogTitle>
+            <DialogDescription>
+              Commit {pathsForCommit.length} staged{" "}
+              {pathsForCommit.length === 1 ? "path" : "paths"} with this
+              message.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <div className="bg-hover grid gap-1 rounded-md p-2">
+              <p className="text-muted text-xs font-semibold">Message</p>
+              <p className="text-ink text-sm break-words">{commitMessage}</p>
+            </div>
+            <div className="bg-hover grid max-h-48 gap-1 overflow-auto rounded-md p-2">
+              <p className="text-muted text-xs font-semibold">Paths</p>
+              {pathsForCommit.map((path) => (
+                <span
+                  className="text-ink truncate font-mono text-xs"
+                  key={path}
+                  title={path}
+                >
+                  {path}
+                </span>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setIsReviewOpen(false)}
+              size="small"
+              type="button"
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isCommitPending}
+              icon={
+                isCommitPending ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <GitCommit />
+                )
+              }
+              onClick={(event) => {
+                onCommitSubmit(event as unknown as FormEvent<HTMLFormElement>);
+                setIsReviewOpen(false);
+              }}
+              size="small"
+              type="button"
+            >
+              Commit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </DialogRoot>
       {stageError ? <ErrorState message={stageError} /> : null}
       {commitError ? <ErrorState message={commitError} /> : null}
       {lastCommitHash ? (

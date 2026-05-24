@@ -498,19 +498,17 @@ describe("WorkspacePage", () => {
     ).toBeInTheDocument();
   });
 
-  it("stages unstaged Git paths without checkboxes", async () => {
+  it("stages unstaged Git paths from the section action popover", async () => {
     const user = userEvent.setup();
     renderWorkspace("/workspace?workspaceId=ws_1&panel=git");
 
-    const stageButton = await screen.findByRole("button", {
-      name: "Stage all changes",
-    });
-    expect(stageButton).toBeEnabled();
     expect(await screen.findByText("Staged Changes")).toBeInTheDocument();
     expect(screen.getByText("Changes")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
 
-    await user.click(stageButton);
+    await user.click(screen.getByRole("button", { name: "Changes actions" }));
+    await user.click(screen.getByRole("button", { name: "Stage all changes" }));
 
     await waitFor(() => {
       expect(stageGitFiles).toHaveBeenCalledWith("ws_1", {
@@ -546,6 +544,10 @@ describe("WorkspacePage", () => {
         name: "Discard change changed.txt",
       }),
     );
+    expect(
+      await screen.findByRole("alertdialog", { name: "Discard changes?" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Discard" }));
     await waitFor(() => {
       expect(discardGitChanges).toHaveBeenCalledWith("ws_1", {
         paths: ["changed.txt"],
@@ -580,9 +582,10 @@ describe("WorkspacePage", () => {
     ).not.toBeInTheDocument();
 
     await user.click(
-      await screen.findByRole("button", {
-        name: "Unstage all staged changes",
-      }),
+      await screen.findByRole("button", { name: "Staged changes actions" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Unstage all staged changes" }),
     );
     await waitFor(() => {
       expect(unstageGitFiles).toHaveBeenCalledWith("ws_1", {
@@ -590,18 +593,22 @@ describe("WorkspacePage", () => {
       });
     });
 
+    await user.click(screen.getByRole("button", { name: "Changes actions" }));
     await user.click(
-      await screen.findByRole("button", { name: "Discard all changes" }),
+      screen.getByRole("button", { name: "Discard all changes" }),
     );
+    expect(
+      await screen.findByRole("alertdialog", { name: "Discard changes?" }),
+    ).toHaveTextContent("Discard 2 paths");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
     await waitFor(() => {
       expect(discardGitChanges).toHaveBeenCalledWith("ws_1", {
         paths: ["changed.txt", "scratch.md"],
       });
     });
 
-    await user.click(
-      await screen.findByRole("button", { name: "Stage all changes" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Changes actions" }));
+    await user.click(screen.getByRole("button", { name: "Stage all changes" }));
     await waitFor(() => {
       expect(stageGitFiles).toHaveBeenLastCalledWith("ws_1", {
         paths: ["changed.txt", "scratch.md"],
@@ -631,7 +638,7 @@ describe("WorkspacePage", () => {
     renderWorkspace("/workspace?workspaceId=ws_1&panel=git");
 
     const commitButton = await screen.findByRole("button", {
-      name: "Commit",
+      name: "Review commit",
     });
     expect(commitButton).toBeDisabled();
 
@@ -640,6 +647,10 @@ describe("WorkspacePage", () => {
       "keep workspace git flow",
     );
     await user.click(commitButton);
+    expect(
+      await screen.findByRole("dialog", { name: "Review commit" }),
+    ).toHaveTextContent("web/src/app.tsx");
+    await user.click(screen.getByRole("button", { name: "Commit" }));
 
     await waitFor(() => {
       expect(commitGitChanges).toHaveBeenCalledWith("ws_1", {

@@ -80,6 +80,7 @@ export function WorkspacePage() {
             gitCommitMessage={controller.git.commitMessage}
             gitError={controller.git.error}
             gitLastCommitHash={controller.git.lastCommitHash}
+            gitStagedPathsForCommit={controller.git.stagedPathsForCommit}
             gitStageError={controller.git.stageError}
             isDiscardingChanges={controller.git.isDiscardingChanges}
             isExposingPort={controller.preview.isExposing}
