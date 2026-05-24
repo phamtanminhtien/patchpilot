@@ -37,6 +37,9 @@ interface WorkspaceMainPanelsProps {
     file?: string;
     fileError?: string;
     isFileLoading: boolean;
+    isSaving: boolean;
+    onSave: (content: string) => void;
+    saveError?: string;
   };
   git: {
     changes: GitChange[];
@@ -73,6 +76,9 @@ export function WorkspaceMainPanels({
           file={files.file}
           fileError={files.fileError}
           isLoading={files.isFileLoading}
+          isSaving={files.isSaving}
+          onSave={files.onSave}
+          saveError={files.saveError}
           selectedPath={selectedPath}
         />
       </WorkspaceMainPanelFrame>

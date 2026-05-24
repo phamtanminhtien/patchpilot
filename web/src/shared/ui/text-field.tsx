@@ -45,6 +45,8 @@ interface TextFieldProps extends Omit<
   "size"
 > {
   label: string;
+  labelClassName?: string;
+  labelHidden?: boolean;
   size?: TextFieldVariantProps["size"];
   state?: TextFieldVariantProps["state"];
 }
@@ -53,6 +55,8 @@ export function TextField({
   className,
   id,
   label,
+  labelClassName,
+  labelHidden = false,
   size,
   state,
   ...props
@@ -61,8 +65,11 @@ export function TextField({
     id ?? props.name ?? label.toLowerCase().replaceAll(/\s+/g, "-");
 
   return (
-    <label className={labelVariant({ size })} htmlFor={inputId}>
-      {label}
+    <label
+      className={cn(labelVariant({ size }), labelClassName)}
+      htmlFor={inputId}
+    >
+      <span className={labelHidden ? "sr-only" : undefined}>{label}</span>
       <input
         className={cn(inputVariant({ size, state }), className)}
         id={inputId}

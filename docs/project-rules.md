@@ -147,7 +147,8 @@ SSE:
 - Deep-linkable workspace/mode/conversation/run/file/tool/port/tab selections live in URL state.
 - Shared query parsers live in `web/src/shared/url`; features do not define ad hoc parsers.
 - Do not duplicate server state into Zustand or keep command output in React state/Zustand beyond visible buffer.
-- Current Git scope: status, diff, commit only.
+- Current Git scope: status, diff, stage, unstage, discard, and commit. This
+  broader Git scope is explicitly approved for v0.2.
 - Commits require non-empty selected paths, do not push, do not auto-stage unrelated files, show untracked files, and use exact user message.
 - Push/pull/branch/merge/rebase are outside the active product direction.
 - Local Git hooks live in `.githooks`; `make setup` configures `core.hooksPath` and executable bits. Pre-commit calls `make pre-commit`, which runs Go formatting/tests and frontend `lint-staged` checks before allowing a commit.

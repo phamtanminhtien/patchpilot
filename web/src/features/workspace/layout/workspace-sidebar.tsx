@@ -9,10 +9,12 @@ import {
 } from "lucide-react";
 import type { FormEvent } from "react";
 
-import type { FileIndexEntry, Port } from "@/shared/api";
-import { Button, cn, StatusPill } from "@/shared/ui";
+import type { FileIndexEntry, FileSearchResult, Port } from "@/shared/api";
+import { FileIcon } from "@/shared/file-icons";
+import { Button, cn, StatusPill, TextField } from "@/shared/ui";
 
 import { ErrorState } from "../components/error-state";
+import { LoadingState } from "../components/loading-state";
 import { SidebarHint } from "../components/sidebar-hint";
 import { GitChangeList } from "../git/git-change-list";
 import {
@@ -38,6 +40,7 @@ export function WorkspaceSidebar({
   isGitCommitPending,
   isFilesLoading,
   isGitLoading,
+  isSearchingFiles,
   isRefreshingFiles,
   isStagingChanges,
   isUnstagingChanges,
@@ -46,11 +49,16 @@ export function WorkspaceSidebar({
   onGitCommitMessageChange,
   onGitCommitSubmit,
   onFileIndexRefresh,
+  onFileSearchQueryChange,
   onPortExpose,
   onPathSelect,
   onStagedChangesUnstage,
   ports,
   portsError,
+  fileSearchError,
+  fileSearchQuery,
+  fileSearchResults,
+  fileSearchTrimmedQuery,
   selectedPath,
   workspace,
   workspaceError,
@@ -72,6 +80,7 @@ export function WorkspaceSidebar({
   isGitCommitPending: boolean;
   isFilesLoading: boolean;
   isGitLoading: boolean;
+  isSearchingFiles: boolean;
   isExposingPort: boolean;
   isLoadingPorts: boolean;
   exposingPort?: number;
@@ -83,11 +92,16 @@ export function WorkspaceSidebar({
   onGitCommitMessageChange: (value: string) => void;
   onGitCommitSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onFileIndexRefresh: () => void;
+  onFileSearchQueryChange: (query: string) => void;
   onPortExpose: (port: number) => void;
   onPathSelect: (path: string) => void;
   onStagedChangesUnstage: (paths: string[]) => void;
   ports: Port[];
   portsError?: string;
+  fileSearchError?: string;
+  fileSearchQuery: string;
+  fileSearchResults: FileSearchResult[];
+  fileSearchTrimmedQuery: string;
   portExposeError?: string;
   selectedPath: string;
   workspace?: {
@@ -107,14 +121,27 @@ export function WorkspaceSidebar({
 
       <div className="min-h-0 overflow-auto">
         {activePanel === "files" ? (
-          <WorkspaceFileTree
-            entries={files}
-            error={filesError}
-            gitChanges={gitChanges}
-            isLoading={isFilesLoading}
-            onSelect={onPathSelect}
-            selectedPath={selectedPath}
-          />
+          <div className="grid gap-2 pb-2">
+            <WorkspaceFileSearch
+              error={fileSearchError}
+              isLoading={isSearchingFiles}
+              onQueryChange={onFileSearchQueryChange}
+              onSelect={onPathSelect}
+              query={fileSearchQuery}
+              results={fileSearchResults}
+              trimmedQuery={fileSearchTrimmedQuery}
+            />
+            {fileSearchTrimmedQuery.length > 0 ? null : (
+              <WorkspaceFileTree
+                entries={files}
+                error={filesError}
+                gitChanges={gitChanges}
+                isLoading={isFilesLoading}
+                onSelect={onPathSelect}
+                selectedPath={selectedPath}
+              />
+            )}
+          </div>
         ) : null}
 
         {activePanel === "git" ? (
@@ -169,6 +196,188 @@ export function WorkspaceSidebar({
   );
 }
 
+function WorkspaceFileSearch({
+  error,
+  isLoading,
+  onQueryChange,
+  onSelect,
+  query,
+  results,
+  trimmedQuery,
+}: {
+  error?: string;
+  isLoading: boolean;
+  onQueryChange: (query: string) => void;
+  onSelect: (path: string) => void;
+  query: string;
+  results: FileSearchResult[];
+  trimmedQuery: string;
+}) {
+  return (
+    <section className="grid gap-1 pb-1">
+      <div className="px-2">
+        <TextField
+          className="bg-hover"
+          id="workspace-file-search"
+          label="Search files"
+          labelHidden
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Search files"
+          size="small"
+          value={query}
+        />
+      </div>
+      {trimmedQuery.length === 0 ? null : (
+        <div className="grid gap-1 pt-1">
+          {error ? <ErrorState message={error} /> : null}
+          {isLoading ? <LoadingState label="Searching files" /> : null}
+          {!error && !isLoading && results.length === 0 ? (
+            <p className="text-muted px-1 text-xs">No matching files.</p>
+          ) : null}
+          {!error && !isLoading && results.length > 0 ? (
+            <WorkspaceFileSearchResults onSelect={onSelect} results={results} />
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WorkspaceFileSearchResults({
+  onSelect,
+  results,
+}: {
+  onSelect: (path: string) => void;
+  results: FileSearchResult[];
+}) {
+  const groups = groupSearchResultsByPath(results);
+
+  return (
+    <div className="grid gap-0.5">
+      <p className="text-muted px-2 text-xs font-medium">
+        {results.length} {results.length === 1 ? "result" : "results"} in{" "}
+        {groups.length} {groups.length === 1 ? "file" : "files"}
+      </p>
+      <div className="grid gap-0.5">
+        {groups.map((group) => (
+          <WorkspaceFileSearchResult
+            group={group}
+            key={group.path}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceFileSearchResult({
+  group,
+  onSelect,
+}: {
+  group: FileSearchResultGroup;
+  onSelect: (path: string) => void;
+}) {
+  const { directory, filename } = splitSearchResultPath(group.path);
+
+  return (
+    <button
+      aria-label={group.path}
+      className="hover:bg-hover grid min-w-0 cursor-pointer gap-0.5 px-2 py-1 text-left text-xs"
+      onClick={() => onSelect(group.path)}
+      title={group.path}
+      type="button"
+    >
+      <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
+        <span className="flex min-w-0 items-baseline gap-1">
+          <FileIcon className="size-3" path={group.path} />
+          <span className="text-ink max-w-full min-w-0 shrink-0 truncate font-medium">
+            {filename}
+          </span>
+          {directory ? (
+            <span className="text-muted min-w-0 truncate opacity-70">
+              {directory}
+            </span>
+          ) : null}
+        </span>
+        <span
+          aria-hidden="true"
+          className="bg-accent-soft text-accent min-w-4 shrink-0 rounded-sm px-1 text-center text-[10px] leading-4 font-semibold"
+          title={`${group.results.length} ${
+            group.results.length === 1 ? "result" : "results"
+          }`}
+        >
+          {group.results.length}
+        </span>
+      </span>
+      <span className="grid min-w-0 gap-0.5 pl-4">
+        {group.results.map((result) => (
+          <span
+            className="text-muted min-w-0 truncate font-mono"
+            key={`${result.kind}:${result.line ?? 0}:${result.preview ?? ""}`}
+          >
+            <span className="sr-only">{searchResultMeta(result)}</span>
+            {searchResultPreview(result)}
+          </span>
+        ))}
+      </span>
+    </button>
+  );
+}
+
+interface FileSearchResultGroup {
+  path: string;
+  results: FileSearchResult[];
+}
+
+function groupSearchResultsByPath(results: FileSearchResult[]) {
+  const groups = new Map<string, FileSearchResultGroup>();
+
+  for (const result of results) {
+    const group = groups.get(result.path);
+    if (group) {
+      group.results.push(result);
+    } else {
+      groups.set(result.path, {
+        path: result.path,
+        results: [result],
+      });
+    }
+  }
+
+  return [...groups.values()];
+}
+
+function searchResultPreview(result: FileSearchResult) {
+  if (result.preview) {
+    return result.preview;
+  }
+
+  return searchResultMeta(result);
+}
+
+function searchResultMeta(result: FileSearchResult) {
+  const kind = result.kind === "filename" ? "Filename" : "Content";
+  return result.line ? `${kind} line ${result.line}` : kind;
+}
+
+function splitSearchResultPath(path: string) {
+  const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
+  const separatorIndex = normalized.lastIndexOf("/");
+
+  if (separatorIndex === -1) {
+    return {
+      directory: "",
+      filename: normalized || path,
+    };
+  }
+
+  return {
+    directory: normalized.slice(0, separatorIndex),
+    filename: normalized.slice(separatorIndex + 1) || normalized,
+  };
+}
+
 function GitCommitBox({
   commitError,
   commitMessage,
@@ -190,15 +399,15 @@ function GitCommitBox({
 }) {
   return (
     <form className="grid gap-2 px-2 pb-1" onSubmit={onCommitSubmit}>
-      <label className="sr-only" htmlFor="commit-message">
-        Commit message
-      </label>
-      <input
-        className="bg-hover text-ink placeholder:text-muted min-h-9 w-full rounded-sm px-2.5 py-1.5 text-xs shadow-sm transition focus-visible:shadow-[inset_0_0_0_1px_var(--pp-color-focus)] focus-visible:!outline-none"
+      <TextField
+        className="bg-hover"
         id="commit-message"
+        label="Commit message"
+        labelHidden
         name="commit-message"
         onChange={(event) => onCommitMessageChange(event.target.value)}
         placeholder="Message"
+        size="small"
         value={commitMessage}
       />
       <Button
