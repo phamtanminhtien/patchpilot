@@ -497,27 +497,14 @@ func TestWriteFileHandlerRejectsUnsafeWrites(t *testing.T) {
 	}
 }
 
-func TestCommandHandlersConfirmAndBlockBySafety(t *testing.T) {
+func TestCommandHandlersBlockUnsafeCommands(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	server := newTestServer(t, root)
 	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
 	var ws workspace.Workspace
 	mustDecode(t, create, &ws)
 
-	confirmation := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"node scripts/check.js"}`)
-	if confirmation.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", confirmation.Code, confirmation.Body.String())
-	}
-	var confirmationBody map[string]map[string]any
-	mustDecode(t, confirmation, &confirmationBody)
-	if confirmationBody["error"]["code"] != "confirmation_required" {
-		t.Fatalf("unexpected confirmation body: %+v", confirmationBody)
-	}
-	if _, ok := confirmationBody["error"]["details"].(map[string]any)["decision"]; !ok {
-		t.Fatalf("expected confirmation decision details, got %+v", confirmationBody)
-	}
-
-	for _, command := range []string{"rm -rf dist", "pnpm test > out.txt", "go test ../other"} {
+	for _, command := range []string{"node scripts/check.js", "rm -rf dist", "pnpm test > out.txt", "go test ../other"} {
 		t.Run(command, func(t *testing.T) {
 			blocked := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"`+command+`"}`)
 			if blocked.Code != http.StatusBadRequest {

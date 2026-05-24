@@ -113,12 +113,12 @@ enter/select command -> classify -> start at workspace root
 -> stream stdout/stderr -> show exit code/duration
 ```
 
-Common user commands run immediately, supported-but-uncommon command forms
-require confirmation, and obvious destructive commands are blocked. Commands are
-executed without a shell and only for supported executable families. Shell
-syntax, absolute executable paths, workspace-escape paths, and unsupported
-arbitrary binaries are blocked before execution. Dangerous agent commands need
-approval.
+Common user commands run immediately. Commands outside the explicit safe command
+table are blocked until they are added deliberately. Commands are executed
+without a shell and only as exact, enumerated executable/argument shapes. Shell
+syntax, absolute executable paths, workspace-escape paths, interpreter snippets,
+and unsupported arbitrary binaries are blocked before execution. Dangerous agent
+commands need approval.
 
 Preview:
 

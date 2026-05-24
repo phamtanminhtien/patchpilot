@@ -33,6 +33,24 @@ type StatusOptions struct {
 	Paths            []string `json:"paths"`
 }
 
+type statusUntrackedMode int
+
+const (
+	statusUntrackedAll statusUntrackedMode = iota
+	statusUntrackedNormal
+	statusUntrackedNo
+)
+
+type statusIgnoreSubmodulesMode int
+
+const (
+	statusIgnoreSubmodulesUnset statusIgnoreSubmodulesMode = iota
+	statusIgnoreSubmodulesNone
+	statusIgnoreSubmodulesUntracked
+	statusIgnoreSubmodulesDirty
+	statusIgnoreSubmodulesAll
+)
+
 type Diff struct {
 	Path string `json:"path,omitempty"`
 	Diff string `json:"diff"`
@@ -57,43 +75,25 @@ func (c *Client) Status(ctx context.Context, root string, opts StatusOptions) (S
 	if err := validateRepositoryRoot(ctx, root); err != nil {
 		return Status{}, err
 	}
-	args := []string{"status", "--porcelain=v1"}
-
-	untracked := opts.Untracked
-	if untracked == "" {
-		untracked = "all"
+	untracked, err := parseStatusUntracked(opts.Untracked)
+	if err != nil {
+		return Status{}, err
 	}
-	switch untracked {
-	case "all", "normal", "no":
-		args = append(args, "--untracked-files="+untracked)
-	default:
-		return Status{}, fmt.Errorf("invalid untracked option: %s", untracked)
+	ignoreSubmodules, err := parseStatusIgnoreSubmodules(opts.IgnoreSubmodules)
+	if err != nil {
+		return Status{}, err
 	}
 
-	if opts.Ignored {
-		args = append(args, "--ignored")
-	}
-
-	if opts.IgnoreSubmodules != "" {
-		switch opts.IgnoreSubmodules {
-		case "none", "untracked", "dirty", "all":
-			args = append(args, "--ignore-submodules="+opts.IgnoreSubmodules)
-		default:
-			return Status{}, fmt.Errorf("invalid ignore_submodules option: %s", opts.IgnoreSubmodules)
-		}
-	}
-
-	args = append(args, "--")
-
+	cleaned := []string(nil)
 	if len(opts.Paths) > 0 {
-		cleaned, err := cleanRelativePaths(opts.Paths)
+		cleanedPaths, err := cleanRelativePaths(opts.Paths)
 		if err != nil {
 			return Status{}, err
 		}
-		args = append(args, cleaned...)
+		cleaned = cleanedPaths
 	}
 
-	output, err := runGitStatus(ctx, root, args)
+	output, err := runGitStatus(ctx, root, opts.Ignored, untracked, ignoreSubmodules, cleaned)
 	if err != nil {
 		return Status{}, err
 	}
@@ -377,6 +377,36 @@ func cleanRelativePaths(relPaths []string) ([]string, error) {
 	return cleanPaths, nil
 }
 
+func parseStatusUntracked(value string) (statusUntrackedMode, error) {
+	switch value {
+	case "", "all":
+		return statusUntrackedAll, nil
+	case "normal":
+		return statusUntrackedNormal, nil
+	case "no":
+		return statusUntrackedNo, nil
+	default:
+		return statusUntrackedAll, fmt.Errorf("invalid untracked option: %s", value)
+	}
+}
+
+func parseStatusIgnoreSubmodules(value string) (statusIgnoreSubmodulesMode, error) {
+	switch value {
+	case "":
+		return statusIgnoreSubmodulesUnset, nil
+	case "none":
+		return statusIgnoreSubmodulesNone, nil
+	case "untracked":
+		return statusIgnoreSubmodulesUntracked, nil
+	case "dirty":
+		return statusIgnoreSubmodulesDirty, nil
+	case "all":
+		return statusIgnoreSubmodulesAll, nil
+	default:
+		return statusIgnoreSubmodulesUnset, fmt.Errorf("invalid ignore_submodules option: %s", value)
+	}
+}
+
 func removeWorkspacePath(root, cleanPath string) error {
 	target := filepath.Join(root, filepath.FromSlash(cleanPath))
 	absRoot, err := filepath.Abs(root)
@@ -412,10 +442,54 @@ func pathPrefixListed(output, cleanPath string) bool {
 	return false
 }
 
-func runGitStatus(ctx context.Context, root string, args []string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+func runGitStatus(ctx context.Context, root string, ignored bool, untracked statusUntrackedMode, ignoreSubmodules statusIgnoreSubmodulesMode, cleanPaths []string) (string, error) {
+	cmd, args := gitStatusCommand(ctx, ignored, untracked, ignoreSubmodules)
+	if len(cleanPaths) > 0 {
+		cmd.Args = append(cmd.Args, cleanPaths...)
+		args = append(args, cleanPaths...)
+	}
 	output, _, err := runPreparedGit(cmd, root, args, "")
 	return output, err
+}
+
+func gitStatusCommand(ctx context.Context, ignored bool, untracked statusUntrackedMode, ignoreSubmodules statusIgnoreSubmodulesMode) (*exec.Cmd, []string) {
+	args := []string{"status", "--porcelain=v1"}
+	args = append(args, gitStatusUntrackedArg(untracked))
+	if ignored {
+		args = append(args, "--ignored")
+	}
+	if arg := gitStatusIgnoreSubmodulesArg(ignoreSubmodules); arg != "" {
+		args = append(args, arg)
+	}
+	args = append(args, "--")
+	cmd := exec.CommandContext(ctx, "git", args...)
+	return cmd, args
+}
+
+func gitStatusUntrackedArg(mode statusUntrackedMode) string {
+	switch mode {
+	case statusUntrackedNormal:
+		return "--untracked-files=normal"
+	case statusUntrackedNo:
+		return "--untracked-files=no"
+	default:
+		return "--untracked-files=all"
+	}
+}
+
+func gitStatusIgnoreSubmodulesArg(mode statusIgnoreSubmodulesMode) string {
+	switch mode {
+	case statusIgnoreSubmodulesNone:
+		return "--ignore-submodules=none"
+	case statusIgnoreSubmodulesUntracked:
+		return "--ignore-submodules=untracked"
+	case statusIgnoreSubmodulesDirty:
+		return "--ignore-submodules=dirty"
+	case statusIgnoreSubmodulesAll:
+		return "--ignore-submodules=all"
+	default:
+		return ""
+	}
 }
 
 func runGitRevParseTopLevel(ctx context.Context, root string) (string, error) {

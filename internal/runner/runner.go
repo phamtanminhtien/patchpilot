@@ -67,6 +67,8 @@ type commandInvocation struct {
 	Parts []string
 }
 
+type commandFactory func(context.Context) *exec.Cmd
+
 func NewRunner() *Runner {
 	return &Runner{active: map[string]*activeProcess{}}
 }
@@ -85,12 +87,13 @@ func Classify(command string) (SafetyDecision, error) {
 		decision.Reason = reason
 		return decision, nil
 	}
-	if allowed(invocation.Parts) {
+	if _, ok := safeCommand(invocation.Parts); ok {
 		decision.Level = SafetyAllowed
 		decision.Reason = "Common project command"
 		return decision, nil
 	}
-	decision.Reason = "Command is outside the common project command allowlist"
+	decision.Level = SafetyBlocked
+	decision.Reason = "Command is outside the explicit safe command table"
 	return decision, nil
 }
 
@@ -101,6 +104,9 @@ func (r *Runner) Start(spec RunSpec, hooks Hooks) error {
 	}
 	if reason := blockedReason(spec.Command, invocation.Parts); reason != "" {
 		return fmt.Errorf("%w: %s", ErrBlockedCommand, reason)
+	}
+	if _, ok := safeCommand(invocation.Parts); !ok {
+		return fmt.Errorf("%w: command is outside the explicit safe command table", ErrBlockedCommand)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r.mu.Lock()
@@ -230,35 +236,10 @@ func parseInvocation(command string) (commandInvocation, error) {
 }
 
 func commandContext(ctx context.Context, invocation commandInvocation) *exec.Cmd {
-	switch invocation.Name {
-	case "git":
-		return exec.CommandContext(ctx, "git", invocation.Args...)
-	case "pnpm":
-		return exec.CommandContext(ctx, "pnpm", invocation.Args...)
-	case "npm":
-		return exec.CommandContext(ctx, "npm", invocation.Args...)
-	case "yarn":
-		return exec.CommandContext(ctx, "yarn", invocation.Args...)
-	case "bun":
-		return exec.CommandContext(ctx, "bun", invocation.Args...)
-	case "go":
-		return exec.CommandContext(ctx, "go", invocation.Args...)
-	case "python":
-		return exec.CommandContext(ctx, "python", invocation.Args...)
-	case "python3":
-		return exec.CommandContext(ctx, "python3", invocation.Args...)
-	case "pytest":
-		return exec.CommandContext(ctx, "pytest", invocation.Args...)
-	case "cargo":
-		return exec.CommandContext(ctx, "cargo", invocation.Args...)
-	case "make":
-		return exec.CommandContext(ctx, "make", invocation.Args...)
-	case "node":
-		return exec.CommandContext(ctx, "node", invocation.Args...)
-	default:
-		// parseInvocation and blockedReason prevent this before execution.
-		return exec.CommandContext(ctx, "false")
+	if factory, ok := safeCommand(invocation.Parts); ok {
+		return factory(ctx)
 	}
+	return exec.CommandContext(ctx, "false")
 }
 
 func blockedReason(command string, parts []string) string {
@@ -325,48 +306,85 @@ func supportedExecutable(name string) bool {
 	}
 }
 
-func allowed(parts []string) bool {
-	if len(parts) == 0 {
-		return false
-	}
-	switch parts[0] {
-	case "git":
-		return len(parts) == 2 && (parts[1] == "status" || parts[1] == "diff" || parts[1] == "log")
-	case "npm":
-		return len(parts) == 3 && parts[1] == "run" && projectScript(parts[2])
-	case "pnpm", "yarn":
-		if len(parts) == 2 && projectScript(parts[1]) {
-			return true
-		}
-		return len(parts) == 4 && parts[1] == "--dir" && safeRelativeDir(parts[2]) && projectScript(parts[3])
-	case "bun":
-		return (len(parts) == 2 && parts[1] == "test") || (len(parts) == 3 && parts[1] == "run" && projectScript(parts[2]))
-	case "go":
-		if len(parts) == 3 && parts[1] == "build" && parts[2] == "./..." {
-			return true
-		}
-		return len(parts) == 3 && parts[1] == "test" && (parts[2] == "./..." || strings.HasPrefix(parts[2], "./"))
+func safeCommand(parts []string) (commandFactory, bool) {
+	switch strings.Join(parts, " ") {
+	case "git status":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "git", "status") }, true
+	case "git diff":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "git", "diff") }, true
+	case "git log":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "git", "log") }, true
+	case "npm run test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "npm", "run", "test") }, true
+	case "npm run lint":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "npm", "run", "lint") }, true
+	case "npm run build":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "npm", "run", "build") }, true
+	case "npm run dev":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "npm", "run", "dev") }, true
+	case "pnpm test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pnpm", "test") }, true
+	case "pnpm lint":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pnpm", "lint") }, true
+	case "pnpm build":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pnpm", "build") }, true
+	case "pnpm dev":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pnpm", "dev") }, true
+	case "pnpm --dir web test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pnpm", "--dir", "web", "test") }, true
+	case "pnpm --dir web lint":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pnpm", "--dir", "web", "lint") }, true
+	case "pnpm --dir web build":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pnpm", "--dir", "web", "build") }, true
+	case "pnpm --dir web dev":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pnpm", "--dir", "web", "dev") }, true
+	case "yarn test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "yarn", "test") }, true
+	case "yarn lint":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "yarn", "lint") }, true
+	case "yarn build":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "yarn", "build") }, true
+	case "yarn dev":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "yarn", "dev") }, true
+	case "yarn --dir web test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "yarn", "--dir", "web", "test") }, true
+	case "yarn --dir web lint":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "yarn", "--dir", "web", "lint") }, true
+	case "yarn --dir web build":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "yarn", "--dir", "web", "build") }, true
+	case "yarn --dir web dev":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "yarn", "--dir", "web", "dev") }, true
+	case "bun test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "bun", "test") }, true
+	case "bun run test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "bun", "run", "test") }, true
+	case "bun run lint":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "bun", "run", "lint") }, true
+	case "bun run build":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "bun", "run", "build") }, true
+	case "bun run dev":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "bun", "run", "dev") }, true
+	case "go test ./...":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "go", "test", "./...") }, true
+	case "go build ./...":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "go", "build", "./...") }, true
 	case "pytest":
-		return len(parts) == 1
-	case "python", "python3":
-		return len(parts) == 3 && parts[1] == "-m" && parts[2] == "pytest"
-	case "cargo":
-		return len(parts) == 2 && (parts[1] == "test" || parts[1] == "build")
-	case "make":
-		return len(parts) == 2 && projectScript(parts[1])
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "pytest") }, true
+	case "python3 -m pytest":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "python3", "-m", "pytest") }, true
+	case "cargo test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "cargo", "test") }, true
+	case "cargo build":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "cargo", "build") }, true
+	case "make test":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "make", "test") }, true
+	case "make lint":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "make", "lint") }, true
+	case "make build":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "make", "build") }, true
+	case "make dev":
+		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "make", "dev") }, true
 	default:
-		return false
+		return nil, false
 	}
-}
-
-func projectScript(script string) bool {
-	return script == "test" || script == "lint" || script == "build" || script == "dev"
-}
-
-func safeRelativeDir(path string) bool {
-	if path == "" || filepath.IsAbs(path) {
-		return false
-	}
-	clean := filepath.Clean(path)
-	return clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
