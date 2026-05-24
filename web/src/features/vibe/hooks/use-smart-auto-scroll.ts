@@ -93,17 +93,18 @@ export function useSmartAutoScroll({
 
     contentKeyRef.current = contentKey;
 
-    const currentlyNearBottom = isNearBottom(container);
-
-    if (isFollowingRef.current && currentlyNearBottom) {
+    if (isFollowingRef.current) {
       scrollToLatest("smooth");
       return;
     }
 
-    if (!currentlyNearBottom) {
-      isFollowingRef.current = false;
-      setJumpToLatestState({ resetKey, show: true });
+    if (isNearBottom(container)) {
+      isFollowingRef.current = true;
+      scrollToLatest("smooth");
+      return;
     }
+
+    setJumpToLatestState({ resetKey, show: true });
   }, [contentKey, resetKey, scrollToLatest]);
 
   return {
