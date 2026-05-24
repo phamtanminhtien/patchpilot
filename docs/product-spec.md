@@ -113,8 +113,12 @@ enter/select command -> classify -> start at workspace root
 -> stream stdout/stderr -> show exit code/duration
 ```
 
-Common user commands run immediately, risky commands require confirmation, and
-obvious destructive commands are blocked. Dangerous agent commands need approval.
+Common user commands run immediately, supported-but-uncommon command forms
+require confirmation, and obvious destructive commands are blocked. Commands are
+executed without a shell and only for supported executable families. Shell
+syntax, absolute executable paths, workspace-escape paths, and unsupported
+arbitrary binaries are blocked before execution. Dangerous agent commands need
+approval.
 
 Preview:
 

@@ -65,6 +65,25 @@ func TestClassifyRequiresConfirmationForUnknownCommands(t *testing.T) {
 	}
 }
 
+func TestClassifyBlocksUnsupportedExecutables(t *testing.T) {
+	for _, command := range []string{
+		"ruby scripts/check.rb",
+		"sh -c date",
+		"bash script.sh",
+		"curl http://example.test",
+	} {
+		t.Run(command, func(t *testing.T) {
+			decision, err := Classify(command)
+			if err != nil {
+				t.Fatalf("Classify returned error: %v", err)
+			}
+			if decision.Level != SafetyBlocked {
+				t.Fatalf("expected blocked, got %+v", decision)
+			}
+		})
+	}
+}
+
 func TestClassifyBlocksDestructivePathAndShellCommands(t *testing.T) {
 	for _, command := range []string{
 		"rm -rf dist",

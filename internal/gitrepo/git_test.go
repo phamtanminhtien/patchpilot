@@ -211,6 +211,22 @@ func TestStageStagesOnlyExplicitPaths(t *testing.T) {
 	}
 }
 
+func TestStageHandlesPathspecLikePath(t *testing.T) {
+	root := initGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "-looks-like-flag.txt"), []byte("flag path\n"), 0o644); err != nil {
+		t.Fatalf("write pathspec-like file: %v", err)
+	}
+	client := NewClient()
+
+	status, err := client.Stage(context.Background(), root, []string{"-looks-like-flag.txt"})
+	if err != nil {
+		t.Fatalf("Stage returned error: %v", err)
+	}
+	if !strings.Contains(status.Porcelain, "A  -looks-like-flag.txt") {
+		t.Fatalf("expected pathspec-like file staged, got %q", status.Porcelain)
+	}
+}
+
 func TestUnstageUnstagesOnlyExplicitPaths(t *testing.T) {
 	root := initGitRepo(t)
 	if err := os.WriteFile(filepath.Join(root, "first.txt"), []byte("first\n"), 0o644); err != nil {
@@ -339,6 +355,30 @@ func TestCommitDoesNotCommitUnrelatedStagedPaths(t *testing.T) {
 	}
 	if !strings.Contains(status.Porcelain, "A  second.txt") {
 		t.Fatalf("expected second file to stay staged, got %q", status.Porcelain)
+	}
+}
+
+func TestCommitHandlesPathspecLikePath(t *testing.T) {
+	root := initGitRepo(t)
+	configureCommitter(t, root)
+	if err := os.WriteFile(filepath.Join(root, "-commit-me.txt"), []byte("flag path\n"), 0o644); err != nil {
+		t.Fatalf("write pathspec-like file: %v", err)
+	}
+	client := NewClient()
+
+	commitResult, err := client.Commit(context.Background(), root, "add flag-like path", []string{"-commit-me.txt"})
+	if err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+	if commitResult.Hash == "" {
+		t.Fatal("expected commit hash")
+	}
+	status, err := client.Status(context.Background(), root, StatusOptions{})
+	if err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+	if strings.Contains(status.Porcelain, "-commit-me.txt") {
+		t.Fatalf("expected pathspec-like file committed, got %q", status.Porcelain)
 	}
 }
 
