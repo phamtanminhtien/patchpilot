@@ -7,11 +7,17 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 )
 
-var ErrEmptyCommand = errors.New("command is required")
+var (
+	ErrEmptyCommand   = errors.New("command is required")
+	ErrBlockedCommand = errors.New("command is blocked")
+)
+
+var safeCommandToken = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
 
 type SafetyLevel string
 
@@ -55,25 +61,31 @@ type activeProcess struct {
 	done   chan struct{}
 }
 
+type commandInvocation struct {
+	Name  string
+	Args  []string
+	Parts []string
+}
+
 func NewRunner() *Runner {
 	return &Runner{active: map[string]*activeProcess{}}
 }
 
 func Classify(command string) (SafetyDecision, error) {
-	parts, err := parse(command)
+	invocation, err := parseInvocation(command)
 	if err != nil {
 		return SafetyDecision{}, err
 	}
 	decision := SafetyDecision{
 		Level: SafetyNeedsConfirmation,
-		Parts: parts,
+		Parts: invocation.Parts,
 	}
-	if reason := blockedReason(command, parts); reason != "" {
+	if reason := blockedReason(command, invocation.Parts); reason != "" {
 		decision.Level = SafetyBlocked
 		decision.Reason = reason
 		return decision, nil
 	}
-	if allowed(parts) {
+	if allowed(invocation.Parts) {
 		decision.Level = SafetyAllowed
 		decision.Reason = "Common project command"
 		return decision, nil
@@ -83,16 +95,19 @@ func Classify(command string) (SafetyDecision, error) {
 }
 
 func (r *Runner) Start(spec RunSpec, hooks Hooks) error {
-	parts, err := parse(spec.Command)
+	invocation, err := parseInvocation(spec.Command)
 	if err != nil {
 		return err
+	}
+	if reason := blockedReason(spec.Command, invocation.Parts); reason != "" {
+		return fmt.Errorf("%w: %s", ErrBlockedCommand, reason)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r.mu.Lock()
 	r.active[spec.ID] = &activeProcess{cancel: cancel, done: make(chan struct{})}
 	r.mu.Unlock()
 
-	go r.run(ctx, spec.ID, spec.Cwd, parts, hooks)
+	go r.run(ctx, spec.ID, spec.Cwd, invocation, hooks)
 	return nil
 }
 
@@ -123,7 +138,7 @@ func (r *Runner) StopAndWait(ctx context.Context, commandID string) bool {
 	}
 }
 
-func (r *Runner) run(ctx context.Context, commandID, cwd string, parts []string, hooks Hooks) {
+func (r *Runner) run(ctx context.Context, commandID, cwd string, invocation commandInvocation, hooks Hooks) {
 	defer func() {
 		r.mu.Lock()
 		process := r.active[commandID]
@@ -134,7 +149,7 @@ func (r *Runner) run(ctx context.Context, commandID, cwd string, parts []string,
 		}
 	}()
 
-	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	cmd := commandContext(ctx, invocation)
 	cmd.Dir = cwd
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -202,12 +217,48 @@ func streamOutput(wg *sync.WaitGroup, reader io.Reader, stream string, onOutput 
 	}
 }
 
-func parse(command string) ([]string, error) {
+func parseInvocation(command string) (commandInvocation, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
-		return nil, ErrEmptyCommand
+		return commandInvocation{}, ErrEmptyCommand
 	}
-	return strings.Fields(command), nil
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return commandInvocation{}, ErrEmptyCommand
+	}
+	return commandInvocation{Name: parts[0], Args: parts[1:], Parts: parts}, nil
+}
+
+func commandContext(ctx context.Context, invocation commandInvocation) *exec.Cmd {
+	switch invocation.Name {
+	case "git":
+		return exec.CommandContext(ctx, "git", invocation.Args...)
+	case "pnpm":
+		return exec.CommandContext(ctx, "pnpm", invocation.Args...)
+	case "npm":
+		return exec.CommandContext(ctx, "npm", invocation.Args...)
+	case "yarn":
+		return exec.CommandContext(ctx, "yarn", invocation.Args...)
+	case "bun":
+		return exec.CommandContext(ctx, "bun", invocation.Args...)
+	case "go":
+		return exec.CommandContext(ctx, "go", invocation.Args...)
+	case "python":
+		return exec.CommandContext(ctx, "python", invocation.Args...)
+	case "python3":
+		return exec.CommandContext(ctx, "python3", invocation.Args...)
+	case "pytest":
+		return exec.CommandContext(ctx, "pytest", invocation.Args...)
+	case "cargo":
+		return exec.CommandContext(ctx, "cargo", invocation.Args...)
+	case "make":
+		return exec.CommandContext(ctx, "make", invocation.Args...)
+	case "node":
+		return exec.CommandContext(ctx, "node", invocation.Args...)
+	default:
+		// parseInvocation and blockedReason prevent this before execution.
+		return exec.CommandContext(ctx, "false")
+	}
 }
 
 func blockedReason(command string, parts []string) string {
@@ -218,6 +269,12 @@ func blockedReason(command string, parts []string) string {
 	}
 	if filepath.IsAbs(parts[0]) {
 		return "Absolute command paths are not allowed"
+	}
+	if !safeCommandToken.MatchString(parts[0]) {
+		return "Unsupported command token characters are blocked"
+	}
+	if !supportedExecutable(parts[0]) {
+		return "Unsupported command executable is blocked"
 	}
 	if len(parts) > 0 {
 		switch parts[0] {
@@ -245,6 +302,9 @@ func blockedReason(command string, parts []string) string {
 		}
 	}
 	for _, part := range parts[1:] {
+		if !safeCommandToken.MatchString(part) {
+			return "Unsupported command token characters are blocked"
+		}
 		if filepath.IsAbs(part) {
 			return "Absolute paths are not allowed in command arguments"
 		}
@@ -254,6 +314,15 @@ func blockedReason(command string, parts []string) string {
 		}
 	}
 	return ""
+}
+
+func supportedExecutable(name string) bool {
+	switch name {
+	case "git", "pnpm", "npm", "yarn", "bun", "go", "python", "python3", "pytest", "cargo", "make", "node":
+		return true
+	default:
+		return false
+	}
 }
 
 func allowed(parts []string) bool {

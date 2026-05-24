@@ -93,7 +93,7 @@ func (c *Client) Status(ctx context.Context, root string, opts StatusOptions) (S
 		args = append(args, cleaned...)
 	}
 
-	output, err := runGit(ctx, root, args...)
+	output, err := runGitStatus(ctx, root, args)
 	if err != nil {
 		return Status{}, err
 	}
@@ -146,7 +146,7 @@ func shouldFilterStatusLine(line string) bool {
 }
 
 func (c *Client) RepositoryRoot(ctx context.Context, root string) (string, error) {
-	output, err := runRawGit(ctx, root, "rev-parse", "--show-toplevel")
+	output, err := runGitRevParseTopLevel(ctx, root)
 	if err != nil {
 		return "", ErrNotRepository
 	}
@@ -165,17 +165,7 @@ func (c *Client) Diff(ctx context.Context, root, relPath string) (Diff, error) {
 	if err != nil {
 		return Diff{}, err
 	}
-	args := []string{"diff"}
-	if repositoryHasHead(ctx, root) {
-		args = append(args, "HEAD")
-	} else {
-		args = append(args, "--cached")
-	}
-	args = append(args, "--")
-	if cleanPath != "" {
-		args = append(args, cleanPath)
-	}
-	output, err := runGit(ctx, root, args...)
+	output, err := runGitDiff(ctx, root, repositoryHasHead(ctx, root), cleanPath)
 	if err != nil {
 		return Diff{}, err
 	}
@@ -197,8 +187,7 @@ func (c *Client) Stage(ctx context.Context, root string, relPaths []string) (Sta
 	if err != nil {
 		return Status{}, err
 	}
-	args := append([]string{"add", "--"}, cleanPaths...)
-	if _, err := runGit(ctx, root, args...); err != nil {
+	if _, err := runGitAddPaths(ctx, root, cleanPaths); err != nil {
 		return Status{}, err
 	}
 	return c.Status(ctx, root, StatusOptions{})
@@ -212,8 +201,7 @@ func (c *Client) Unstage(ctx context.Context, root string, relPaths []string) (S
 	if err != nil {
 		return Status{}, err
 	}
-	args := append([]string{"reset", "--"}, cleanPaths...)
-	if _, err := runGit(ctx, root, args...); err != nil {
+	if _, err := runGitResetPaths(ctx, root, cleanPaths); err != nil {
 		return Status{}, err
 	}
 	return c.Status(ctx, root, StatusOptions{})
@@ -246,15 +234,13 @@ func (c *Client) Commit(ctx context.Context, root, message string, relPaths []st
 	if err != nil {
 		return Commit{}, err
 	}
-	addArgs := append([]string{"add", "--"}, cleanPaths...)
-	if _, err := runGit(ctx, root, addArgs...); err != nil {
+	if _, err := runGitAddPaths(ctx, root, cleanPaths); err != nil {
 		return Commit{}, err
 	}
-	commitArgs := append([]string{"commit", "-m", message, "--"}, cleanPaths...)
-	if _, err := runGit(ctx, root, commitArgs...); err != nil {
+	if _, err := runGitCommitPaths(ctx, root, message, cleanPaths); err != nil {
 		return Commit{}, err
 	}
-	hash, err := runGit(ctx, root, "rev-parse", "HEAD")
+	hash, err := runGitRevParseHead(ctx, root)
 	if err != nil {
 		return Commit{}, err
 	}
@@ -268,16 +254,10 @@ func (c *Client) ApplyPatch(ctx context.Context, root, diff string, direction Ap
 	if strings.TrimSpace(diff) == "" {
 		return ErrInvalidPath
 	}
-	checkArgs := []string{"apply", "--check"}
-	applyArgs := []string{"apply"}
-	if direction == ApplyReverse {
-		checkArgs = append(checkArgs, "--reverse")
-		applyArgs = append(applyArgs, "--reverse")
-	}
-	if _, err := runGitWithInput(ctx, root, diff, checkArgs...); err != nil {
+	if _, err := runGitApplyCheck(ctx, root, diff, direction); err != nil {
 		return err
 	}
-	_, err := runGitWithInput(ctx, root, diff, applyArgs...)
+	_, err := runGitApply(ctx, root, diff, direction)
 	return err
 }
 
@@ -288,7 +268,7 @@ func (c *Client) CheckPatch(ctx context.Context, root, diff string) error {
 	if strings.TrimSpace(diff) == "" {
 		return ErrInvalidPath
 	}
-	_, err := runGitWithInput(ctx, root, diff, "apply", "--check")
+	_, err := runGitApplyCheck(ctx, root, diff, ApplyForward)
 	return err
 }
 
@@ -296,19 +276,19 @@ func (c *Client) discardPath(ctx context.Context, root, cleanPath string) error 
 	if isUntrackedPath(ctx, root, cleanPath) {
 		return removeWorkspacePath(root, cleanPath)
 	}
-	_, err := runGit(ctx, root, "checkout", "--", cleanPath)
+	_, err := runGitCheckoutPath(ctx, root, cleanPath)
 	return err
 }
 
 func (c *Client) untrackedDiff(ctx context.Context, root, cleanPath string) (string, error) {
-	output, err := runGit(ctx, root, "ls-files", "--others", "--exclude-standard", "--", cleanPath)
+	output, err := runGitLsUntracked(ctx, root, cleanPath)
 	if err != nil {
 		return "", err
 	}
 	if !pathListed(output, cleanPath) {
 		return "", nil
 	}
-	diff, err := runGitAllowExit(ctx, root, 1, "diff", "--no-index", "--", os.DevNull, cleanPath)
+	diff, err := runGitNoIndexDiff(ctx, root, cleanPath)
 	if err != nil {
 		return "", err
 	}
@@ -316,7 +296,7 @@ func (c *Client) untrackedDiff(ctx context.Context, root, cleanPath string) (str
 }
 
 func isUntrackedPath(ctx context.Context, root, cleanPath string) bool {
-	output, err := runGit(ctx, root, "ls-files", "--others", "--exclude-standard", "--", cleanPath)
+	output, err := runGitLsUntracked(ctx, root, cleanPath)
 	if err != nil {
 		return false
 	}
@@ -331,7 +311,7 @@ func validateRepositoryRoot(ctx context.Context, root string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidRoot, root)
 	}
-	output, err := runRawGit(ctx, cleanRoot, "rev-parse", "--show-toplevel")
+	output, err := runGitRevParseTopLevel(ctx, cleanRoot)
 	if err != nil {
 		return ErrNotRepository
 	}
@@ -346,7 +326,7 @@ func validateRepositoryRoot(ctx context.Context, root string) error {
 }
 
 func repositoryHasHead(ctx context.Context, root string) bool {
-	_, err := runGit(ctx, root, "rev-parse", "--verify", "HEAD")
+	_, err := runGitRevParseVerifyHead(ctx, root)
 	return err == nil
 }
 
@@ -432,26 +412,128 @@ func pathPrefixListed(output, cleanPath string) bool {
 	return false
 }
 
-func runGit(ctx context.Context, root string, args ...string) (string, error) {
-	output, _, err := runGitCommand(ctx, root, args...)
+func runGitStatus(ctx context.Context, root string, args []string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, "")
 	return output, err
 }
 
-func runRawGit(ctx context.Context, root string, args ...string) (string, error) {
-	return runGit(ctx, root, args...)
+func runGitRevParseTopLevel(ctx context.Context, root string) (string, error) {
+	args := []string{"rev-parse", "--show-toplevel"}
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
 }
 
-func runGitAllowExit(ctx context.Context, root string, allowedExitCode int, args ...string) (string, error) {
-	output, exitCode, err := runGitCommand(ctx, root, args...)
-	if err == nil || exitCode == allowedExitCode {
+func runGitRevParseHead(ctx context.Context, root string) (string, error) {
+	args := []string{"rev-parse", "HEAD"}
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitRevParseVerifyHead(ctx context.Context, root string) (string, error) {
+	args := []string{"rev-parse", "--verify", "HEAD"}
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "HEAD")
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitDiff(ctx context.Context, root string, hasHead bool, cleanPath string) (string, error) {
+	if hasHead {
+		args := []string{"diff", "HEAD", "--"}
+		if cleanPath != "" {
+			args = append(args, cleanPath)
+		}
+		cmd := exec.CommandContext(ctx, "git", args...)
+		output, _, err := runPreparedGit(cmd, root, args, "")
+		return output, err
+	}
+	args := []string{"diff", "--cached", "--"}
+	if cleanPath != "" {
+		args = append(args, cleanPath)
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitAddPaths(ctx context.Context, root string, cleanPaths []string) (string, error) {
+	args := append([]string{"add", "--"}, cleanPaths...)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitResetPaths(ctx context.Context, root string, cleanPaths []string) (string, error) {
+	args := append([]string{"reset", "--"}, cleanPaths...)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitCommitPaths(ctx context.Context, root, message string, cleanPaths []string) (string, error) {
+	args := append([]string{"commit", "-F", "-", "--"}, cleanPaths...)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, message)
+	return output, err
+}
+
+func runGitApplyCheck(ctx context.Context, root, diff string, direction ApplyDirection) (string, error) {
+	if direction == ApplyReverse {
+		args := []string{"apply", "--check", "--reverse"}
+		cmd := exec.CommandContext(ctx, "git", "apply", "--check", "--reverse")
+		output, _, err := runPreparedGit(cmd, root, args, diff)
+		return output, err
+	}
+	args := []string{"apply", "--check"}
+	cmd := exec.CommandContext(ctx, "git", "apply", "--check")
+	output, _, err := runPreparedGit(cmd, root, args, diff)
+	return output, err
+}
+
+func runGitApply(ctx context.Context, root, diff string, direction ApplyDirection) (string, error) {
+	if direction == ApplyReverse {
+		args := []string{"apply", "--reverse"}
+		cmd := exec.CommandContext(ctx, "git", "apply", "--reverse")
+		output, _, err := runPreparedGit(cmd, root, args, diff)
+		return output, err
+	}
+	args := []string{"apply"}
+	cmd := exec.CommandContext(ctx, "git", "apply")
+	output, _, err := runPreparedGit(cmd, root, args, diff)
+	return output, err
+}
+
+func runGitCheckoutPath(ctx context.Context, root, cleanPath string) (string, error) {
+	args := []string{"checkout", "--", cleanPath}
+	cmd := exec.CommandContext(ctx, "git", "checkout", "--", cleanPath)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitLsUntracked(ctx context.Context, root, cleanPath string) (string, error) {
+	args := []string{"ls-files", "--others", "--exclude-standard", "--", cleanPath}
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "--others", "--exclude-standard", "--", cleanPath)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitNoIndexDiff(ctx context.Context, root, cleanPath string) (string, error) {
+	args := []string{"diff", "--no-index", "--", os.DevNull, cleanPath}
+	cmd := exec.CommandContext(ctx, "git", "diff", "--no-index", "--", os.DevNull, cleanPath)
+	output, exitCode, err := runPreparedGit(cmd, root, args, "")
+	if err == nil || exitCode == 1 {
 		return output, nil
 	}
 	return "", err
 }
 
-func runGitCommand(ctx context.Context, root string, args ...string) (string, int, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+func runPreparedGit(cmd *exec.Cmd, root string, args []string, input string) (string, int, error) {
 	cmd.Dir = root
+	if input != "" {
+		cmd.Stdin = strings.NewReader(input)
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -469,22 +551,4 @@ func runGitCommand(ctx context.Context, root string, args ...string) (string, in
 		return stdout.String(), exitCode, fmt.Errorf("%w: git %v: %w", ErrGitFailed, args, err)
 	}
 	return stdout.String(), 0, nil
-}
-
-func runGitWithInput(ctx context.Context, root, input string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = root
-	cmd.Stdin = strings.NewReader(input)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		if stderr.Len() > 0 {
-			return stdout.String(), fmt.Errorf("%w: git %v: %w: %s", ErrGitFailed, args, err, strings.TrimSpace(stderr.String()))
-		}
-		return stdout.String(), fmt.Errorf("%w: git %v: %w", ErrGitFailed, args, err)
-	}
-	return stdout.String(), nil
 }
