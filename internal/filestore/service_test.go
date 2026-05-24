@@ -130,6 +130,10 @@ func TestWriteRejectsUnsafePathsAndContent(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "note.txt"), filepath.Join(root, "link.txt")); err != nil {
 		t.Fatalf("create symlink: %v", err)
 	}
+	mustMkdirAll(t, filepath.Join(root, "nested"))
+	if err := os.Symlink(filepath.Join(root, "note.txt"), filepath.Join(root, "nested", "link.txt")); err != nil {
+		t.Fatalf("create nested symlink: %v", err)
+	}
 	service := NewService()
 
 	tests := []struct {
@@ -141,6 +145,7 @@ func TestWriteRejectsUnsafePathsAndContent(t *testing.T) {
 		{name: "traversal", path: "../secret.txt", content: "after", want: ErrOutsideRoot},
 		{name: "secret", path: ".env", content: "after", want: ErrSecretPath},
 		{name: "symlink", path: "link.txt", content: "after", want: ErrSymlinkPath},
+		{name: "nested symlink", path: "nested/link.txt", content: "after", want: ErrSymlinkPath},
 		{name: "existing binary", path: "binary.txt", content: "after", want: ErrNotTextFile},
 		{name: "binary content", path: "note.txt", content: "after\x00", want: ErrNotTextFile},
 		{name: "large content", path: "note.txt", content: string(make([]byte, MaxReadableFileSize+1)), want: ErrFileTooLarge},

@@ -335,15 +335,12 @@ func cleanRelativePath(relPath string) (string, error) {
 	if relPath == "" {
 		return "", nil
 	}
-	if filepath.IsAbs(relPath) {
+	clean := filepath.Clean(relPath)
+	if !filepath.IsLocal(clean) {
 		return "", ErrInvalidPath
 	}
-	clean := filepath.Clean(relPath)
 	if clean == "." {
 		return "", nil
-	}
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", ErrInvalidPath
 	}
 	return filepath.ToSlash(clean), nil
 }
@@ -408,19 +405,20 @@ func parseStatusIgnoreSubmodules(value string) (statusIgnoreSubmodulesMode, erro
 }
 
 func removeWorkspacePath(root, cleanPath string) error {
-	target := filepath.Join(root, filepath.FromSlash(cleanPath))
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return err
 	}
-	absTarget, err := filepath.Abs(target)
+	localPath, err := filepath.Localize(cleanPath)
+	if err != nil || !filepath.IsLocal(localPath) {
+		return ErrInvalidPath
+	}
+	rootDir, err := os.OpenRoot(absRoot)
 	if err != nil {
 		return err
 	}
-	if absTarget != absRoot && !strings.HasPrefix(absTarget, absRoot+string(filepath.Separator)) {
-		return ErrInvalidPath
-	}
-	return os.RemoveAll(absTarget)
+	defer rootDir.Close()
+	return rootDir.RemoveAll(localPath)
 }
 
 func pathListed(output, cleanPath string) bool {
