@@ -9,7 +9,7 @@ import {
 import { Link } from "react-router";
 
 import type { Conversation } from "@/shared/api";
-import { Button } from "@/shared/ui";
+import { Button, cn } from "@/shared/ui";
 
 import { timeAgo } from "../lib/time";
 
@@ -18,6 +18,7 @@ export function VibeConversationSidebar({
   conversations,
   isLoading,
   onNewConversation,
+  onSearchConversations,
   onSelectConversation,
   workspaceId,
 }: {
@@ -25,6 +26,7 @@ export function VibeConversationSidebar({
   conversations: Conversation[];
   isLoading: boolean;
   onNewConversation: () => void;
+  onSearchConversations: () => void;
   onSelectConversation: (conversationId: string) => void;
   workspaceId: string;
 }) {
@@ -34,7 +36,7 @@ export function VibeConversationSidebar({
       label: "New chat",
       onClick: onNewConversation,
     },
-    { icon: <Search />, label: "Search" },
+    { icon: <Search />, label: "Search", onClick: onSearchConversations },
     { icon: <Code2 />, label: "Skills" },
     { icon: <Clock3 />, label: "Automations" },
   ];
@@ -46,10 +48,14 @@ export function VibeConversationSidebar({
       <nav className="grid gap-1 px-1.5" aria-label="Vibe navigation">
         {navItems.map((item) => (
           <button
-            className="text-muted hover:bg-hover hover:text-ink flex min-h-9 min-w-0 cursor-pointer items-center gap-2 rounded-full px-3 text-left text-sm transition"
+            className={cn(
+              "text-muted hover:bg-hover hover:text-ink flex min-h-9 min-w-0 cursor-pointer items-center gap-2 rounded-full px-3 text-left text-sm transition",
+              "disabled:hover:text-muted disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-none disabled:hover:bg-transparent",
+            )}
             key={item.label}
             onClick={item.onClick}
             type="button"
+            disabled={item.label === "Skills" || item.label === "Automations"}
           >
             <span className="grid size-4 shrink-0 place-items-center [&>svg]:size-4">
               {item.icon}

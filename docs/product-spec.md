@@ -171,7 +171,7 @@ PUT /api/workspaces/:workspaceId/file
 GET /api/workspaces/:workspaceId/search?q=
 
 POST  /api/workspaces/:workspaceId/conversations
-GET   /api/workspaces/:workspaceId/conversations
+GET   /api/workspaces/:workspaceId/conversations?q=
 GET   /api/workspaces/:workspaceId/conversations/:conversationId
 PATCH /api/workspaces/:workspaceId/conversations/:conversationId
 POST  /api/workspaces/:workspaceId/conversations/:conversationId/messages
@@ -254,7 +254,8 @@ Response contracts:
   over 1 MiB; direct invalid reads return the standard error envelope.
 - Conversation create/update accept `{"title":"..."}`.
 - Conversation list: `{"conversations":[],"nextCursor":"..."}` newest-first by
-  last activity.
+  last activity. Optional `q` trims whitespace and filters conversations by
+  case-insensitive title match while preserving cursor pagination.
 - Conversation detail:
   `{"conversation":{...},"messages":[],"runs":[],"toolCalls":[]}`.
 - Message create accepts

@@ -631,7 +631,11 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	conversations, err := s.store.ListConversations(r.Context(), ws.ID)
+	conversations, err := s.store.ListConversations(
+		r.Context(),
+		ws.ID,
+		r.URL.Query().Get("q"),
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "conversation_list_failed", "Conversations could not be listed", nil)
 		return

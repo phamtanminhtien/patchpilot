@@ -670,6 +670,59 @@ func TestConversationRunHandlersCreateListAndGet(t *testing.T) {
 	}
 }
 
+func TestConversationListSearchesTitlesAndPaginates(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	fixture := newServerFixture(t, root, fakeAgentProvider{})
+	handler := fixture.server.Routes()
+	create := request(handler, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	baseTime := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	for i, title := range []string{
+		"Fix Search Modal",
+		"Release notes",
+		"search sidebar polish",
+		"Patch approval flow",
+	} {
+		if _, err := fixture.store.CreateConversation(context.Background(), database.ConversationRecord{
+			WorkspaceID:   ws.ID,
+			Title:         title,
+			CreatedAt:     baseTime.Add(time.Duration(i) * time.Second),
+			UpdatedAt:     baseTime.Add(time.Duration(i) * time.Second),
+			LastMessageAt: baseTime.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("CreateConversation %q returned error: %v", title, err)
+		}
+	}
+
+	firstPage := request(handler, http.MethodGet, "/api/workspaces/"+ws.ID+"/conversations?q=%20SEARCH%20&limit=1", "")
+	if firstPage.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", firstPage.Code, firstPage.Body.String())
+	}
+	var firstBody struct {
+		Conversations []conversationResponse `json:"conversations"`
+		NextCursor    *string                `json:"nextCursor"`
+	}
+	mustDecode(t, firstPage, &firstBody)
+	if len(firstBody.Conversations) != 1 || firstBody.Conversations[0].Title != "search sidebar polish" || firstBody.NextCursor == nil {
+		t.Fatalf("unexpected first search page: %+v", firstBody)
+	}
+
+	nextPage := request(handler, http.MethodGet, "/api/workspaces/"+ws.ID+"/conversations?q=search&limit=1&cursor="+*firstBody.NextCursor, "")
+	if nextPage.Code != http.StatusOK {
+		t.Fatalf("expected next page 200, got %d: %s", nextPage.Code, nextPage.Body.String())
+	}
+	var nextBody struct {
+		Conversations []conversationResponse `json:"conversations"`
+		NextCursor    *string                `json:"nextCursor"`
+	}
+	mustDecode(t, nextPage, &nextBody)
+	if len(nextBody.Conversations) != 1 || nextBody.Conversations[0].Title != "Fix Search Modal" || nextBody.NextCursor != nil {
+		t.Fatalf("unexpected next search page: %+v", nextBody)
+	}
+}
+
 func TestToolApprovalAppliesPatchAndRemovedPatchEndpointsAreGone(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	seedExampleFile(t, root)

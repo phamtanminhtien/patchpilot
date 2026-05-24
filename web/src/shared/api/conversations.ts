@@ -5,11 +5,11 @@ import type {
   AgentToolCallResponse,
   Conversation,
   ConversationDetail,
+  ConversationListParams,
   ConversationListResponse,
   CreateConversationRequest,
   CreateMessageRequest,
   MessageRunResponse,
-  PaginationParams,
 } from "./types";
 
 export async function createConversation(
@@ -25,7 +25,7 @@ export async function createConversation(
 
 export async function listConversations(
   workspaceId: string,
-  params?: PaginationParams,
+  params?: ConversationListParams,
 ): Promise<ConversationListResponse> {
   const response = await apiClient.get<ConversationListResponse>(
     `/workspaces/${workspaceId}/conversations`,

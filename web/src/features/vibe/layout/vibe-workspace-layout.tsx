@@ -1,4 +1,4 @@
-import { ArrowDown, Code2 } from "lucide-react";
+import { ArrowDown, Code2, Search } from "lucide-react";
 import { type ReactNode, type RefObject } from "react";
 import { Link } from "react-router";
 
@@ -8,6 +8,7 @@ export function VibeWorkspaceLayout({
   children,
   composer,
   onJumpToLatest,
+  onSearchConversations,
   onScroll,
   scrollContainerRef,
   sidebar,
@@ -18,6 +19,7 @@ export function VibeWorkspaceLayout({
   children: ReactNode;
   composer: ReactNode;
   onJumpToLatest: () => void;
+  onSearchConversations: () => void;
   onScroll: () => void;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sidebar: ReactNode;
@@ -35,6 +37,15 @@ export function VibeWorkspaceLayout({
             <h1 className="text-ink truncate text-sm font-semibold">{title}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              aria-label="Search conversations"
+              className="md:hidden"
+              icon={<Search />}
+              onClick={onSearchConversations}
+              size="icon"
+              type="button"
+              variant="secondary"
+            />
             <Button
               aria-label="Open workspace"
               asChild
