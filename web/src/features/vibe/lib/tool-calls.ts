@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   FileEdit,
   FileText,
   FolderTree,
@@ -11,6 +12,8 @@ import {
 } from "lucide-react";
 
 import type { AgentToolCall } from "@/shared/api";
+
+import { humanizeSkillName } from "./skills";
 
 interface ToolCallMetadata {
   Icon: LucideIcon;
@@ -54,6 +57,10 @@ const TOOL_METADATA: Record<string, ToolCallMetadata> = {
   search_files: {
     Icon: Search,
     label: "Search files",
+  },
+  use_skill: {
+    Icon: BookOpen,
+    label: "Load skill",
   },
 };
 
@@ -155,6 +162,8 @@ function toolCallStatusLabel(toolCall: AgentToolCall) {
       return isFinished ? "Ran" : "Running";
     case "search_files":
       return isFinished ? "Searched" : "Searching";
+    case "use_skill":
+      return isFinished ? "Loaded" : "Loading";
     default:
       return isFinished ? "Finished" : "Running";
   }
@@ -184,6 +193,8 @@ function toolCallText(
       return stringValue(input.command) || "command";
     case "search_files":
       return stringValue(input.query) || "workspace";
+    case "use_skill":
+      return humanizeSkillName(stringValue(input.name) || fallback);
     default:
       return fallback;
   }
@@ -204,6 +215,16 @@ function toolCallDetail(
   }
   if (toolCall.name === "git_diff") {
     return toolCall.output || toolCall.input;
+  }
+  if (toolCall.name === "use_skill") {
+    const output = parseToolInput(toolCall.output);
+    return (
+      stringValue(output.instruction) ||
+      stringValue(output.description) ||
+      humanizeSkillName(stringValue(input.name)) ||
+      toolCall.output ||
+      toolCall.input
+    );
   }
   return toolCall.output || toolCall.input;
 }

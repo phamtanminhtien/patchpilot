@@ -185,7 +185,7 @@ const agentContext = {
       enabled: true,
       instruction: "Use the in-app browser to inspect local UI.",
       key: "browser",
-      name: "Browser",
+      name: "browser",
       path: "patchpilot/browser",
       source: "patchpilot",
       valid: true,
@@ -1071,6 +1071,46 @@ describe("VibePage", () => {
     expect(screen.getByText("Read")).toBeInTheDocument();
     expect(path.closest("[data-tool-call]")).toBeNull();
     expect(screen.queryByText("PatchPilot smoke file")).not.toBeInTheDocument();
+  });
+
+  it("renders use_skill tool calls with human-readable skill names", async () => {
+    const user = userEvent.setup();
+    const useSkillToolCall = {
+      ...toolCall,
+      finishedAt: "2026-05-20T00:00:02Z",
+      input: '{"name":"incremental-implementation"}',
+      name: "use_skill",
+      output: '{"instruction":"Implement in small verified steps."}',
+      requiresApproval: false,
+      source: "skill" as const,
+      sourceRef: "incremental-implementation",
+      status: "finished" as const,
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "done" }],
+      toolCalls: [useSkillToolCall],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const summary = await screen.findByRole("button", {
+      name: "Loaded Incremental Implementation",
+    });
+    await user.click(summary);
+
+    expect(
+      screen.getByText("Source: skill/Incremental Implementation"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("incremental-implementation"),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps previous conversation messages visible after newer runs", async () => {

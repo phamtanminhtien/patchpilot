@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import type { AgentToolCall } from "@/shared/api";
 import { Button } from "@/shared/ui";
 
+import { humanizeSkillName } from "../lib/skills";
 import {
   parseToolInput,
   toolCallDisplay,
@@ -71,10 +72,7 @@ export function ToolCallReview({
       ) : null}
       {source !== "builtin" || toolCall.policyReason ? (
         <div className="text-muted grid gap-1 text-xs">
-          <p>
-            Source: {source}
-            {toolCall.sourceRef ? `/${toolCall.sourceRef}` : ""}
-          </p>
+          <p>Source: {toolCallSourceLabel(source, toolCall.sourceRef)}</p>
           {toolCall.policyReason ? <p>{toolCall.policyReason}</p> : null}
         </div>
       ) : null}
@@ -163,6 +161,16 @@ export function ToolCallReview({
       </div>
     </div>
   );
+}
+
+function toolCallSourceLabel(source: string, sourceRef?: string | null) {
+  if (!sourceRef) {
+    return source;
+  }
+  if (source === "skill") {
+    return `${source}/${humanizeSkillName(sourceRef)}`;
+  }
+  return `${source}/${sourceRef}`;
 }
 
 function ToolCallSummaryRow({
