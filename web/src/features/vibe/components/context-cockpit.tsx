@@ -7,6 +7,8 @@ import type {
 } from "@/shared/api";
 import { Switch } from "@/shared/ui";
 
+import { skillDisplayName } from "../lib/skills";
+
 export function ContextCockpit({
   context,
   error,
@@ -57,39 +59,43 @@ export function ContextCockpit({
 
       <CockpitSection title="Skills">
         {skills.length ? (
-          skills.map((skill) => (
-            <div
-              className="flex min-w-0 items-start justify-between gap-3"
-              key={skill.key}
-            >
-              <div className="grid min-w-0 gap-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="text-ink truncate text-sm font-medium">
-                    {skill.name}
-                  </span>
-                  {!skill.valid ? (
-                    <span className="text-warning shrink-0 text-xs">
-                      Invalid
+          skills.map((skill) => {
+            const displayName = skillDisplayName(skill);
+
+            return (
+              <div
+                className="flex min-w-0 items-start justify-between gap-3"
+                key={skill.key}
+              >
+                <div className="grid min-w-0 gap-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="text-ink truncate text-sm font-medium">
+                      {displayName}
                     </span>
+                    {!skill.valid ? (
+                      <span className="text-warning shrink-0 text-xs">
+                        Invalid
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-muted truncate text-xs">
+                    {skill.description || skill.source}
+                  </p>
+                  {skill.warning ? (
+                    <p className="text-warning text-xs">{skill.warning}</p>
                   ) : null}
                 </div>
-                <p className="text-muted truncate text-xs">
-                  {skill.description || skill.source}
-                </p>
-                {skill.warning ? (
-                  <p className="text-warning text-xs">{skill.warning}</p>
-                ) : null}
+                <Switch
+                  aria-label={`Toggle ${displayName}`}
+                  checked={skill.enabled}
+                  disabled={isUpdatingSkill}
+                  onCheckedChange={(checked) =>
+                    onSkillEnabledChange(skill, checked)
+                  }
+                />
               </div>
-              <Switch
-                aria-label={`Toggle ${skill.name}`}
-                checked={skill.enabled}
-                disabled={isUpdatingSkill}
-                onCheckedChange={(checked) =>
-                  onSkillEnabledChange(skill, checked)
-                }
-              />
-            </div>
-          ))
+            );
+          })
         ) : (
           <EmptyLine text="No local skills discovered." />
         )}

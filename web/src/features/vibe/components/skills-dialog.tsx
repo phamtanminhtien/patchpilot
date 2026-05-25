@@ -14,6 +14,8 @@ import {
   Switch,
 } from "@/shared/ui";
 
+import { skillDisplayName } from "../lib/skills";
+
 export function SkillsDialog({
   context,
   error,
@@ -117,6 +119,8 @@ function SkillRow({
   onSkillEnabledChange: (skill: AgentSkill, enabled: boolean) => void;
   skill: AgentSkill;
 }) {
+  const displayName = skillDisplayName(skill);
+
   return (
     <div
       className="hover:bg-hover data-[selected=true]:bg-hover flex min-h-16 min-w-0 items-center gap-3 rounded-md px-2 py-2 transition"
@@ -134,7 +138,7 @@ function SkillRow({
         <div className="grid min-w-0 flex-1 gap-1">
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-ink truncate text-sm font-medium">
-              {skill.name}
+              {displayName}
             </span>
             {!skill.valid ? (
               <span className="text-warning shrink-0 text-xs">Invalid</span>
@@ -149,7 +153,7 @@ function SkillRow({
         </div>
       </button>
       <Switch
-        aria-label={`Toggle ${skill.name}`}
+        aria-label={`Toggle ${displayName}`}
         checked={skill.enabled}
         disabled={isUpdating}
         onCheckedChange={(checked) => onSkillEnabledChange(skill, checked)}
@@ -159,6 +163,8 @@ function SkillRow({
 }
 
 function SkillDetail({ skill }: { skill: AgentSkill }) {
+  const displayName = skillDisplayName(skill);
+
   return (
     <section className="bg-hover grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-md p-3">
       <div className="flex min-w-0 items-start gap-3">
@@ -167,7 +173,7 @@ function SkillDetail({ skill }: { skill: AgentSkill }) {
         </span>
         <div className="grid min-w-0 gap-1">
           <h3 className="text-ink truncate text-sm font-semibold">
-            {skill.name}
+            {displayName}
           </h3>
           <p className="text-muted text-xs">{skill.description}</p>
           <p className="text-muted text-xs">Source: {skill.source}</p>
