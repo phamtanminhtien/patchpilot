@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.2.2...patchpilot-v0.3.0) (2026-05-25)
+
+
+### Features
+
+* add support for human-readable skill names and implement use_skill tool call visualization ([0f9dcfc](https://github.com/phamtanminhtien/patchpilot/commit/0f9dcfccb7fc28efcc037905628a53102a985141))
+* implement agent context and skill management system with new API endpoints and UI components ([0021c13](https://github.com/phamtanminhtien/patchpilot/commit/0021c13a110b00dab318754377f91445e6e503b7))
+
 ## [0.2.2](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.2.1...patchpilot-v0.2.2) (2026-05-24)
 
 
