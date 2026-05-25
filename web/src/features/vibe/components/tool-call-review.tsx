@@ -41,6 +41,7 @@ export function ToolCallReview({
   const input = parseToolInput(toolCall.input);
   const summary = typeof input.summary === "string" ? input.summary : "";
   const display = toolCallDisplay(toolCall);
+  const source = toolCall.source ?? "builtin";
   const defaultOpen = toolCallNeedsAttention(toolCall);
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const contentId = useId();
@@ -67,6 +68,15 @@ export function ToolCallReview({
         <pre className="text-muted/80 border-line max-h-64 overflow-auto border-l py-2 pl-3 text-xs whitespace-pre-wrap">
           {display.detail}
         </pre>
+      ) : null}
+      {source !== "builtin" || toolCall.policyReason ? (
+        <div className="text-muted grid gap-1 text-xs">
+          <p>
+            Source: {source}
+            {toolCall.sourceRef ? `/${toolCall.sourceRef}` : ""}
+          </p>
+          {toolCall.policyReason ? <p>{toolCall.policyReason}</p> : null}
+        </div>
       ) : null}
       {error ? (
         <p className="text-warning text-sm font-medium">{error}</p>

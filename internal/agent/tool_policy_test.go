@@ -10,6 +10,7 @@ func TestStaticToolApprovalPolicies(t *testing.T) {
 		"search_files": toolAutoRun,
 		"git_status":   toolAutoRun,
 		"git_diff":     toolAutoRun,
+		"use_skill":    toolAutoRun,
 	}
 	if len(staticToolApprovalPolicies) != len(expected) {
 		t.Fatalf("unexpected static tool policy count: %+v", staticToolApprovalPolicies)

@@ -56,7 +56,7 @@ export const DialogContent = forwardRef<
               icon={<X />}
               size="icon"
               type="button"
-              variant="action"
+              variant="surface"
             />
           </RadixDialog.Close>
         ) : null}

@@ -108,7 +108,7 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 - Agent `read_file` blocks secrets by default: `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`.
 - Users may manually open files, but secret contents must not enter agent context.
 - Repo instruction files and skill files enter agent context only after workspace-root, symlink, size, binary, and secret-path checks.
-- Skill discovery reads `~/.patchpilot/skills` before `~/.agent/skills`; duplicate keys use only the `~/.patchpilot/skills` copy for effective skills and agent context.
+- Skill discovery reads `~/.patchpilot/skills` before `~/.agents/skills`; duplicate keys use only the `~/.patchpilot/skills` copy for effective skills and agent context.
 - User commands run only after direct submission.
 - Agent commands auto-run only if allowed by `docs/product-spec.md` and free of shell control operators.
 - Patch tools always require approval. Non-allowlisted agent commands require approval.

@@ -254,6 +254,9 @@ export interface AgentToolCall {
   providerCallId: string;
   requiresApproval: boolean;
   sequence: number;
+  source?: "builtin" | "skill" | "mcp";
+  sourceRef?: string | null;
+  policyReason?: string;
   startedAt?: string | null;
   status:
     | "pending"
@@ -265,6 +268,63 @@ export interface AgentToolCall {
     | "failed";
   runId: string;
   workspaceId: string;
+}
+
+export interface AgentContextWarning {
+  path?: string;
+  message: string;
+}
+
+export interface AgentInstructionSource {
+  path: string;
+  content: string;
+  precedence: number;
+}
+
+export interface AgentSkill {
+  key: string;
+  name: string;
+  description: string;
+  path: string;
+  source: string;
+  enabled: boolean;
+  valid: boolean;
+  warning?: string;
+  instruction?: string;
+  warnings?: AgentContextWarning[];
+}
+
+export interface AgentMcpServer {
+  id: string;
+  name: string;
+  transport: string;
+  disabled: boolean;
+  status: string;
+  lastError?: string;
+  approvalPolicy: string;
+  warnings?: AgentContextWarning[];
+}
+
+export interface AgentMcpTool {
+  id: string;
+  serverId: string;
+  name: string;
+  readOnlyHint: boolean;
+  approvalPolicy: string;
+}
+
+export interface AgentContextSnapshot {
+  instructionSources: AgentInstructionSource[];
+  skippedSources?: AgentContextWarning[];
+  skills: AgentSkill[];
+  mcpServers: AgentMcpServer[];
+  mcpTools: AgentMcpTool[];
+  contextWarnings?: AgentContextWarning[];
+  refreshedAt: string;
+}
+
+export interface AgentSkillResponse {
+  skill: AgentSkill;
 }
 
 export interface AgentToolCallResponse {

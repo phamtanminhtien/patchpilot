@@ -1,11 +1,24 @@
+import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { useThemePreference } from "@/app/theme";
-import { StarterScreen, ThemeSwitcher } from "@/shared/ui";
+import {
+  Button,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogRoot,
+  DialogTitle,
+  StarterScreen,
+  ThemeSwitcher,
+} from "@/shared/ui";
 
 import { AgentRunThread } from "./components/agent-run-thread";
 import { Composer } from "./components/composer";
+import { ContextCockpit } from "./components/context-cockpit";
 import { ConversationSearchDialog } from "./components/conversation-search-dialog";
+import { SkillsDialog } from "./components/skills-dialog";
 import { useSmartAutoScroll } from "./hooks/use-smart-auto-scroll";
 import { useVibeController } from "./hooks/use-vibe-controller";
 import { VibeConversationSidebar } from "./layout/vibe-conversation-sidebar";
@@ -15,6 +28,8 @@ export function VibePage() {
   const controller = useVibeController();
   const [isConversationSearchOpen, setIsConversationSearchOpen] =
     useState(false);
+  const [isContextOpen, setIsContextOpen] = useState(false);
+  const [isSkillsOpen, setIsSkillsOpen] = useState(false);
   const { preference, setPreference } = useThemePreference();
   const scroll = useSmartAutoScroll({
     contentKey: [
@@ -66,6 +81,7 @@ export function VibePage() {
         )
       }
       onJumpToLatest={() => scroll.scrollToLatest()}
+      onOpenContext={() => setIsContextOpen(true)}
       onSearchConversations={() => setIsConversationSearchOpen(true)}
       onScroll={scroll.handleScroll}
       scrollContainerRef={scroll.scrollContainerRef}
@@ -77,6 +93,7 @@ export function VibePage() {
           onNewConversation={controller.conversation.onNewConversation}
           onSearchConversations={() => setIsConversationSearchOpen(true)}
           onSelectConversation={controller.conversation.onSelectConversation}
+          onOpenSkills={() => setIsSkillsOpen(true)}
           workspaceId={controller.workspace.id}
         />
       }
@@ -104,6 +121,60 @@ export function VibePage() {
         open={isConversationSearchOpen}
         workspaceId={controller.workspace.id}
       />
+      <SkillsDialog
+        context={controller.context.data}
+        error={controller.context.error}
+        isLoading={controller.context.isLoading}
+        isOpen={isSkillsOpen}
+        isRefreshing={controller.context.isRefreshing}
+        isUpdatingSkill={controller.context.isUpdatingSkill}
+        onOpenChange={setIsSkillsOpen}
+        onRefresh={controller.context.onRefresh}
+        onSkillEnabledChange={(skill, enabled) =>
+          controller.context.onSkillEnabledChange(skill.key, enabled)
+        }
+      />
+      <DialogRoot onOpenChange={setIsContextOpen} open={isContextOpen}>
+        <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-h-[min(42rem,calc(100vh-2rem))] sm:max-w-2xl">
+          <DialogHeader className="border-line/30 border-b px-5 py-4">
+            <DialogTitle>Agent context</DialogTitle>
+            <DialogDescription>
+              {controller.context.data
+                ? `Refreshed ${new Date(controller.context.data.refreshedAt).toLocaleTimeString()}`
+                : "Not loaded"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 overflow-auto px-5 py-4">
+            <ContextCockpit
+              context={controller.context.data}
+              error={controller.context.error}
+              isLoading={controller.context.isLoading}
+              isUpdatingSkill={controller.context.isUpdatingSkill}
+              onSkillEnabledChange={(skill, enabled) =>
+                controller.context.onSkillEnabledChange(skill.key, enabled)
+              }
+            />
+          </div>
+          <DialogFooter className="border-line/30 border-t px-5 py-3">
+            <Button
+              disabled={controller.context.isRefreshing}
+              icon={
+                <RefreshCw
+                  className={
+                    controller.context.isRefreshing ? "animate-spin" : ""
+                  }
+                />
+              }
+              onClick={controller.context.onRefresh}
+              size="small"
+              type="button"
+              variant="surface"
+            >
+              Refresh
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </DialogRoot>
     </VibeWorkspaceLayout>
   );
 }

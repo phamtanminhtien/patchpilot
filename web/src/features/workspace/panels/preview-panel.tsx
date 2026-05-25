@@ -102,8 +102,9 @@ function PreviewPortCard({
 
       <div className="flex flex-wrap justify-end gap-2">
         {isOpenable ? (
-          <Button asChild icon={<ExternalLink />} size="small">
+          <Button asChild size="small">
             <a href={port.exposedUrl ?? ""} rel="noreferrer" target="_blank">
+              <ExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
               Open preview
             </a>
           </Button>

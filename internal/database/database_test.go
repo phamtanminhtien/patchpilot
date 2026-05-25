@@ -77,8 +77,8 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if err := store.db.First(&version, "key = ?", schemaVersionKey).Error; err != nil {
 		t.Fatalf("expected schema version metadata: %v", err)
 	}
-	if version.Value != "4" {
-		t.Fatalf("expected schema version 4, got %q", version.Value)
+	if version.Value != "5" {
+		t.Fatalf("expected schema version 5, got %q", version.Value)
 	}
 }
 

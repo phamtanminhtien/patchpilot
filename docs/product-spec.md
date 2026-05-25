@@ -72,10 +72,11 @@ Skills:
 
 ```txt
 add local skill directory -> index SKILL.md -> enable/disable
--> select relevant enabled skills for a run -> inject bounded skill context
+-> select relevant enabled skill metadata for a run -> agent calls use_skill by name
+-> inject selected skill body only after use_skill
 ```
 
-Skills are local directories with `SKILL.md`. Discovery roots: `~/.patchpilot/skills` (user override) then `~/.agent/skills` (fallback). Duplicate keys use only the `~/.patchpilot/skills` copy for effective skills and agent context. Enablement comes from `~/.patchpilot/config.json`; skills missing from `config.skills` default enabled. Runs inject concise selected skill instructions plus directly needed supporting context, not whole directories.
+Skills are local directories with `SKILL.md`. A valid `SKILL.md` starts with YAML frontmatter containing non-empty `name` and `description` strings, followed by a non-empty instruction body. Discovery roots: `~/.patchpilot/skills` (user override) then `~/.agents/skills` (fallback). Duplicate keys use only the `~/.patchpilot/skills` copy for effective skills and agent context. Enablement comes from `~/.patchpilot/config.json`; skills missing from `config.skills` default enabled. Runs inject enabled valid skill names/descriptions into the prompt; the agent calls the read-only `use_skill` tool with a skill name to retrieve the body when needed. Duplicate enabled valid skill names after precedence are marked invalid so `use_skill` is deterministic.
 
 MCP:
 
@@ -229,7 +230,7 @@ Response contracts:
 - Backend shutdown finalizes active runs (`queued`, `running`, `waiting_tool_approval`) as `failed` with durable shutdown error and backend-owned queued/running commands as `stopped`.
 - Run cancel marks non-terminal runs `canceled`, stops active run-owned command tools, is idempotent, and returns the run. Terminal runs return current state. Missing run: `404 agent_run_not_found`.
 - Tool approve/reject accept no body and return `{"toolCall":{...}}`. Approve runs the selected pending approval-required tool; reject records rejection. Missing/non-waiting calls return `404 agent_tool_call_not_found` or `409 agent_tool_not_approvable`.
-- Agent context returns effective instruction sources, enabled skill summaries, MCP server/tool summaries, context-budget warnings, and refresh time. Refresh rereads instructions, enabled skills, and MCP discovery state where possible; failures use standard errors without leaking host paths.
+- Agent context returns effective instruction sources, skill summaries and bodies for UI detail, MCP server/tool summaries, context-budget warnings, and refresh time. Refresh rereads instructions, enabled skills, and MCP discovery state where possible; failures use standard errors without leaking host paths.
 - Skill create accepts a local directory path. Patch accepts `{"enabled":true|false}` plus optional display metadata. Refresh reparses enabled/disabled directories. Invalid skill directories stay visible with warnings.
 - MCP server create accepts `{"name":"...","transport":"stdio|http",...}` with transport-specific config. Patch can enable/disable, update policy, or replace config. Refresh updates health/tools/resources. Tool list returns cached metadata, source server, read-only hints, and effective approval policy.
 - Run event stream replays durable run events after `Last-Event-ID`; without it, replays durable run events from the beginning, then continues live.
@@ -373,10 +374,10 @@ Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestrat
 - Create, list, open, rename, and continue conversations per workspace.
 - Send chat messages that start agent runs.
 - Workspace refresh reads applicable `AGENTS.md` files and shows effective sources, precedence, and warnings in Vibe.
-- Agent-context refresh reloads `~/.patchpilot/config.json`, scans `~/.patchpilot/skills` and `~/.agent/skills`, and shows safe warnings for invalid config.
-- Users can enable/disable discovered local skills through config without remote installs; missing `config.skills` entries default enabled.
+- Agent-context refresh reloads `~/.patchpilot/config.json`, scans `~/.patchpilot/skills` and `~/.agents/skills`, and shows safe warnings for invalid config.
+- Users can open Skills from the Vibe sidebar, see skill name/description/body detail from YAML frontmatter, and enable/disable discovered local skills through config without remote installs; missing `config.skills` entries default enabled.
 - Duplicate skill keys select only the `~/.patchpilot/skills` copy for effective list/context.
-- Enabled skills influence future runs through bounded context; disabled/invalid skills are not injected.
+- Enabled skills influence future runs through metadata in the prompt and body retrieval through `use_skill`; disabled/invalid skills are not injected or selectable by tool.
 - Users can inspect stdio/HTTP MCP servers from `config.mcpServers`.
 - MCP discovery shows server, transport, tool/resource metadata, health, disabled state, last error, read-only hints, and effective approval policy.
 - Agent starts non-trivial work with a short plan, reads/searches approved files before changes, returns messages/tool calls rather than direct mutations, produces small reviewable patches, reports changed files, and runs/recommends narrow verification.
@@ -393,6 +394,6 @@ Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestrat
 - Invalid paths: file, Git, command, and agent tool paths reject absolute paths, traversal, and symlink escapes with standard errors and no host-path leakage. Verification: filestore, gitrepo, runner, agent, API tests.
 - Secret protection: agent reads and manual writes reject `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`. Verification: agent tool, filestore, API tests.
 - Instruction context safety: `AGENTS.md` discovery rejects escapes, external symlinks, secret-like paths, binaries, oversized files, and shows safe warnings. Verification: agent context and API handler tests.
-- Skill manager safety: parser validates `SKILL.md`, preserves invalid-skill warnings, respects config enablement, applies `~/.patchpilot/skills` duplicate precedence, and injects bounded selected context only. Verification: skill repository/parser and agent context tests.
+- Skill manager safety: parser validates YAML-frontmatter `SKILL.md`, preserves invalid-skill warnings, respects config enablement, applies `~/.patchpilot/skills` duplicate precedence, rejects duplicate enabled names after precedence, and injects skill bodies only through `use_skill`. Verification: skill repository/parser and agent context tests.
 - MCP safety: stdio/HTTP fake servers can be added, refreshed, listed, and called from config; disabled servers do not start; unresolved env placeholders produce safe warnings; unknown/mutating tools require approval; read-only auto-run requires both metadata and PatchPilot policy. Verification: MCP client, approval-policy, API handler, agent manager tests.
 - Agent cockpit UI: context, skills, MCP, approvals, and run details are visible on desktop/mobile; long paths/tool names/server names/JSON summaries wrap or truncate without layout shifts. Verification: frontend component tests and Playwright smoke.

@@ -14,6 +14,7 @@ var staticToolApprovalPolicies = map[string]toolApprovalPolicy{
 	"search_files": toolAutoRun,
 	"git_status":   toolAutoRun,
 	"git_diff":     toolAutoRun,
+	"use_skill":    toolAutoRun,
 }
 
 func staticToolPolicy(name string) (toolApprovalPolicy, bool) {

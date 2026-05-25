@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/phamtanminhtien/patchpilot/internal/skills"
 )
 
 func TestOpenAIProviderUsesCustomBaseURLResponsesPath(t *testing.T) {
@@ -110,8 +112,8 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 				t.Fatalf("expected agent instructions outside input, got %s", encodedInput)
 			}
 			tools, ok := body["tools"].([]any)
-			if !ok || len(tools) != 7 {
-				t.Fatalf("expected seven tools in initial request, got %#v", body["tools"])
+			if !ok || len(tools) != 8 {
+				t.Fatalf("expected eight tools in initial request, got %#v", body["tools"])
 			}
 			writeOpenAIStream(w, "response.output_text.delta", `{"delta":"I will inspect the workspace before patching."}`)
 			writeOpenAIStream(w, "response.output_item.done", `{"item":{"type":"function_call","call_id":"call_search","name":"search_files","arguments":"{\"query\":\"note\"}"}}`)
@@ -200,10 +202,44 @@ func TestOpenAIProviderPromptRejectsReadinessForConcreteTasks(t *testing.T) {
 		"Ask a clarifying question only",
 		"include concise output_text in the same response",
 		"same language as the user's prompt",
+		"Use use_skill",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected provider prompt to contain %q, got %s", expected, prompt)
 		}
+	}
+}
+
+func TestOpenAIProviderInputListsSkillMetadataWithoutBody(t *testing.T) {
+	run := Run{
+		ID:              "run_1",
+		WorkspaceID:     "ws_1",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+	}
+	input := buildOpenAIInput(ProviderRequest{
+		Run:    run,
+		Prompt: "Use the browser skill.",
+		SelectedSkills: []skills.Skill{
+			{
+				Name:        "Browser",
+				Description: "Browser automation.",
+				Instruction: "Secret body instructions should load only through use_skill.",
+			},
+		},
+	})
+	encodedInput, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	encoded := string(encodedInput)
+	for _, expected := range []string{"Selected local skills", "Name: Browser", "Description: Browser automation."} {
+		if !strings.Contains(encoded, expected) {
+			t.Fatalf("expected provider input to contain %q, got %s", expected, encoded)
+		}
+	}
+	if strings.Contains(encoded, "Secret body instructions") {
+		t.Fatalf("expected provider input to omit skill body, got %s", encoded)
 	}
 }
 

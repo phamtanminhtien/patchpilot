@@ -394,6 +394,9 @@ func upsertOpenAIToolCall(calls []openAIToolCall, next openAIToolCall) []openAIT
 
 func buildOpenAIInput(request ProviderRequest) []any {
 	input := make([]any, 0, 1+len(request.ConversationContext)+len(request.History))
+	if text := buildRepoInstructionText(request); text != "" {
+		input = append(input, openAIMessage("user", text))
+	}
 	if strings.TrimSpace(request.ContextSummary) != "" {
 		input = append(input, openAIMessage("user", "Conversation summary:\n"+strings.TrimSpace(request.ContextSummary)))
 	}
@@ -468,6 +471,51 @@ func buildProviderPrompt(request ProviderRequest) string {
 	return providerInstructions() + "\n\nCurrent user prompt:\n" + strings.TrimSpace(request.Prompt)
 }
 
+func buildRepoInstructionText(request ProviderRequest) string {
+	var builder strings.Builder
+	if len(request.RepoInstructions) > 0 {
+		builder.WriteString("Effective repo instructions, in precedence order:\n")
+		for _, source := range request.RepoInstructions {
+			if strings.TrimSpace(source.Content) == "" {
+				continue
+			}
+			builder.WriteString("\nSource: ")
+			builder.WriteString(source.Path)
+			builder.WriteString("\n")
+			builder.WriteString(source.Content)
+			builder.WriteString("\n")
+		}
+	}
+	if len(request.SelectedSkills) > 0 {
+		builder.WriteString("\nSelected local skills:\n")
+		for _, skill := range request.SelectedSkills {
+			if strings.TrimSpace(skill.Name) == "" || strings.TrimSpace(skill.Description) == "" {
+				continue
+			}
+			builder.WriteString("\nName: ")
+			builder.WriteString(skill.Name)
+			builder.WriteString("\nDescription: ")
+			builder.WriteString(skill.Description)
+			builder.WriteString("\n")
+		}
+	}
+	if len(request.ContextWarnings) > 0 {
+		builder.WriteString("\nContext warnings:\n")
+		for _, warning := range request.ContextWarnings {
+			if warning.Path != "" {
+				builder.WriteString("- ")
+				builder.WriteString(warning.Path)
+				builder.WriteString(": ")
+			} else {
+				builder.WriteString("- ")
+			}
+			builder.WriteString(warning.Message)
+			builder.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
 func providerInstructions() string {
 	return `You are PatchPilot's coding agent.
 
@@ -475,6 +523,7 @@ Rules:
 - Inspect context only from the server-provided conversation context and the available workspace tools.
 - Return assistant text when useful.
 - Use tools for workspace reads, git inspection, commands, and patches.
+- Use use_skill with a selected skill name when a local skill description is relevant and you need its detailed instructions.
 - When calling tools, include concise output_text in the same response that tells the user what you are checking or changing so the user sees progress while tool calls are pending.
 - Write assistant text, including output_text sent with tool calls, in the same language as the user's prompt unless the user explicitly asks for a different language.
 - If the user prompt asks for a change or investigation, do not answer with readiness, greetings, or "what would you like me to do" questions.
@@ -599,6 +648,20 @@ func openAITools() []openAITool {
 					"command": {Type: "string", Description: "Command to run from workspace root."},
 				},
 				Required:             []string{"command"},
+				AdditionalProperties: false,
+			},
+			Strict: true,
+		},
+		{
+			Type:        "function",
+			Name:        "use_skill",
+			Description: "Load detailed instructions for one selected local skill by name.",
+			Parameters: openAIToolParameters{
+				Type: "object",
+				Properties: map[string]openAIToolProperty{
+					"name": {Type: "string", Description: "Selected local skill name."},
+				},
+				Required:             []string{"name"},
 				AdditionalProperties: false,
 			},
 			Strict: true,

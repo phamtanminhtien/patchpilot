@@ -19,12 +19,15 @@ import {
   createConversation,
   createMessage,
   createWorkspace,
+  getAgentContext,
   getConversation,
   getWorkspace,
   listConversations,
   listWorkspaces,
   type Message,
+  refreshAgentContext,
   rejectAgentToolCall,
+  setAgentSkillEnabled,
   type WorkspaceEvent,
 } from "@/shared/api";
 import { useRunEvents, useWorkspaceEvents } from "@/shared/events";
@@ -93,6 +96,27 @@ export function useVibeController() {
     enabled: workspaceId.length > 0 && currentConversationId.length > 0,
     queryFn: () => getConversation(workspaceId, currentConversationId),
     queryKey: ["conversation", workspaceId, currentConversationId],
+  });
+
+  const agentContextQuery = useQuery({
+    enabled: workspaceId.length > 0,
+    queryFn: () => getAgentContext(workspaceId),
+    queryKey: ["agent-context", workspaceId],
+  });
+
+  const refreshContextMutation = useMutation({
+    mutationFn: () => refreshAgentContext(workspaceId),
+    onSuccess: (context) =>
+      queryClient.setQueryData(["agent-context", workspaceId], context),
+  });
+
+  const skillMutation = useMutation({
+    mutationFn: (input: { key: string; enabled: boolean }) =>
+      setAgentSkillEnabled(workspaceId, input.key, input.enabled),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-context", workspaceId],
+      }),
   });
 
   const createMessageMutation = useMutation({
@@ -310,6 +334,10 @@ export function useVibeController() {
   }
 
   const hasConversation = currentConversationId.length > 0;
+  const contextError =
+    agentContextQuery.error ??
+    refreshContextMutation.error ??
+    skillMutation.error;
 
   return {
     composer: {
@@ -351,6 +379,16 @@ export function useVibeController() {
       title:
         conversationDetailQuery.data?.conversation.title ??
         "PatchPilot conversation",
+    },
+    context: {
+      data: agentContextQuery.data,
+      error: contextError ? apiErrorMessage(contextError) : undefined,
+      isLoading: agentContextQuery.isPending,
+      isRefreshing: refreshContextMutation.isPending,
+      isUpdatingSkill: skillMutation.isPending,
+      onRefresh: () => refreshContextMutation.mutate(),
+      onSkillEnabledChange: (key: string, enabled: boolean) =>
+        skillMutation.mutate({ key, enabled }),
     },
     starter: {
       createError: createWorkspaceMutation.error

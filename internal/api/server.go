@@ -111,6 +111,13 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/conversations/{conversationId}/runs/{runId}/events", s.agentRunEvents)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/conversations/{conversationId}/runs/{runId}/tool-calls/{toolCallId}/approve", s.approveAgentToolCall)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/conversations/{conversationId}/runs/{runId}/tool-calls/{toolCallId}/reject", s.rejectAgentToolCall)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/agent/context", s.getAgentContext)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/agent/context/refresh", s.getAgentContext)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/skills", s.listAgentSkills)
+	mux.HandleFunc("PATCH /api/workspaces/{workspaceId}/skills/{skillKey}", s.patchAgentSkill)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/skills/refresh", s.listAgentSkills)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/mcp/servers", s.listMCPServers)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/mcp/servers/{serverId}/tools", s.listMCPServerTools)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes", s.listProcesses)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes/{processId}", s.getProcess)
@@ -209,6 +216,10 @@ type loginRequest struct {
 type writeFileRequest struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+}
+
+type patchSkillRequest struct {
+	Enabled bool `json:"enabled"`
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -786,6 +797,90 @@ func (s *Server) rejectAgentToolCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"toolCall": call})
+}
+
+func (s *Server) getAgentContext(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
+		return
+	}
+	snapshot, err := s.agent.RefreshContext(r.Context(), ws.RootPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "agent_context_refresh_failed", "Agent context could not be refreshed", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) patchAgentSkill(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	_ = ws
+	var req patchSkillRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	skill, err := s.agent.SetSkillEnabled(r.Context(), r.PathValue("skillKey"), req.Enabled)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "skill_config_failed", "Skill config could not be updated", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"skill": skill})
+}
+
+func (s *Server) listAgentSkills(w http.ResponseWriter, r *http.Request) {
+	snapshot, ok := s.agentContextFromRequest(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"skills": snapshot.Skills})
+}
+
+func (s *Server) listMCPServers(w http.ResponseWriter, r *http.Request) {
+	snapshot, ok := s.agentContextFromRequest(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"servers": snapshot.MCPServers})
+}
+
+func (s *Server) listMCPServerTools(w http.ResponseWriter, r *http.Request) {
+	snapshot, ok := s.agentContextFromRequest(w, r)
+	if !ok {
+		return
+	}
+	serverID := r.PathValue("serverId")
+	tools := make([]any, 0)
+	for _, tool := range snapshot.MCPTools {
+		if tool.ServerID == serverID {
+			tools = append(tools, tool)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tools": tools})
+}
+
+func (s *Server) agentContextFromRequest(w http.ResponseWriter, r *http.Request) (agent.ContextSnapshot, bool) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return agent.ContextSnapshot{}, false
+	}
+	if s.agent == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "Agent runtime is unavailable", nil)
+		return agent.ContextSnapshot{}, false
+	}
+	snapshot, err := s.agent.RefreshContext(r.Context(), ws.RootPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "agent_context_refresh_failed", "Agent context could not be refreshed", nil)
+		return agent.ContextSnapshot{}, false
+	}
+	return snapshot, true
 }
 
 func (s *Server) conversationDetail(ctx context.Context, workspaceID, conversationID string) (map[string]any, error) {

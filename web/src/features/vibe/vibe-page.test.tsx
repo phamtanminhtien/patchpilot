@@ -20,12 +20,15 @@ import {
   createConversation,
   createMessage,
   createWorkspace,
+  getAgentContext,
   getConversation,
   getHealth,
   getWorkspace,
   listConversations,
   listWorkspaces,
+  refreshAgentContext,
   rejectAgentToolCall,
+  setAgentSkillEnabled,
 } from "@/shared/api";
 import {
   closeRunEventConnectionsForTest,
@@ -74,12 +77,15 @@ vi.mock("@/shared/api", () => ({
   createConversation: vi.fn(),
   createMessage: vi.fn(),
   createWorkspace: vi.fn(),
+  getAgentContext: vi.fn(),
   getConversation: vi.fn(),
   getHealth: vi.fn(),
   getWorkspace: vi.fn(),
   listConversations: vi.fn(),
   listWorkspaces: vi.fn(),
+  refreshAgentContext: vi.fn(),
   rejectAgentToolCall: vi.fn(),
+  setAgentSkillEnabled: vi.fn(),
 }));
 
 vi.mock("nuqs", async () => {
@@ -167,6 +173,38 @@ const message = {
   workspaceId: "ws_1",
 };
 
+const agentContext = {
+  contextWarnings: [],
+  instructionSources: [],
+  mcpServers: [],
+  mcpTools: [],
+  refreshedAt: "2026-05-20T00:00:00Z",
+  skills: [
+    {
+      description: "Browser automation for local targets.",
+      enabled: true,
+      instruction: "Use the in-app browser to inspect local UI.",
+      key: "browser",
+      name: "Browser",
+      path: "patchpilot/browser",
+      source: "patchpilot",
+      valid: true,
+    },
+    {
+      description: "",
+      enabled: true,
+      instruction: "",
+      key: "broken-skill",
+      name: "Broken Skill",
+      path: "patchpilot/broken-skill",
+      source: "patchpilot",
+      valid: false,
+      warning: "SKILL.md frontmatter requires a non-empty description.",
+    },
+  ],
+  skippedSources: [],
+};
+
 describe("VibePage", () => {
   beforeEach(() => {
     closeRunEventConnectionsForTest();
@@ -177,6 +215,11 @@ describe("VibePage", () => {
     vi.mocked(createWorkspace).mockResolvedValue(workspace);
     vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
     vi.mocked(getWorkspace).mockResolvedValue(workspace);
+    vi.mocked(getAgentContext).mockResolvedValue(agentContext);
+    vi.mocked(refreshAgentContext).mockResolvedValue(agentContext);
+    vi.mocked(setAgentSkillEnabled).mockResolvedValue({
+      skill: agentContext.skills[0]!,
+    });
     vi.mocked(listWorkspaces).mockResolvedValue({ workspaces: [] });
     vi.mocked(listConversations).mockResolvedValue({ conversations: [] });
     vi.mocked(approveAgentToolCall).mockResolvedValue(toolCall);
@@ -432,6 +475,50 @@ describe("VibePage", () => {
 
     expect(
       await screen.findByRole("dialog", { name: "Search conversations" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens skills from the sidebar and shows metadata with body detail", async () => {
+    const user = userEvent.setup();
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    await user.click(await screen.findByRole("button", { name: "Skills" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Skills" });
+    expect(within(dialog).getAllByText("Browser")[0]).toBeInTheDocument();
+    expect(
+      within(dialog).getAllByText("Browser automation for local targets.")[0],
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Use the in-app browser to inspect local UI."),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText("patchpilot/browser"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows invalid skill warnings and toggles skills by internal key", async () => {
+    const user = userEvent.setup();
+    renderVibe("/vibe?workspaceId=ws_1");
+
+    await user.click(await screen.findByRole("button", { name: "Skills" }));
+    const dialog = await screen.findByRole("dialog", { name: "Skills" });
+    await user.click(
+      within(dialog).getByRole("switch", { name: "Toggle Browser" }),
+    );
+
+    await waitFor(() => {
+      expect(setAgentSkillEnabled).toHaveBeenCalledWith(
+        "ws_1",
+        "browser",
+        false,
+      );
+    });
+    expect(within(dialog).getByText("Broken Skill")).toBeInTheDocument();
+    expect(
+      within(dialog).getAllByText(
+        "SKILL.md frontmatter requires a non-empty description.",
+      )[0],
     ).toBeInTheDocument();
   });
 
