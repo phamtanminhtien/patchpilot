@@ -1,5 +1,4 @@
 import {
-  Clock3,
   Code2,
   FolderOpen,
   Loader2,
@@ -18,6 +17,7 @@ export function VibeConversationSidebar({
   conversations,
   isLoading,
   onNewConversation,
+  onOpenSkills,
   onSearchConversations,
   onSelectConversation,
   workspaceId,
@@ -26,6 +26,7 @@ export function VibeConversationSidebar({
   conversations: Conversation[];
   isLoading: boolean;
   onNewConversation: () => void;
+  onOpenSkills: () => void;
   onSearchConversations: () => void;
   onSelectConversation: (conversationId: string) => void;
   workspaceId: string;
@@ -37,8 +38,8 @@ export function VibeConversationSidebar({
       onClick: onNewConversation,
     },
     { icon: <Search />, label: "Search", onClick: onSearchConversations },
-    { icon: <Code2 />, label: "Skills" },
-    { icon: <Clock3 />, label: "Automations" },
+    { icon: <Code2 />, label: "Skills", onClick: onOpenSkills },
+    // { icon: <Clock3 />, label: "Automations" },
   ];
 
   return (
@@ -55,7 +56,6 @@ export function VibeConversationSidebar({
             key={item.label}
             onClick={item.onClick}
             type="button"
-            disabled={item.label === "Skills" || item.label === "Automations"}
           >
             <span className="grid size-4 shrink-0 place-items-center [&>svg]:size-4">
               {item.icon}

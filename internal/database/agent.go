@@ -53,6 +53,9 @@ type AgentToolCallRecord struct {
 	OutputJSON       string     `gorm:"column:output_json;not null"`
 	Status           string     `gorm:"column:status;not null;index"`
 	RequiresApproval bool       `gorm:"column:requires_approval;not null"`
+	Source           string     `gorm:"column:source;not null"`
+	SourceRef        *string    `gorm:"column:source_ref"`
+	PolicyReason     string     `gorm:"column:policy_reason;not null"`
 	Decision         *string    `gorm:"column:decision"`
 	StartedAt        *time.Time `gorm:"column:started_at"`
 	FinishedAt       *time.Time `gorm:"column:finished_at"`
@@ -173,6 +176,9 @@ func (s *Store) CreateAgentToolCall(ctx context.Context, call AgentToolCallRecor
 			return AgentToolCallRecord{}, err
 		}
 		call.ID = id
+	}
+	if call.Source == "" {
+		call.Source = "builtin"
 	}
 	if call.CreatedAt.IsZero() {
 		call.CreatedAt = time.Now().UTC()

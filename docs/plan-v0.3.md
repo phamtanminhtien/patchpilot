@@ -82,12 +82,12 @@ context/cockpit UI.
 ## Task 3: Implement Local Skills Registry and Context Injection
 
 **Description:** Add local skill discovery from `~/.patchpilot/skills` first and
-`~/.agent/skills` second, merge enablement from `~/.patchpilot/config.json`, and
+`~/.agents/skills` second, merge enablement from `~/.patchpilot/config.json`, and
 inject bounded selected skill context into future agent runs.
 
 **Acceptance criteria:**
 
-- [ ] Skills are discovered from `~/.patchpilot/skills` and `~/.agent/skills`.
+- [ ] Skills are discovered from `~/.patchpilot/skills` and `~/.agents/skills`.
 - [ ] Duplicate skill keys use only the `~/.patchpilot/skills` copy for the
       effective skill list and injected context.
 - [ ] Missing `config.skills` entries default enabled.
@@ -303,4 +303,3 @@ actual shipped behavior.
 | Skill injection becomes too broad | Medium | Inject only concise selected skill instructions and directly needed supporting context. |
 | Cockpit overwhelms mobile Vibe flow | Medium | Keep chat/run progress primary and move dense context into compact tabs or sheets. |
 | Docs drift from implementation | Medium | Update docs after each behavior/API/data change and verify against `docs/product-spec.md`. |
-

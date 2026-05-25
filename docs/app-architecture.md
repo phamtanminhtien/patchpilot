@@ -171,7 +171,7 @@ flowchart TB
   History --> Provider
 ```
 
-Agent context is assembled server-side. PatchPilot loads `~/.patchpilot/config.json`, reads applicable `AGENTS.md`, discovers skills from `~/.patchpilot/skills` then `~/.agent/skills`, and discovers enabled MCP servers from config before a run. Duplicate skill keys select only the `~/.patchpilot/skills` copy. Provider priority: system instructions, repo instructions, selected skills, MCP registry, current prompt, tool schemas, active-run history, conversation summary, recent messages. Instruction/skill/MCP context passes workspace-root, symlink, secret, size, and host-path redaction checks before provider use.
+Agent context is assembled server-side. PatchPilot loads `~/.patchpilot/config.json`, reads applicable `AGENTS.md`, discovers skills from `~/.patchpilot/skills` then `~/.agents/skills`, and discovers enabled MCP servers from config before a run. Duplicate skill keys select only the `~/.patchpilot/skills` copy. Provider priority: system instructions, repo instructions, selected skills, MCP registry, current prompt, tool schemas, active-run history, conversation summary, recent messages. Instruction/skill/MCP context passes workspace-root, symlink, secret, size, and host-path redaction checks before provider use.
 
 ## Agent Tool Flow
 

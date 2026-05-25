@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
 	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
+	"github.com/phamtanminhtien/patchpilot/internal/skills"
 )
 
 var (
@@ -110,6 +112,9 @@ type ToolCall struct {
 	Output           string     `json:"output"`
 	Status           string     `json:"status"`
 	RequiresApproval bool       `json:"requiresApproval"`
+	Source           string     `json:"source"`
+	SourceRef        *string    `json:"sourceRef,omitempty"`
+	PolicyReason     string     `json:"policyReason,omitempty"`
 	Decision         *string    `json:"decision"`
 	StartedAt        *time.Time `json:"startedAt"`
 	FinishedAt       *time.Time `json:"finishedAt"`
@@ -132,6 +137,9 @@ type ProviderRequest struct {
 	Run                 Run
 	Prompt              string
 	WorkspaceRoot       string
+	RepoInstructions    []InstructionSource
+	SelectedSkills      []skills.Skill
+	ContextWarnings     []ContextWarning
 	ContextSummary      string
 	ConversationContext []ProviderMessage
 	History             []ProviderHistoryItem
@@ -172,6 +180,7 @@ type Manager struct {
 	runner   *runner.Runner
 	events   *events.Hub
 	provider Provider
+	homeDir  string
 
 	mu       sync.Mutex
 	runtimes map[string]*runRuntime
@@ -187,6 +196,9 @@ type runRuntime struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	contextSummary      string
+	repoInstructions    []InstructionSource
+	selectedSkills      []skills.Skill
+	contextWarnings     []ContextWarning
 	conversationContext []ProviderMessage
 	history             []ProviderHistoryItem
 	pendingBatch        string
@@ -197,7 +209,12 @@ type runRuntime struct {
 const shutdownFailureMessage = "backend shutdown"
 
 func NewManager(store *database.Store, files *filestore.Service, git *gitrepo.Client, run *runner.Runner, hub *events.Hub, provider Provider) *Manager {
-	return &Manager{store: store, files: files, git: git, runner: run, events: hub, provider: provider, runtimes: map[string]*runRuntime{}}
+	home, _ := os.UserHomeDir()
+	return NewManagerWithHome(store, files, git, run, hub, provider, home)
+}
+
+func NewManagerWithHome(store *database.Store, files *filestore.Service, git *gitrepo.Client, run *runner.Runner, hub *events.Hub, provider Provider, homeDir string) *Manager {
+	return &Manager{store: store, files: files, git: git, runner: run, events: hub, provider: provider, homeDir: homeDir, runtimes: map[string]*runRuntime{}}
 }
 
 func (m *Manager) Create(ctx context.Context, workspaceID, workspaceRoot string, input CreateRunInput) (Run, error) {
@@ -281,6 +298,15 @@ func (m *Manager) Detail(ctx context.Context, workspaceID, conversationID, runID
 		Events:    EventsFromRecords(eventRecords),
 		ToolCalls: ToolCallsFromRecords(toolRecords),
 	}, nil
+}
+
+func (m *Manager) SetSkillEnabled(_ context.Context, key string, enabled bool) (skills.Skill, error) {
+	home := m.homeDir
+	if strings.TrimSpace(home) == "" {
+		home, _ = os.UserHomeDir()
+	}
+	skill, _, err := skills.SetEnabled(home, key, enabled)
+	return skill, err
 }
 
 func (m *Manager) DraftText(runID string) string {
@@ -473,6 +499,13 @@ func (m *Manager) resume(runtime *runRuntime) {
 }
 
 func (m *Manager) prepareConversationContext(ctx context.Context, run Run, runtime *runRuntime) error {
+	snapshot, err := m.RefreshContext(ctx, runtime.workspaceRoot)
+	if err != nil {
+		return err
+	}
+	runtime.repoInstructions = snapshot.InstructionSources
+	runtime.selectedSkills = skills.EnabledContext(skills.Registry{Skills: snapshot.Skills})
+	runtime.contextWarnings = append(snapshot.SkippedSources, snapshot.ContextWarnings...)
 	conversation, err := m.store.GetConversation(ctx, runtime.workspaceID, runtime.conversationID)
 	if err != nil {
 		return err
@@ -529,6 +562,9 @@ func (m *Manager) loop(ctx context.Context, runtime *runRuntime) {
 			Run:                 run,
 			Prompt:              runtime.prompt,
 			WorkspaceRoot:       runtime.workspaceRoot,
+			RepoInstructions:    runtime.repoInstructions,
+			SelectedSkills:      runtime.selectedSkills,
+			ContextWarnings:     runtime.contextWarnings,
 			ContextSummary:      runtime.contextSummary,
 			ConversationContext: runtime.conversationContext,
 			History:             runtime.history,
@@ -611,6 +647,7 @@ func (m *Manager) prepareOrExecuteBatch(ctx context.Context, run Run, runtime *r
 			input = "{}"
 		}
 		callRequiresApproval, initialStatus, initialOutput := m.prepareToolRequest(ctx, runtime.workspaceRoot, request)
+		source, sourceRef, policyReason := toolSourceMetadata(request.Name, request.Arguments, callRequiresApproval)
 		if callRequiresApproval {
 			requiresApproval = true
 		}
@@ -625,6 +662,9 @@ func (m *Manager) prepareOrExecuteBatch(ctx context.Context, run Run, runtime *r
 			OutputJSON:       initialOutput,
 			Status:           initialStatus,
 			RequiresApproval: callRequiresApproval,
+			Source:           source,
+			SourceRef:        sourceRef,
+			PolicyReason:     policyReason,
 		})
 		if err != nil {
 			return false, nil, err
@@ -725,6 +765,9 @@ func (m *Manager) prepareToolRequest(ctx context.Context, workspaceRoot string, 
 		}
 		return false, ToolStatusPending, "{}"
 	default:
+		if strings.HasPrefix(request.Name, "mcp.") {
+			return true, ToolStatusWaitingApproval, "{}"
+		}
 		if policy, ok := staticToolPolicy(request.Name); ok && policy == toolRequiresApproval {
 			return true, ToolStatusWaitingApproval, "{}"
 		}
@@ -812,6 +855,24 @@ func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record d
 		return openToolJSON(diff), nil
 	case "run_command":
 		return m.executeCommandTool(ctx, runtime, record)
+	case "use_skill":
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(record.InputJSON), &args); err != nil {
+			return "", err
+		}
+		name := strings.TrimSpace(args.Name)
+		for _, skill := range runtime.selectedSkills {
+			if skill.Name == name {
+				return openToolJSON(map[string]string{
+					"name":        skill.Name,
+					"description": skill.Description,
+					"instruction": skill.Instruction,
+				}), nil
+			}
+		}
+		return "", fmt.Errorf("skill %q is not available", name)
 	case "apply_patch":
 		var args struct {
 			Diff    string `json:"diff"`
@@ -826,8 +887,38 @@ func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record d
 		}
 		return openToolJSON(map[string]string{"status": "applied", "summary": args.Summary}), nil
 	default:
+		if strings.HasPrefix(record.Name, "mcp.") {
+			return "", fmt.Errorf("MCP tool execution is not connected for %s", record.Name)
+		}
 		return "", fmt.Errorf("unknown tool: %s", record.Name)
 	}
+}
+
+func toolSourceMetadata(name, inputJSON string, requiresApproval bool) (string, *string, string) {
+	if strings.HasPrefix(name, "mcp.") {
+		ref := strings.TrimPrefix(name, "mcp.")
+		return "mcp", &ref, "MCP tools require approval unless configured read-only and safe."
+	}
+	if name == "use_skill" {
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(inputJSON), &args); err == nil {
+			ref := strings.TrimSpace(args.Name)
+			if ref != "" {
+				return "skill", &ref, "Skill instructions are loaded by name."
+			}
+		}
+		return "skill", nil, "Skill instructions are loaded by name."
+	}
+	if strings.HasPrefix(name, "skill.") {
+		ref := strings.TrimPrefix(name, "skill.")
+		return "skill", &ref, "Skill tool call."
+	}
+	if requiresApproval {
+		return "builtin", nil, "Built-in tool requires approval."
+	}
+	return "builtin", nil, ""
 }
 
 func (m *Manager) executeCommandTool(ctx context.Context, runtime *runRuntime, record database.AgentToolCallRecord) (string, error) {
@@ -1129,6 +1220,9 @@ func ToolCallFromRecord(record database.AgentToolCallRecord) ToolCall {
 		Output:           record.OutputJSON,
 		Status:           record.Status,
 		RequiresApproval: record.RequiresApproval,
+		Source:           record.Source,
+		SourceRef:        record.SourceRef,
+		PolicyReason:     record.PolicyReason,
 		Decision:         record.Decision,
 		StartedAt:        record.StartedAt,
 		FinishedAt:       record.FinishedAt,

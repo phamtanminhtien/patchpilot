@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,26 @@ type Config struct {
 	OpenAIAPIKey  string
 	OpenAIBaseURL string
 	StaticDir     string
+}
+
+type UserConfig struct {
+	Skills     map[string]SkillConfig     `json:"skills,omitempty"`
+	MCPServers map[string]MCPServerConfig `json:"mcpServers,omitempty"`
+}
+
+type SkillConfig struct {
+	Enabled     *bool  `json:"enabled,omitempty"`
+	DisplayName string `json:"displayName,omitempty"`
+}
+
+type MCPServerConfig struct {
+	Disabled       bool              `json:"disabled,omitempty"`
+	Transport      string            `json:"transport,omitempty"`
+	Command        string            `json:"command,omitempty"`
+	Args           []string          `json:"args,omitempty"`
+	URL            string            `json:"url,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	ApprovalPolicy string            `json:"approvalPolicy,omitempty"`
 }
 
 func Load() (Config, error) {
@@ -158,4 +179,36 @@ func loadDotEnv(path string) (map[string]string, error) {
 		return nil, err
 	}
 	return values, nil
+}
+
+func UserConfigPath(home string) string {
+	return filepath.Join(home, defaultDataDir, "config.json")
+}
+
+func LoadUserConfig(home string) (UserConfig, error) {
+	var cfg UserConfig
+	content, err := os.ReadFile(UserConfigPath(home))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return UserConfig{}, nil
+		}
+		return UserConfig{}, err
+	}
+	if err := json.Unmarshal(content, &cfg); err != nil {
+		return UserConfig{}, err
+	}
+	return cfg, nil
+}
+
+func SaveUserConfig(home string, cfg UserConfig) error {
+	path := UserConfigPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	content, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	content = append(content, '\n')
+	return os.WriteFile(path, content, 0o600)
 }

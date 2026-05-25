@@ -85,4 +85,14 @@ describe("Button", () => {
       screen.getByRole("button", { name: "Open workspace" }),
     ).not.toHaveClass("border");
   });
+
+  it("supports contrast-safe surface buttons for modals", () => {
+    render(<Button variant="surface">Refresh</Button>);
+
+    expect(screen.getByRole("button", { name: "Refresh" })).toHaveClass(
+      "bg-hover",
+      "text-ink",
+      "hover:bg-accent-soft",
+    );
+  });
 });
