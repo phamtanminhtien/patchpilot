@@ -3,8 +3,6 @@ import {
   FileEdit,
   FileText,
   FolderTree,
-  GitBranch,
-  GitCompare,
   type LucideIcon,
   Search,
   Terminal,
@@ -33,14 +31,6 @@ const TOOL_METADATA: Record<string, ToolCallMetadata> = {
   apply_patch: {
     Icon: FileEdit,
     label: "Apply patch",
-  },
-  git_diff: {
-    Icon: GitCompare,
-    label: "Inspect diff",
-  },
-  git_status: {
-    Icon: GitBranch,
-    label: "Check Git status",
   },
   list_files: {
     Icon: FolderTree,
@@ -150,10 +140,6 @@ function toolCallStatusLabel(toolCall: AgentToolCall) {
   switch (toolCall.name) {
     case "apply_patch":
       return isFinished ? "Edited" : "Editing";
-    case "git_diff":
-      return isFinished ? "Inspected" : "Inspecting";
-    case "git_status":
-      return isFinished ? "Checked" : "Checking";
     case "list_files":
       return isFinished ? "Listed" : "Listing";
     case "read_file":
@@ -181,10 +167,6 @@ function toolCallText(
         stringValue(input.summary) ||
         "patch"
       );
-    case "git_diff":
-      return stringValue(input.path) || "workspace diff";
-    case "git_status":
-      return "workspace";
     case "list_files":
       return stringValue(input.path) || "workspace";
     case "read_file":
@@ -212,9 +194,6 @@ function toolCallDetail(
   }
   if (toolCall.name === "run_command") {
     return toolCall.output || stringValue(input.command) || toolCall.input;
-  }
-  if (toolCall.name === "git_diff") {
-    return toolCall.output || toolCall.input;
   }
   if (toolCall.name === "use_skill") {
     const output = parseToolInput(toolCall.output);

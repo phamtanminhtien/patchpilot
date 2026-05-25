@@ -12,13 +12,14 @@ import (
 )
 
 var (
-	ErrInvalidPath  = errors.New("invalid workspace-relative path")
-	ErrOutsideRoot  = errors.New("path escapes workspace root")
-	ErrIgnoredPath  = errors.New("path is ignored")
-	ErrNotTextFile  = errors.New("file is not a readable text file")
-	ErrFileTooLarge = errors.New("file exceeds max readable size")
-	ErrSecretPath   = errors.New("secret-like paths cannot be written")
-	ErrSymlinkPath  = errors.New("symlink paths cannot be written")
+	ErrInvalidPath      = errors.New("invalid workspace-relative path")
+	ErrOutsideRoot      = errors.New("path escapes workspace root")
+	ErrIgnoredPath      = errors.New("path is ignored")
+	ErrNotTextFile      = errors.New("file is not a readable text file")
+	ErrFileTooLarge     = errors.New("file exceeds max readable size")
+	ErrInvalidLineRange = errors.New("invalid line range")
+	ErrSecretPath       = errors.New("secret-like paths cannot be written")
+	ErrSymlinkPath      = errors.New("symlink paths cannot be written")
 )
 
 const MaxReadableFileSize int64 = 1 << 20
@@ -41,6 +42,15 @@ type SearchResult struct {
 	Kind    string `json:"kind"`
 	Line    int    `json:"line,omitempty"`
 	Preview string `json:"preview,omitempty"`
+}
+
+type ReadOptions struct {
+	StartLine int
+	EndLine   int
+}
+
+type SearchOptions struct {
+	Path string
 }
 
 type IndexEntry struct {
@@ -148,6 +158,10 @@ func (s *Service) Index(root string) ([]IndexEntry, error) {
 }
 
 func (s *Service) Read(root, relPath string) (File, error) {
+	return s.ReadWithOptions(root, relPath, ReadOptions{})
+}
+
+func (s *Service) ReadWithOptions(root, relPath string, opts ReadOptions) (File, error) {
 	abs, cleanRel, err := safePath(root, relPath)
 	if err != nil {
 		return File{}, err
@@ -173,7 +187,11 @@ func (s *Service) Read(root, relPath string) (File, error) {
 	if !isText(content) {
 		return File{}, ErrNotTextFile
 	}
-	return File{Path: filepath.ToSlash(cleanRel), Content: string(content)}, nil
+	text, err := applyLineRange(string(content), opts)
+	if err != nil {
+		return File{}, err
+	}
+	return File{Path: filepath.ToSlash(cleanRel), Content: text}, nil
 }
 
 func (s *Service) Write(root, relPath, content string) (File, error) {
@@ -222,17 +240,46 @@ func (s *Service) Write(root, relPath, content string) (File, error) {
 }
 
 func (s *Service) Search(root, query string) ([]SearchResult, error) {
+	return s.SearchWithOptions(root, query, SearchOptions{})
+}
+
+func (s *Service) SearchWithOptions(root, query string, opts SearchOptions) ([]SearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return []SearchResult{}, nil
 	}
-	abs, _, err := safePath(root, ".")
+	scope := strings.TrimSpace(opts.Path)
+	if scope == "" {
+		scope = "."
+	}
+	abs, cleanScope, err := safePath(root, scope)
+	if err != nil {
+		return nil, err
+	}
+	if isIgnoredPath(cleanScope) {
+		return nil, ErrIgnoredPath
+	}
+	rootAbs, _, err := safePath(root, ".")
 	if err != nil {
 		return nil, err
 	}
 
 	lowerQuery := strings.ToLower(query)
 	results := make([]SearchResult, 0)
+	scopeInfo, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if !scopeInfo.IsDir() {
+		if scopeInfo.Size() > MaxReadableFileSize {
+			return results, nil
+		}
+		if err := appendSearchFile(&results, abs, filepath.ToSlash(cleanScope), filepath.Base(cleanScope), lowerQuery); err != nil {
+			return nil, err
+		}
+		sortSearchResults(results)
+		return results, nil
+	}
 	err = filepath.WalkDir(abs, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -240,7 +287,7 @@ func (s *Service) Search(root, query string) ([]SearchResult, error) {
 		if path == abs {
 			return nil
 		}
-		rel, err := filepath.Rel(abs, path)
+		rel, err := filepath.Rel(rootAbs, path)
 		if err != nil {
 			return err
 		}
@@ -261,32 +308,66 @@ func (s *Service) Search(root, query string) ([]SearchResult, error) {
 		if info.Size() > MaxReadableFileSize {
 			return nil
 		}
-		nameMatches := strings.Contains(strings.ToLower(entry.Name()), lowerQuery)
-		if nameMatches {
-			results = append(results, SearchResult{Path: rel, Kind: "filename"})
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if !isText(content) {
-			return nil
-		}
-		if line, preview, ok := contentMatch(content, lowerQuery); ok {
-			results = append(results, SearchResult{Path: rel, Kind: "content", Line: line, Preview: preview})
-		}
-		return nil
+		return appendSearchFile(&results, path, rel, entry.Name(), lowerQuery)
 	})
 	if err != nil {
 		return nil, err
 	}
+	sortSearchResults(results)
+	return results, nil
+}
+
+func applyLineRange(content string, opts ReadOptions) (string, error) {
+	start := opts.StartLine
+	end := opts.EndLine
+	if start == 0 {
+		start = 1
+	}
+	if start < 1 || end < 0 || (end != 0 && start > end) {
+		return "", ErrInvalidLineRange
+	}
+	if start == 1 && end == 0 {
+		return content, nil
+	}
+	lines := strings.SplitAfter(content, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if start > len(lines) {
+		return "", nil
+	}
+	startIndex := start - 1
+	endIndex := len(lines)
+	if end != 0 && end < endIndex {
+		endIndex = end
+	}
+	return strings.Join(lines[startIndex:endIndex], ""), nil
+}
+
+func appendSearchFile(results *[]SearchResult, absPath, relPath, name, lowerQuery string) error {
+	if strings.Contains(strings.ToLower(name), lowerQuery) {
+		*results = append(*results, SearchResult{Path: relPath, Kind: "filename"})
+	}
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return err
+	}
+	if !isText(content) {
+		return nil
+	}
+	if line, preview, ok := contentMatch(content, lowerQuery); ok {
+		*results = append(*results, SearchResult{Path: relPath, Kind: "content", Line: line, Preview: preview})
+	}
+	return nil
+}
+
+func sortSearchResults(results []SearchResult) {
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].Path == results[j].Path {
 			return results[i].Kind < results[j].Kind
 		}
 		return results[i].Path < results[j].Path
 	})
-	return results, nil
 }
 
 func safePath(root, relPath string) (string, string, error) {

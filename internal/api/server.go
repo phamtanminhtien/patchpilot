@@ -513,7 +513,7 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 
 	status, err := s.git.Status(r.Context(), ws.RootPath, opts)
 	if err != nil {
-		writeGitError(w, err, "git_status_failed", "Git status failed")
+		writeGitError(w, err, "git_state_failed", "Git status failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -526,7 +526,7 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	diff, err := s.git.Diff(r.Context(), ws.RootPath, r.URL.Query().Get("path"))
 	if err != nil {
-		writeGitError(w, err, "git_diff_failed", "Git diff failed")
+		writeGitError(w, err, "git_comparison_failed", "Git diff failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, diff)

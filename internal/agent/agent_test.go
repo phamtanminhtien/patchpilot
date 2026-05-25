@@ -688,6 +688,51 @@ func TestManagerWaitsForApprovalsBeforeExecutingMixedBatch(t *testing.T) {
 	}
 }
 
+func TestManagerExecutesFileToolsWithRangeAndSearchScope(t *testing.T) {
+	root := initAgentGitRepo(t)
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "note.txt"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write src note: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "note.txt"), []byte("two in docs\n"), 0o644); err != nil {
+		t.Fatalf("write docs note: %v", err)
+	}
+	provider := &testProvider{turns: []ProviderResult{
+		{ToolCalls: []ToolRequest{
+			{CallID: "call_read", Name: "read_file", Arguments: `{"path":"src/note.txt","start_line":2,"end_line":2}`},
+			{CallID: "call_search", Name: "search_files", Arguments: `{"query":"two","path":"src"}`},
+		}},
+		{Text: "done", Done: true},
+	}}
+	manager, _ := newAgentTestManager(t, provider)
+
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "inspect note",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	detail := waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
+	if len(detail.ToolCalls) != 2 {
+		t.Fatalf("expected two tool calls, got %+v", detail.ToolCalls)
+	}
+	if !strings.Contains(detail.ToolCalls[0].Output, `"content":"two\n"`) {
+		t.Fatalf("expected ranged read output, got %s", detail.ToolCalls[0].Output)
+	}
+	if !strings.Contains(detail.ToolCalls[1].Output, `"path":"src/note.txt"`) || strings.Contains(detail.ToolCalls[1].Output, `"path":"docs/note.txt"`) {
+		t.Fatalf("expected scoped search output, got %s", detail.ToolCalls[1].Output)
+	}
+}
+
 func TestManagerValidatesInputAndProvider(t *testing.T) {
 	manager, _ := newAgentTestManager(t, unconfiguredProvider{})
 	_, err := manager.Create(context.Background(), "ws_1", t.TempDir(), CreateRunInput{
