@@ -793,11 +793,12 @@ func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record d
 	case "search_files":
 		var args struct {
 			Query string `json:"query"`
+			Path  string `json:"path"`
 		}
 		if err := json.Unmarshal([]byte(record.InputJSON), &args); err != nil {
 			return "", err
 		}
-		results, err := m.files.Search(workspaceRoot, args.Query)
+		results, err := m.files.SearchWithOptions(workspaceRoot, args.Query, filestore.SearchOptions{Path: args.Path})
 		if err != nil {
 			return "", err
 		}
@@ -807,7 +808,9 @@ func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record d
 		return openToolJSON(map[string]any{"results": results}), nil
 	case "read_file":
 		var args struct {
-			Path string `json:"path"`
+			Path      string `json:"path"`
+			StartLine int    `json:"start_line"`
+			EndLine   int    `json:"end_line"`
 		}
 		if err := json.Unmarshal([]byte(record.InputJSON), &args); err != nil {
 			return "", err
@@ -815,44 +818,11 @@ func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record d
 		if isSecretPath(args.Path) {
 			return "", ErrSecretPath
 		}
-		file, err := m.files.Read(workspaceRoot, args.Path)
+		file, err := m.files.ReadWithOptions(workspaceRoot, args.Path, filestore.ReadOptions{StartLine: args.StartLine, EndLine: args.EndLine})
 		if err != nil {
 			return "", err
 		}
 		return openToolJSON(file), nil
-	case "git_status":
-		var args struct {
-			Ignored          *bool    `json:"ignored"`
-			Untracked        string   `json:"untracked"`
-			IgnoreSubmodules string   `json:"ignore_submodules"`
-			Paths            []string `json:"paths"`
-		}
-		var opts gitrepo.StatusOptions
-		if err := json.Unmarshal([]byte(record.InputJSON), &args); err == nil {
-			if args.Ignored != nil {
-				opts.Ignored = *args.Ignored
-			}
-			opts.Untracked = args.Untracked
-			opts.IgnoreSubmodules = args.IgnoreSubmodules
-			opts.Paths = args.Paths
-		}
-		status, err := m.git.Status(ctx, workspaceRoot, opts)
-		if err != nil {
-			return "", err
-		}
-		return openToolJSON(status), nil
-	case "git_diff":
-		var args struct {
-			Path string `json:"path"`
-		}
-		if err := json.Unmarshal([]byte(record.InputJSON), &args); err != nil {
-			return "", err
-		}
-		diff, err := m.git.Diff(ctx, workspaceRoot, args.Path)
-		if err != nil {
-			return "", err
-		}
-		return openToolJSON(diff), nil
 	case "run_command":
 		return m.executeCommandTool(ctx, runtime, record)
 	case "use_skill":

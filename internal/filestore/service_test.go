@@ -50,6 +50,56 @@ func TestReadReturnsTextFile(t *testing.T) {
 	}
 }
 
+func TestReadWithOptionsReturnsLineRange(t *testing.T) {
+	root := t.TempDir()
+	content := "one\ntwo\nthree\nfour\n"
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	service := NewService()
+
+	tests := []struct {
+		name string
+		opts ReadOptions
+		want string
+	}{
+		{name: "full file", opts: ReadOptions{}, want: content},
+		{name: "bounded", opts: ReadOptions{StartLine: 2, EndLine: 3}, want: "two\nthree\n"},
+		{name: "open ended", opts: ReadOptions{StartLine: 3}, want: "three\nfour\n"},
+		{name: "past eof", opts: ReadOptions{StartLine: 9}, want: ""},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			file, err := service.ReadWithOptions(root, "note.txt", testCase.opts)
+			if err != nil {
+				t.Fatalf("ReadWithOptions returned error: %v", err)
+			}
+			if file.Content != testCase.want {
+				t.Fatalf("expected %q, got %q", testCase.want, file.Content)
+			}
+		})
+	}
+}
+
+func TestReadWithOptionsRejectsInvalidLineRange(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	service := NewService()
+
+	for _, opts := range []ReadOptions{
+		{StartLine: -1},
+		{EndLine: -1},
+		{StartLine: 3, EndLine: 2},
+	} {
+		_, err := service.ReadWithOptions(root, "note.txt", opts)
+		if !errors.Is(err, ErrInvalidLineRange) {
+			t.Fatalf("expected ErrInvalidLineRange for %+v, got %v", opts, err)
+		}
+	}
+}
+
 func TestReadRejectsIgnoredPath(t *testing.T) {
 	root := t.TempDir()
 	mustMkdirAll(t, filepath.Join(root, ".git"))
@@ -218,6 +268,53 @@ func TestSearchFindsFilenameAndContent(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Path != "src/note.txt" || results[0].Kind != "content" || results[0].Line != 2 {
 		t.Fatalf("unexpected results: %+v", results)
+	}
+}
+
+func TestSearchWithOptionsScopesResults(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "src"))
+	mustMkdirAll(t, filepath.Join(root, "docs"))
+	if err := os.WriteFile(filepath.Join(root, "src", "note.txt"), []byte("needle in src\n"), 0o644); err != nil {
+		t.Fatalf("write src file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "note.txt"), []byte("needle in docs\n"), 0o644); err != nil {
+		t.Fatalf("write docs file: %v", err)
+	}
+	service := NewService()
+
+	results, err := service.SearchWithOptions(root, "needle", SearchOptions{Path: "src"})
+	if err != nil {
+		t.Fatalf("SearchWithOptions returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Path != "src/note.txt" {
+		t.Fatalf("expected only src result, got %+v", results)
+	}
+
+	results, err = service.SearchWithOptions(root, "needle", SearchOptions{Path: "docs/note.txt"})
+	if err != nil {
+		t.Fatalf("SearchWithOptions file scope returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Path != "docs/note.txt" {
+		t.Fatalf("expected only docs file result, got %+v", results)
+	}
+}
+
+func TestSearchWithOptionsRejectsUnsafeScope(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, ".git"))
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte("needle"), 0o644); err != nil {
+		t.Fatalf("write ignored file: %v", err)
+	}
+	service := NewService()
+
+	_, err := service.SearchWithOptions(root, "needle", SearchOptions{Path: "../outside"})
+	if !errors.Is(err, ErrOutsideRoot) {
+		t.Fatalf("expected ErrOutsideRoot, got %v", err)
+	}
+	_, err = service.SearchWithOptions(root, "needle", SearchOptions{Path: ".git"})
+	if !errors.Is(err, ErrIgnoredPath) {
+		t.Fatalf("expected ErrIgnoredPath, got %v", err)
 	}
 }
 

@@ -112,8 +112,8 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 				t.Fatalf("expected agent instructions outside input, got %s", encodedInput)
 			}
 			tools, ok := body["tools"].([]any)
-			if !ok || len(tools) != 8 {
-				t.Fatalf("expected eight tools in initial request, got %#v", body["tools"])
+			if !ok || len(tools) != 6 {
+				t.Fatalf("expected six tools in initial request, got %#v", body["tools"])
 			}
 			writeOpenAIStream(w, "response.output_text.delta", `{"delta":"I will inspect the workspace before patching."}`)
 			writeOpenAIStream(w, "response.output_item.done", `{"item":{"type":"function_call","call_id":"call_search","name":"search_files","arguments":"{\"query\":\"note\"}"}}`)
@@ -199,6 +199,7 @@ func TestOpenAIProviderPromptRejectsReadinessForConcreteTasks(t *testing.T) {
 	for _, expected := range []string{
 		"do not answer with readiness",
 		"first call at least one workspace inspection tool",
+		"Inspect Git only through run_command",
 		"Ask a clarifying question only",
 		"include concise output_text in the same response",
 		"same language as the user's prompt",
@@ -206,6 +207,35 @@ func TestOpenAIProviderPromptRejectsReadinessForConcreteTasks(t *testing.T) {
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected provider prompt to contain %q, got %s", expected, prompt)
+		}
+	}
+}
+
+func TestOpenAIToolsExposeFileOptionsAndNoDedicatedGitTools(t *testing.T) {
+	tools := openAITools()
+	names := make(map[string]openAITool)
+	for _, tool := range tools {
+		names[tool.Name] = tool
+	}
+	for _, removed := range []string{"git_" + "status", "git_" + "diff"} {
+		if _, ok := names[removed]; ok {
+			t.Fatalf("expected %s to be removed from agent tools", removed)
+		}
+	}
+	searchTool, ok := names["search_files"]
+	if !ok {
+		t.Fatal("expected search_files tool")
+	}
+	if _, ok := searchTool.Parameters.Properties["path"]; !ok {
+		t.Fatalf("expected search_files path parameter, got %+v", searchTool.Parameters.Properties)
+	}
+	readTool, ok := names["read_file"]
+	if !ok {
+		t.Fatal("expected read_file tool")
+	}
+	for _, param := range []string{"start_line", "end_line"} {
+		if _, ok := readTool.Parameters.Properties[param]; !ok {
+			t.Fatalf("expected read_file %s parameter, got %+v", param, readTool.Parameters.Properties)
 		}
 	}
 }

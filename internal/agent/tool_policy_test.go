@@ -8,8 +8,6 @@ func TestStaticToolApprovalPolicies(t *testing.T) {
 		"list_files":   toolAutoRun,
 		"read_file":    toolAutoRun,
 		"search_files": toolAutoRun,
-		"git_status":   toolAutoRun,
-		"git_diff":     toolAutoRun,
 		"use_skill":    toolAutoRun,
 	}
 	if len(staticToolApprovalPolicies) != len(expected) {
@@ -26,5 +24,11 @@ func TestStaticToolApprovalPolicies(t *testing.T) {
 	}
 	if _, ok := staticToolPolicy("run_command"); ok {
 		t.Fatal("run_command must use command classification instead of static tool policy")
+	}
+	if _, ok := staticToolPolicy("git_" + "status"); ok {
+		t.Fatal("dedicated Git status tool must not be exposed as an agent tool")
+	}
+	if _, ok := staticToolPolicy("git_" + "diff"); ok {
+		t.Fatal("dedicated Git diff tool must not be exposed as an agent tool")
 	}
 }

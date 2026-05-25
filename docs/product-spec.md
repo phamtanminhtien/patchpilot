@@ -277,7 +277,11 @@ Events: `workspace.ready`, `workspace.indexing`, `conversation.created`, `conver
 
 ## Agent Tools And Commands
 
-Tools: `list_files`, `read_file`, `search_files`, `git_status`, `git_diff`, `run_command`, approval-required `apply_patch`, and `mcp:<server>:<tool>` through backend bridge/policy.
+Tools: `list_files`, `read_file`, `search_files`, `run_command`, `use_skill`, approval-required `apply_patch`, and `mcp:<server>:<tool>` through backend bridge/policy. Agents inspect Git through `run_command` with allowlisted commands such as `git status`, `git diff`, and `git log`; dedicated agent Git status/diff tools are not exposed.
+
+`read_file` accepts a workspace-relative `path` plus optional 1-based inclusive `start_line` and `end_line`. Omitted `start_line` starts at line 1, omitted `end_line` reads through EOF, and invalid or reversed ranges fail safely.
+
+`search_files` accepts a text `query` plus optional workspace-relative `path`. Empty or omitted `path` searches from workspace root; non-empty `path` must stay inside the workspace and may target either a directory subtree or one file.
 
 Vibe renders tool calls as compact activity rows with icons, human status text, concise labels, source metadata, and grouped consecutive calls per run. Approval, patch, command, diff, search, status, and list calls can expand; `read_file` stays one-line and does not expose file output. Groups/calls open by default when attention is needed: waiting approval, running, or failed. Completed calls stay collapsed.
 
