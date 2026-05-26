@@ -73,9 +73,9 @@ In scope for the active product:
 - Create, list, open, rename, and continue conversations per workspace.
 - Send user messages that start agent runs with model and reasoning choices.
 - Stream agent activity, tool calls, command output, and workspace events.
-- Let agents inspect approved files and propose reviewable patches.
+- Let agents inspect approved workspace context and propose reviewable patches.
 - Require user approval before mutating tools run.
-- Apply or reject patches through backend-controlled tools.
+- Apply or reject patch tool calls through backend-controlled approval flow.
 - Run classified workspace commands without a shell.
 - Replay latest command output.
 - Detect and expose same-host preview ports.
@@ -87,7 +87,8 @@ Out of scope for the active product:
 - Full IDE behavior, multi-tab editor, LSP, inline diagnostics, terminal
   emulator parity.
 - Push/pull/branch/merge/rebase management.
-- WebSocket, public tunnels, Docker-required runtime, plugin marketplace.
+- WebSocket, public tunnels, Docker-required runtime, remote skill marketplace
+  or MCP public discovery.
 - Multi-user/team/RBAC, hosted SaaS, billing, enterprise administration.
 
 ## Architecture Shape
@@ -111,7 +112,8 @@ Agent model:
 
 - Agent runs belong to conversations.
 - Agents return assistant text and tool calls.
-- File read/search tools enforce workspace, ignore, secret, and size checks.
+- File listing/search and approved command reads enforce workspace, ignore,
+  secret, and size checks.
 - Mutating tools require explicit approval and run only through the backend.
 - Runs end with changed files, verification result, and remaining risks.
 
