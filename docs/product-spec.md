@@ -277,19 +277,20 @@ Events: `workspace.ready`, `workspace.indexing`, `conversation.created`, `conver
 
 ## Agent Tools And Commands
 
-Tools: `list_files`, `read_file`, `search_files`, `run_command`, `use_skill`, approval-required `apply_patch`, and `mcp:<server>:<tool>` through backend bridge/policy. Agents inspect Git through `run_command` with allowlisted commands such as `git status`, `git diff`, and `git log`; dedicated agent Git status/diff tools are not exposed.
+Tools: `list_files`, `search_files`, `run_command`, `use_skill`, approval-required `apply_patch`, and `mcp:<server>:<tool>` through backend bridge/policy. Agents inspect Git through `run_command` with allowlisted commands such as `git status`, `git diff`, and `git log`; dedicated agent Git status/diff tools are not exposed.
 
-`read_file` accepts a workspace-relative `path` plus optional 1-based inclusive `start_line` and `end_line`. Omitted `start_line` starts at line 1, omitted `end_line` reads through EOF, and invalid or reversed ranges fail safely.
+Agents read file contents through `run_command`. Use `sed -n '1,160p' path/to/file` for ranged reads and `cat path/to/file` only when a full file is needed. Safe relative non-secret file reads may auto-run. Absolute paths, workspace escapes, unsupported read shapes, globs, extra flags, broad directory reads, and shell syntax are blocked. Secret-like read paths (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`) require approval.
 
 `search_files` accepts a text `query` plus optional workspace-relative `path`. Empty or omitted `path` searches from workspace root; non-empty `path` must stay inside the workspace and may target either a directory subtree or one file.
 
-Vibe renders tool calls as compact activity rows with icons, human status text, concise labels, source metadata, and grouped consecutive calls per run. Approval, patch, command, diff, search, status, and list calls can expand; `read_file` stays one-line and does not expose file output. Groups/calls open by default when attention is needed: waiting approval, running, or failed. Completed calls stay collapsed.
+Vibe renders tool calls as compact activity rows with icons, human status text, concise labels, source metadata, and grouped consecutive calls per run. Approval, patch, command, diff, search, status, and list calls can expand. `run_command` calls that match the safe file-read command shapes render as one-line read-file activity and do not expose file output. Groups/calls open by default when attention is needed: waiting approval, running, or failed. Completed calls stay collapsed.
 
-Agents must not read outside workspace root, access secrets, expose ports, call MCP servers directly, or run approval-required tools without approval. Backend preserves provider tool-call order. If any tool in a batch requires approval, no tool in that batch runs until all approval-required calls have decisions. Rejected tools do not run.
+Agents must not read outside workspace root, expose ports, call MCP servers directly, or run approval-required tools without approval. Secret-like file reads require explicit approval. Backend preserves provider tool-call order. If any tool in a batch requires approval, no tool in that batch runs until all approval-required calls have decisions. Rejected tools do not run.
 
 Agent auto-run requires exact allowlist match and no shell control operators:
 
 - `git status`, `git diff`, `git log`
+- `cat <safe-relative-file>`, `sed -n '<start>,<end>p' <safe-relative-file>`
 - `npm run test|lint|build|dev`
 - `pnpm test|lint|build|dev`
 - `yarn test|lint|build|dev`
@@ -301,8 +302,8 @@ Agent auto-run requires exact allowlist match and no shell control operators:
 
 Direct user command classification:
 
-- Safe `202`: `git status|diff|log`; `npm run test|lint|build|dev`; `pnpm test|lint|build|dev`; `pnpm --dir <safe-relative-dir> test|lint|build|dev`; `yarn test|lint|build|dev`; `yarn --dir <safe-relative-dir> test|lint|build|dev`; `bun test`; `bun run lint|build|dev`; `go test ./...`; `go test ./<package>`; `go build ./...`; `pytest`; `python -m pytest`; `python3 -m pytest`; `cargo test|build`; `make test|lint|build|dev`.
-- Risky: syntactically valid but outside allowlist; returns `409 confirmation_required` unless `confirmed:true`.
+- Safe `202`: `git status|diff|log`; non-secret `cat <safe-relative-file>` and `sed -n '<start>,<end>p' <safe-relative-file>`; `npm run test|lint|build|dev`; `pnpm test|lint|build|dev`; `pnpm --dir <safe-relative-dir> test|lint|build|dev`; `yarn test|lint|build|dev`; `yarn --dir <safe-relative-dir> test|lint|build|dev`; `bun test`; `bun run lint|build|dev`; `go test ./...`; `go test ./<package>`; `go build ./...`; `pytest`; `python -m pytest`; `python3 -m pytest`; `cargo test|build`; `make test|lint|build|dev`.
+- Risky: syntactically valid but outside allowlist, including secret-like file reads; returns `409 confirmation_required` unless `confirmed:true`.
 - Blocked `400 blocked_command`: shell control/expansion (`&&`, `||`, `;`, `|`, `>`, `<`, backticks, `$(`, newlines), absolute executable paths, absolute path arguments, workspace escapes, `sudo`, `su`, forced recursive `rm`, `git clean`, `git reset --hard`, `chmod -R`, `chown -R`.
 
 Execution always parses arguments without a shell, runs at workspace root, and rejects traversal/shell operators. `confirmation_required` and `blocked_command` include `details.decision` with `level`, `reason`, and parsed `parts`.

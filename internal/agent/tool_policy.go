@@ -10,7 +10,6 @@ const (
 var staticToolApprovalPolicies = map[string]toolApprovalPolicy{
 	"apply_patch":  toolRequiresApproval,
 	"list_files":   toolAutoRun,
-	"read_file":    toolAutoRun,
 	"search_files": toolAutoRun,
 	"use_skill":    toolAutoRun,
 }

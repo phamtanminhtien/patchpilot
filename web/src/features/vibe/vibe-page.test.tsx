@@ -1042,13 +1042,13 @@ describe("VibePage", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders read file tool calls as one-line activity without output detail", async () => {
+  it("renders file read commands as one-line activity without output detail", async () => {
     const readToolCall = {
       ...toolCall,
       finishedAt: "2026-05-20T00:00:02Z",
-      input: '{"path":"README.md"}',
-      name: "read_file",
-      output: '{"content":"PatchPilot smoke file"}',
+      input: `{"command":"sed -n '1,160p' README.md"}`,
+      name: "run_command",
+      output: '{"output":"PatchPilot smoke file"}',
       requiresApproval: false,
       status: "finished" as const,
     };
@@ -1071,6 +1071,40 @@ describe("VibePage", () => {
     expect(screen.getByText("Read")).toBeInTheDocument();
     expect(path.closest("[data-tool-call]")).toBeNull();
     expect(screen.queryByText("PatchPilot smoke file")).not.toBeInTheDocument();
+  });
+
+  it("opens approval-required file read commands for review", async () => {
+    const secretReadToolCall = {
+      ...toolCall,
+      input: '{"command":"cat .env"}',
+      name: "run_command",
+      output: "{}",
+      policyReason: "Secret-like file read requires approval",
+      requiresApproval: true,
+      status: "waiting_approval" as const,
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "waiting_tool_approval" }],
+      toolCalls: [secretReadToolCall],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const group = (await screen.findByText(".env")).closest("[data-tool-call]");
+
+    expect(screen.getByText("Waiting approval")).toBeInTheDocument();
+    expect(group).toHaveAttribute("data-state", "open");
+    expect(screen.getByText("Approve tool")).toBeInTheDocument();
+    expect(
+      screen.getByText("Secret-like file read requires approval"),
+    ).toBeInTheDocument();
   });
 
   it("renders use_skill tool calls with human-readable skill names", async () => {

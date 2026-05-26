@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -85,6 +86,16 @@ func Classify(command string) (SafetyDecision, error) {
 	if reason := blockedReason(command, invocation.Parts); reason != "" {
 		decision.Level = SafetyBlocked
 		decision.Reason = reason
+		return decision, nil
+	}
+	if read, ok := readCommand(invocation.Parts); ok {
+		decision.Reason = "Workspace file read command"
+		if read.secret {
+			decision.Level = SafetyNeedsConfirmation
+			decision.Reason = "Secret-like file read requires approval"
+			return decision, nil
+		}
+		decision.Level = SafetyAllowed
 		return decision, nil
 	}
 	if _, ok := safeCommand(invocation.Parts); ok {
@@ -228,11 +239,40 @@ func parseInvocation(command string) (commandInvocation, error) {
 	if command == "" {
 		return commandInvocation{}, ErrEmptyCommand
 	}
-	parts := strings.Fields(command)
+	parts, err := splitCommand(command)
+	if err != nil {
+		return commandInvocation{}, err
+	}
 	if len(parts) == 0 {
 		return commandInvocation{}, ErrEmptyCommand
 	}
 	return commandInvocation{Name: parts[0], Args: parts[1:], Parts: parts}, nil
+}
+
+func splitCommand(command string) ([]string, error) {
+	parts := make([]string, 0)
+	var current strings.Builder
+	inQuote := false
+	for _, r := range command {
+		switch {
+		case r == '\'':
+			inQuote = !inQuote
+		case !inQuote && (r == ' ' || r == '\t'):
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if inQuote {
+		return nil, fmt.Errorf("%w: unterminated quote", ErrBlockedCommand)
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	return parts, nil
 }
 
 func commandContext(ctx context.Context, invocation commandInvocation) *exec.Cmd {
@@ -299,7 +339,7 @@ func blockedReason(command string, parts []string) string {
 
 func supportedExecutable(name string) bool {
 	switch name {
-	case "git", "pnpm", "npm", "yarn", "bun", "go", "python", "python3", "pytest", "cargo", "make", "node":
+	case "git", "pnpm", "npm", "yarn", "bun", "go", "python", "python3", "pytest", "cargo", "make", "node", "sed", "cat":
 		return true
 	default:
 		return false
@@ -307,6 +347,9 @@ func supportedExecutable(name string) bool {
 }
 
 func safeCommand(parts []string) (commandFactory, bool) {
+	if read, ok := readCommand(parts); ok {
+		return read.factory, true
+	}
 	switch strings.Join(parts, " ") {
 	case "git status":
 		return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "git", "status") }, true
@@ -387,4 +430,79 @@ func safeCommand(parts []string) (commandFactory, bool) {
 	default:
 		return nil, false
 	}
+}
+
+type readCommandSpec struct {
+	factory commandFactory
+	path    string
+	secret  bool
+}
+
+func readCommand(parts []string) (readCommandSpec, bool) {
+	switch {
+	case len(parts) == 2 && parts[0] == "cat":
+		path := parts[1]
+		if !validReadPath(path) {
+			return readCommandSpec{}, false
+		}
+		return readCommandSpec{
+			factory: func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "cat", path) },
+			path:    path,
+			secret:  isSecretLikeReadPath(path),
+		}, true
+	case len(parts) == 4 && parts[0] == "sed" && parts[1] == "-n":
+		if !validSedPrintRange(parts[2]) {
+			return readCommandSpec{}, false
+		}
+		path := parts[3]
+		if !validReadPath(path) {
+			return readCommandSpec{}, false
+		}
+		return readCommandSpec{
+			factory: func(ctx context.Context) *exec.Cmd {
+				return exec.CommandContext(ctx, "sed", "-n", parts[2], path)
+			},
+			path:   path,
+			secret: isSecretLikeReadPath(path),
+		}, true
+	default:
+		return readCommandSpec{}, false
+	}
+}
+
+func validReadPath(path string) bool {
+	if strings.TrimSpace(path) == "" || strings.HasSuffix(path, "/") {
+		return false
+	}
+	if path == "." {
+		return false
+	}
+	return true
+}
+
+func validSedPrintRange(arg string) bool {
+	if !strings.HasSuffix(arg, "p") {
+		return false
+	}
+	ranges := strings.Split(strings.TrimSuffix(arg, "p"), ",")
+	if len(ranges) != 2 {
+		return false
+	}
+	start, err := strconv.Atoi(ranges[0])
+	if err != nil || start < 1 {
+		return false
+	}
+	end, err := strconv.Atoi(ranges[1])
+	if err != nil || end < start {
+		return false
+	}
+	return true
+}
+
+func isSecretLikeReadPath(path string) bool {
+	name := filepath.Base(filepath.ToSlash(filepath.Clean(path)))
+	if name == ".env" || strings.HasPrefix(name, ".env.") || name == ".npmrc" || name == ".pypirc" || name == ".netrc" || name == "id_rsa" || name == "id_ed25519" {
+		return true
+	}
+	return strings.HasSuffix(name, ".pem") || strings.HasSuffix(name, ".key")
 }

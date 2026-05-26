@@ -21,6 +21,9 @@ func TestClassifyAllowsCommonProjectCommands(t *testing.T) {
 		"git status",
 		"git diff",
 		"git log",
+		"cat README.md",
+		"sed -n '1,160p' README.md",
+		"sed -n 1,160p README.md",
 		"pnpm test",
 		"pnpm --dir web build",
 		"npm run lint",
@@ -44,11 +47,37 @@ func TestClassifyAllowsCommonProjectCommands(t *testing.T) {
 	}
 }
 
+func TestClassifyRequiresApprovalForSecretFileReads(t *testing.T) {
+	for _, command := range []string{
+		"cat .env",
+		"cat config/.env.local",
+		"cat deploy/key.pem",
+		"sed -n '1,160p' .npmrc",
+		"sed -n 1,160p keys/id_ed25519",
+	} {
+		t.Run(command, func(t *testing.T) {
+			decision, err := Classify(command)
+			if err != nil {
+				t.Fatalf("Classify returned error: %v", err)
+			}
+			if decision.Level != SafetyNeedsConfirmation {
+				t.Fatalf("expected needs confirmation, got %+v", decision)
+			}
+		})
+	}
+}
+
 func TestClassifyBlocksCommandsOutsideSafeTable(t *testing.T) {
 	for _, command := range []string{
 		"node scripts/check.js",
 		"pnpm exec tsc",
 		"git show HEAD",
+		"cat README.md LICENSE",
+		"cat docs/",
+		"cat .",
+		"sed -n '1p' README.md",
+		"sed -n '160,1p' README.md",
+		"sed -e 's/a/b/' README.md",
 		"go test ./internal/runner",
 		"python -m pytest",
 		"python -c print",
@@ -109,6 +138,10 @@ func TestClassifyBlocksDestructivePathAndShellCommands(t *testing.T) {
 		"echo `date`",
 		"echo $(date)",
 		"pnpm test\nrm -rf dist",
+		"cat ../secret.txt",
+		"cat /tmp/secret.txt",
+		"cat *.md",
+		"sed -n '1,160p' ../secret.txt",
 		"pnpm --dir ../other test",
 		"go test ../other",
 		"go test /tmp/project",
