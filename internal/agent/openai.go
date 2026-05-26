@@ -522,12 +522,13 @@ func providerInstructions() string {
 Rules:
 - Inspect context only from the server-provided conversation context and the available workspace tools.
 - Return assistant text when useful.
-- Use tools for workspace reads, commands, and patches.
+- Use tools for workspace discovery, file reads, commands, and patches.
 - Use use_skill with a selected skill name when a local skill description is relevant and you need its detailed instructions.
 - When calling tools, include concise output_text in the same response that tells the user what you are checking or changing so the user sees progress while tool calls are pending.
 - Write assistant text, including output_text sent with tool calls, in the same language as the user's prompt unless the user explicitly asks for a different language.
 - If the user prompt asks for a change or investigation, do not answer with readiness, greetings, or "what would you like me to do" questions.
-- For change or investigation prompts, first call at least one workspace inspection tool such as search_files, list_files, read_file, or run_command unless the answer can be completed entirely from prior tool results.
+- For change or investigation prompts, first call at least one workspace inspection tool such as search_files, list_files, or run_command unless the answer can be completed entirely from prior tool results.
+- Read file contents through run_command. Prefer sed chunks such as sed -n '1,160p' path/to/file. Use cat path/to/file only when the full file is needed.
 - Inspect Git only through run_command. Prefer exact commands git status, git diff, and git log; do not call dedicated Git status/diff tools.
 - Ask a clarifying question only when the user prompt is genuinely missing the target or desired outcome.
 - Do not claim files were modified unless the apply_patch tool result says the patch was applied.
@@ -574,22 +575,6 @@ func openAITools() []openAITool {
 					"path":  {Type: "string", Description: "Optional workspace-relative file or directory path to search. Empty or omitted searches the workspace root."},
 				},
 				Required:             []string{"query"},
-				AdditionalProperties: false,
-			},
-			Strict: true,
-		},
-		{
-			Type:        "function",
-			Name:        "read_file",
-			Description: "Read one text file by workspace-relative path. Secret, ignored, oversized, binary, and escaping paths are rejected.",
-			Parameters: openAIToolParameters{
-				Type: "object",
-				Properties: map[string]openAIToolProperty{
-					"path":       {Type: "string", Description: "Workspace-relative file path."},
-					"start_line": {Type: "integer", Description: "Optional 1-based first line to read. Defaults to 1."},
-					"end_line":   {Type: "integer", Description: "Optional 1-based inclusive last line to read. Omit to read through EOF."},
-				},
-				Required:             []string{"path"},
 				AdditionalProperties: false,
 			},
 			Strict: true,

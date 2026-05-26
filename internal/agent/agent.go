@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +29,6 @@ var (
 	ErrToolCallNotFound    = errors.New("agent tool call not found")
 	ErrToolNotApprovable   = errors.New("agent tool call is not waiting for approval")
 	ErrRunNotResumable     = errors.New("agent run is not resumable after server restart")
-	ErrSecretPath          = errors.New("secret paths cannot enter agent context")
 )
 
 var supportedModels = map[string]struct{}{
@@ -806,23 +804,6 @@ func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record d
 			results = results[:25]
 		}
 		return openToolJSON(map[string]any{"results": results}), nil
-	case "read_file":
-		var args struct {
-			Path      string `json:"path"`
-			StartLine int    `json:"start_line"`
-			EndLine   int    `json:"end_line"`
-		}
-		if err := json.Unmarshal([]byte(record.InputJSON), &args); err != nil {
-			return "", err
-		}
-		if isSecretPath(args.Path) {
-			return "", ErrSecretPath
-		}
-		file, err := m.files.ReadWithOptions(workspaceRoot, args.Path, filestore.ReadOptions{StartLine: args.StartLine, EndLine: args.EndLine})
-		if err != nil {
-			return "", err
-		}
-		return openToolJSON(file), nil
 	case "run_command":
 		return m.executeCommandTool(ctx, runtime, record)
 	case "use_skill":
@@ -1101,15 +1082,6 @@ func messageEventPayload(message database.MessageRecord) map[string]any {
 		payload["runId"] = *message.RunID
 	}
 	return payload
-}
-
-func isSecretPath(relPath string) bool {
-	clean := filepath.ToSlash(filepath.Clean(relPath))
-	name := filepath.Base(clean)
-	if name == ".env" || strings.HasPrefix(name, ".env.") || name == ".npmrc" || name == ".pypirc" || name == ".netrc" || name == "id_rsa" || name == "id_ed25519" {
-		return true
-	}
-	return strings.HasSuffix(name, ".pem") || strings.HasSuffix(name, ".key")
 }
 
 func openToolError(err error) string {

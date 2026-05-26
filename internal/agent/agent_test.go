@@ -688,7 +688,7 @@ func TestManagerWaitsForApprovalsBeforeExecutingMixedBatch(t *testing.T) {
 	}
 }
 
-func TestManagerExecutesFileToolsWithRangeAndSearchScope(t *testing.T) {
+func TestManagerReadsFilesThroughCommandAndSearchScope(t *testing.T) {
 	root := initAgentGitRepo(t)
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
 		t.Fatalf("mkdir src: %v", err)
@@ -704,7 +704,7 @@ func TestManagerExecutesFileToolsWithRangeAndSearchScope(t *testing.T) {
 	}
 	provider := &testProvider{turns: []ProviderResult{
 		{ToolCalls: []ToolRequest{
-			{CallID: "call_read", Name: "read_file", Arguments: `{"path":"src/note.txt","start_line":2,"end_line":2}`},
+			{CallID: "call_read", Name: "run_command", Arguments: `{"command":"sed -n '2,2p' src/note.txt"}`},
 			{CallID: "call_search", Name: "search_files", Arguments: `{"query":"two","path":"src"}`},
 		}},
 		{Text: "done", Done: true},
@@ -725,8 +725,8 @@ func TestManagerExecutesFileToolsWithRangeAndSearchScope(t *testing.T) {
 	if len(detail.ToolCalls) != 2 {
 		t.Fatalf("expected two tool calls, got %+v", detail.ToolCalls)
 	}
-	if !strings.Contains(detail.ToolCalls[0].Output, `"content":"two\n"`) {
-		t.Fatalf("expected ranged read output, got %s", detail.ToolCalls[0].Output)
+	if !strings.Contains(detail.ToolCalls[0].Output, `"output":"two\n"`) {
+		t.Fatalf("expected command read output, got %s", detail.ToolCalls[0].Output)
 	}
 	if !strings.Contains(detail.ToolCalls[1].Output, `"path":"src/note.txt"`) || strings.Contains(detail.ToolCalls[1].Output, `"path":"docs/note.txt"`) {
 		t.Fatalf("expected scoped search output, got %s", detail.ToolCalls[1].Output)

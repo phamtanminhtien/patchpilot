@@ -40,4 +40,35 @@ describe("toolCallDisplay", () => {
     expect(display.text).toBe("Incremental Implementation");
     expect(display.detail).toBe("Implement in small verified steps.");
   });
+
+  it("formats safe sed read commands like compact read-file activity", () => {
+    const display = toolCallDisplay({
+      ...baseToolCall,
+      input: `{"command":"sed -n '1,160p' README.md"}`,
+      name: "run_command",
+      output: '{"output":"PatchPilot"}',
+      status: "finished",
+    });
+
+    expect(display.label).toBe("Read file");
+    expect(display.statusLabel).toBe("Read");
+    expect(display.text).toBe("README.md");
+    expect(display.detail).toBe("");
+    expect(display.expandable).toBe(false);
+  });
+
+  it("keeps approval-required read commands expandable", () => {
+    const display = toolCallDisplay({
+      ...baseToolCall,
+      input: `{"command":"cat .env"}`,
+      name: "run_command",
+      requiresApproval: true,
+      status: "waiting_approval",
+    });
+
+    expect(display.label).toBe("Read file");
+    expect(display.statusLabel).toBe("Waiting approval");
+    expect(display.text).toBe(".env");
+    expect(display.expandable).toBe(true);
+  });
 });

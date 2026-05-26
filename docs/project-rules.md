@@ -105,8 +105,8 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 - Admin token never goes to logs, conversation/run events, or agent context.
 - Workspace roots are absolute and inside configured allowed roots; file API paths are workspace-relative and reject traversal/symlink escapes.
 - Do not expose arbitrary host paths.
-- Agent `read_file` blocks secrets by default: `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`.
-- Users may manually open files, but secret contents must not enter agent context.
+- Agent file reads go through `run_command` with exact `sed`/`cat` read shapes. Safe relative non-secret paths may auto-run; absolute paths and workspace escapes are blocked; secret-like paths (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`) require approval.
+- Users may manually open files; secret-like contents enter agent context only after explicit tool approval.
 - Repo instruction files and skill files enter agent context only after workspace-root, symlink, size, binary, and secret-path checks.
 - Skill discovery reads `~/.patchpilot/skills` before `~/.agents/skills`; duplicate keys use only the `~/.patchpilot/skills` copy for effective skills and agent context.
 - User commands run only after direct submission.

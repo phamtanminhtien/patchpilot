@@ -54,6 +54,8 @@ const TOOL_METADATA: Record<string, ToolCallMetadata> = {
   },
 };
 
+const READ_FILE_METADATA = TOOL_METADATA.read_file as ToolCallMetadata;
+
 export function parseToolInput(input: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(input) as unknown;
@@ -75,17 +77,25 @@ export function toolCallMetadata(name: string): ToolCallMetadata {
 }
 
 export function toolCallDisplay(toolCall: AgentToolCall): ToolCallDisplay {
-  const metadata = toolCallMetadata(toolCall.name);
   const input = parseToolInput(toolCall.input);
+  const readCommandPath =
+    toolCall.name === "run_command"
+      ? readCommandFilePath(stringValue(input.command))
+      : "";
+  const metadata = readCommandPath
+    ? READ_FILE_METADATA
+    : toolCallMetadata(toolCall.name);
   const statusLabel = toolCallStatusLabel(toolCall);
   const detail = toolCallDetail(toolCall, input);
 
   return {
     ...metadata,
     detail,
-    expandable: toolCall.name !== "read_file",
+    expandable:
+      toolCall.name !== "read_file" &&
+      (!readCommandPath || toolCall.requiresApproval),
     statusLabel,
-    text: toolCallText(toolCall.name, input, metadata.label),
+    text: readCommandPath || toolCallText(toolCall.name, input, metadata.label),
   };
 }
 
@@ -145,6 +155,11 @@ function toolCallStatusLabel(toolCall: AgentToolCall) {
     case "read_file":
       return isFinished ? "Read" : "Reading";
     case "run_command":
+      if (
+        readCommandFilePath(stringValue(parseToolInput(toolCall.input).command))
+      ) {
+        return isFinished ? "Read" : "Reading";
+      }
       return isFinished ? "Ran" : "Running";
     case "search_files":
       return isFinished ? "Searched" : "Searching";
@@ -193,6 +208,9 @@ function toolCallDetail(
     return stringValue(input.diff) || toolCall.output || toolCall.input;
   }
   if (toolCall.name === "run_command") {
+    if (readCommandFilePath(stringValue(input.command))) {
+      return "";
+    }
     return toolCall.output || stringValue(input.command) || toolCall.input;
   }
   if (toolCall.name === "use_skill") {
@@ -215,4 +233,69 @@ function firstPatchPath(diff: string) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readCommandFilePath(command: string) {
+  const parts = splitCommand(command);
+  const catPath = parts[1];
+  if (parts.length === 2 && parts[0] === "cat" && catPath) {
+    return validReadPath(catPath) ? catPath : "";
+  }
+  const sedRange = parts[2];
+  const sedPath = parts[3];
+  if (
+    parts.length === 4 &&
+    parts[0] === "sed" &&
+    parts[1] === "-n" &&
+    sedRange &&
+    sedPath &&
+    validSedPrintRange(sedRange) &&
+    validReadPath(sedPath)
+  ) {
+    return sedPath;
+  }
+  return "";
+}
+
+function splitCommand(command: string) {
+  const parts: string[] = [];
+  let current = "";
+  let inQuote = false;
+  for (const character of command.trim()) {
+    if (character === "'") {
+      inQuote = !inQuote;
+      continue;
+    }
+    if (!inQuote && /\s/.test(character)) {
+      if (current) {
+        parts.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += character;
+  }
+  if (current) {
+    parts.push(current);
+  }
+  return inQuote ? [] : parts;
+}
+
+function validReadPath(path: string) {
+  return path.length > 0 && path !== "." && !path.endsWith("/");
+}
+
+function validSedPrintRange(range: string) {
+  const match = /^(\d+),(\d+)p$/.exec(range);
+  if (!match) {
+    return false;
+  }
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  return (
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    start >= 1 &&
+    end >= start
+  );
 }
