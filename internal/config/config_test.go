@@ -42,7 +42,6 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 	home := t.TempDir()
 	firstRoot := filepath.Join(cwd, "one")
 	secondRoot := filepath.Join(cwd, "two")
-	dbPath := filepath.Join(cwd, "state", "app.db")
 
 	cfg, err := LoadFromEnv(cwd, home, func(key string) string {
 		switch key {
@@ -52,8 +51,6 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 			return firstRoot + string(os.PathListSeparator) + secondRoot
 		case "PATCHPILOT_ADMIN_TOKEN":
 			return "admin-secret"
-		case "PATCHPILOT_DB_PATH":
-			return dbPath
 		case "PATCHPILOT_STATIC_DIR":
 			return "web/dist"
 		case "PATCHPILOT_LOG_FORMAT":
@@ -78,7 +75,7 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 	if cfg.AdminToken != "admin-secret" {
 		t.Fatalf("unexpected admin token: %q", cfg.AdminToken)
 	}
-	if cfg.DBPath != dbPath {
+	if cfg.DBPath != filepath.Join(home, defaultDataDir, defaultDBName) {
 		t.Fatalf("unexpected db path: %q", cfg.DBPath)
 	}
 	if cfg.StaticDir != filepath.Join(cwd, "web", "dist") {
@@ -92,6 +89,33 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 	}
 	if cfg.OpenAIBaseURL != "https://proxy.example/v1" {
 		t.Fatalf("unexpected OpenAI base URL: %q", cfg.OpenAIBaseURL)
+	}
+}
+
+func TestLoadFromEnvIgnoresLegacyDataPathOverrides(t *testing.T) {
+	cwd := t.TempDir()
+	home := t.TempDir()
+	legacyDataDir := filepath.Join(cwd, "legacy-data")
+	legacyDBPath := filepath.Join(cwd, "legacy.db")
+
+	cfg, err := LoadFromEnv(cwd, home, func(key string) string {
+		switch key {
+		case "PATCHPILOT_DATA_DIR":
+			return legacyDataDir
+		case "PATCHPILOT_DB_PATH":
+			return legacyDBPath
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+	if cfg.DataDir != filepath.Join(home, defaultDataDir) {
+		t.Fatalf("expected fixed data dir, got %q", cfg.DataDir)
+	}
+	if cfg.DBPath != filepath.Join(home, defaultDataDir, defaultDBName) {
+		t.Fatalf("expected fixed db path, got %q", cfg.DBPath)
 	}
 }
 

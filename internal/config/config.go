@@ -76,23 +76,13 @@ func LoadFromEnv(cwd string, home string, getenv func(string) string) (Config, e
 		return Config{}, err
 	}
 
-	dataDir := strings.TrimSpace(getenv("PATCHPILOT_DATA_DIR"))
-	if dataDir == "" {
-		dataDir = filepath.Join(home, defaultDataDir)
-	} else if !filepath.IsAbs(dataDir) {
-		dataDir = filepath.Join(cwd, dataDir)
-	}
+	dataDir := filepath.Join(home, defaultDataDir)
 	dataDir, err = filepath.Abs(dataDir)
 	if err != nil {
 		return Config{}, err
 	}
 
-	dbPath := strings.TrimSpace(getenv("PATCHPILOT_DB_PATH"))
-	if dbPath == "" {
-		dbPath = filepath.Join(dataDir, defaultDBName)
-	} else if !filepath.IsAbs(dbPath) {
-		dbPath = filepath.Join(cwd, dbPath)
-	}
+	dbPath := filepath.Join(dataDir, defaultDBName)
 	dbPath, err = filepath.Abs(dbPath)
 	if err != nil {
 		return Config{}, err

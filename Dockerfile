@@ -21,11 +21,10 @@ RUN apk add --no-cache ca-certificates git
 WORKDIR /app
 COPY --from=api-build /out/patchpilot /usr/local/bin/patchpilot
 COPY --from=web-build /src/web/dist /app/web/dist
-RUN mkdir -p /data /workspace
+RUN mkdir -p /root/.patchpilot /workspace
 
 ENV PATCHPILOT_ADDR=0.0.0.0:8080
 ENV PATCHPILOT_ALLOWED_ROOTS=/workspace
-ENV PATCHPILOT_DATA_DIR=/data
 ENV PATCHPILOT_STATIC_DIR=/app/web/dist
 ENV PATCHPILOT_LOG_FORMAT=json
 

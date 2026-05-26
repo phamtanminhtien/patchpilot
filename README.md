@@ -51,8 +51,6 @@ PATCHPILOT_ALLOWED_ROOTS=/absolute/path/to/repos
 PATCHPILOT_ADMIN_TOKEN=choose-a-local-admin-token
 PATCHPILOT_OPENAI_API_KEY=your-openai-or-compatible-key
 # PATCHPILOT_OPENAI_BASE_URL=https://api.openai.com/v1
-# PATCHPILOT_DATA_DIR=/absolute/path/to/app-data
-# PATCHPILOT_DB_PATH=/absolute/path/to/patchpilot.db
 # PATCHPILOT_STATIC_DIR=/absolute/path/to/web/dist
 # PATCHPILOT_LOG_FORMAT=json
 ```
@@ -64,9 +62,9 @@ Important variables:
 - `PATCHPILOT_OPENAI_API_KEY`: backend-only provider secret used by agent runs.
 - `PATCHPILOT_OPENAI_BASE_URL`: optional OpenAI-compatible base URL. Defaults to `https://api.openai.com/v1`.
 - `PATCHPILOT_ADDR`: backend listen address. Defaults to `127.0.0.1:8080`.
-- `PATCHPILOT_DATA_DIR`: directory for PatchPilot-owned state when `PATCHPILOT_DB_PATH` is unset. Defaults to `~/.patchpilot`.
-- `PATCHPILOT_DB_PATH`: explicit SQLite database path.
 - `PATCHPILOT_STATIC_DIR`: built frontend directory served by the Go server. Defaults to `web/dist`.
+
+PatchPilot-owned state always lives under `~/.patchpilot`; SQLite is always `~/.patchpilot/patchpilot.db`.
 
 Do not commit `.env` files or provider keys.
 
@@ -155,7 +153,7 @@ docker run --rm \
   -p 8080:8080 \
   -e PATCHPILOT_ADMIN_TOKEN=choose-a-local-admin-token \
   -e PATCHPILOT_OPENAI_API_KEY=your-openai-or-compatible-key \
-  -v patchpilot-data:/data \
+  -v patchpilot-data:/root/.patchpilot \
   -v /absolute/path/to/repos:/workspace \
   ghcr.io/phamtanminhtien/patchpilot:latest
 ```
