@@ -112,8 +112,8 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 				t.Fatalf("expected agent instructions outside input, got %s", encodedInput)
 			}
 			tools, ok := body["tools"].([]any)
-			if !ok || len(tools) != 5 {
-				t.Fatalf("expected five tools in initial request, got %#v", body["tools"])
+			if !ok || len(tools) != 4 {
+				t.Fatalf("expected four tools in initial request, got %#v", body["tools"])
 			}
 			writeOpenAIStream(w, "response.output_text.delta", `{"delta":"I will inspect the workspace before patching."}`)
 			writeOpenAIStream(w, "response.output_item.done", `{"item":{"type":"function_call","call_id":"call_search","name":"search_files","arguments":"{\"query\":\"note\"}"}}`)
@@ -205,7 +205,7 @@ func TestOpenAIProviderPromptRejectsReadinessForConcreteTasks(t *testing.T) {
 		"Ask a clarifying question only",
 		"include concise output_text in the same response",
 		"same language as the user's prompt",
-		"Use use_skill",
+		"read the listed skill Path through run_command",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected provider prompt to contain %q, got %s", expected, prompt)
@@ -219,7 +219,7 @@ func TestOpenAIToolsExposeSearchScopeAndNoReadOrDedicatedGitTools(t *testing.T) 
 	for _, tool := range tools {
 		names[tool.Name] = tool
 	}
-	for _, removed := range []string{"read_file", "git_" + "status", "git_" + "diff"} {
+	for _, removed := range []string{"read_file", "use_skill", "git_" + "status", "git_" + "diff"} {
 		if _, ok := names[removed]; ok {
 			t.Fatalf("expected %s to be removed from agent tools", removed)
 		}
@@ -245,9 +245,11 @@ func TestOpenAIProviderInputListsSkillMetadataWithoutBody(t *testing.T) {
 		Prompt: "Use the browser skill.",
 		SelectedSkills: []skills.Skill{
 			{
+				Key:         "browser",
 				Name:        "Browser",
 				Description: "Browser automation.",
-				Instruction: "Secret body instructions should load only through use_skill.",
+				Source:      "patchpilot",
+				Instruction: "Secret body instructions should load only through command output.",
 			},
 		},
 	})
@@ -256,7 +258,7 @@ func TestOpenAIProviderInputListsSkillMetadataWithoutBody(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 	encoded := string(encodedInput)
-	for _, expected := range []string{"Selected local skills", "Name: Browser", "Description: Browser automation."} {
+	for _, expected := range []string{"Selected local skills", "Name: Browser", "Description: Browser automation.", "Path: ~/.patchpilot/skills/browser/SKILL.md"} {
 		if !strings.Contains(encoded, expected) {
 			t.Fatalf("expected provider input to contain %q, got %s", expected, encoded)
 		}

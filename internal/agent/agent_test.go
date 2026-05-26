@@ -194,15 +194,11 @@ func TestManagerPublishesTransientDeltaWithoutStoringIt(t *testing.T) {
 	}
 }
 
-func TestManagerUseSkillToolReturnsSelectedSkillBody(t *testing.T) {
+func TestManagerSelectedSkillsAreAvailableInProviderRequest(t *testing.T) {
 	root := initAgentGitRepo(t)
 	home := t.TempDir()
 	writeAgentSkill(t, home, "browser", "Browser", "Browser automation.", "Use the in-app browser.")
 	provider := &testProvider{turns: []ProviderResult{
-		{
-			Text:      "I will load the browser skill.",
-			ToolCalls: []ToolRequest{useSkillToolRequest("call_skill", "Browser")},
-		},
 		{Text: "Done", Done: true},
 	}}
 	manager, _ := newAgentTestManager(t, provider)
@@ -219,55 +215,13 @@ func TestManagerUseSkillToolReturnsSelectedSkillBody(t *testing.T) {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	detail := waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
-	if len(detail.ToolCalls) != 1 {
-		t.Fatalf("expected one tool call, got %+v", detail.ToolCalls)
+	waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
+	if len(provider.seen) == 0 || len(provider.seen[0].SelectedSkills) != 1 {
+		t.Fatalf("expected selected skill in provider request, got %+v", provider.seen)
 	}
-	call := detail.ToolCalls[0]
-	if call.Name != "use_skill" || call.RequiresApproval || call.Status != ToolStatusFinished {
-		t.Fatalf("expected auto-run finished use_skill call, got %+v", call)
-	}
-	if call.Source != "skill" || call.SourceRef == nil || *call.SourceRef != "Browser" {
-		t.Fatalf("expected skill source metadata, got %+v", call)
-	}
-	for _, expected := range []string{"Browser automation.", "Use the in-app browser."} {
-		if !strings.Contains(call.Output, expected) {
-			t.Fatalf("expected tool output to contain %q, got %s", expected, call.Output)
-		}
-	}
-}
-
-func TestManagerUseSkillToolFailsForUnavailableSkill(t *testing.T) {
-	root := initAgentGitRepo(t)
-	home := t.TempDir()
-	writeAgentSkill(t, home, "browser", "Browser", "Browser automation.", "Use the in-app browser.")
-	provider := &testProvider{turns: []ProviderResult{
-		{
-			Text:      "I will load an unknown skill.",
-			ToolCalls: []ToolRequest{useSkillToolRequest("call_skill", "Missing")},
-		},
-		{Text: "Done", Done: true},
-	}}
-	manager, _ := newAgentTestManager(t, provider)
-	manager.homeDir = home
-
-	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
-		Prompt:           "use missing skill",
-		ConversationID:   "conv_1",
-		TriggerMessageID: "msg_1",
-		Model:            "gpt-5.5",
-		ReasoningEffort:  "medium",
-	})
-	if err != nil {
-		t.Fatalf("Create returned error: %v", err)
-	}
-
-	detail := waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusDone)
-	if len(detail.ToolCalls) != 1 || detail.ToolCalls[0].Status != ToolStatusFailed {
-		t.Fatalf("expected failed use_skill call, got %+v", detail.ToolCalls)
-	}
-	if !strings.Contains(detail.ToolCalls[0].Output, "not available") {
-		t.Fatalf("expected unavailable skill error, got %+v", detail.ToolCalls[0])
+	skill := provider.seen[0].SelectedSkills[0]
+	if skill.Key != "browser" || skill.Name != "Browser" || skill.Description != "Browser automation." {
+		t.Fatalf("unexpected selected skill metadata: %+v", skill)
 	}
 }
 
@@ -784,14 +738,6 @@ func patchToolRequest(callID string) ToolRequest {
 		CallID:    callID,
 		Name:      "apply_patch",
 		Arguments: `{"summary":"add file","diff":"diff --git a/a.txt b/a.txt\nnew file mode 100644\nindex 0000000..7898192\n--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1 @@\n+content\n"}`,
-	}
-}
-
-func useSkillToolRequest(callID, name string) ToolRequest {
-	return ToolRequest{
-		CallID:    callID,
-		Name:      "use_skill",
-		Arguments: `{"name":"` + name + `"}`,
 	}
 }
 

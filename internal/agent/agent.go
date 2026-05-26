@@ -806,24 +806,6 @@ func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record d
 		return openToolJSON(map[string]any{"results": results}), nil
 	case "run_command":
 		return m.executeCommandTool(ctx, runtime, record)
-	case "use_skill":
-		var args struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal([]byte(record.InputJSON), &args); err != nil {
-			return "", err
-		}
-		name := strings.TrimSpace(args.Name)
-		for _, skill := range runtime.selectedSkills {
-			if skill.Name == name {
-				return openToolJSON(map[string]string{
-					"name":        skill.Name,
-					"description": skill.Description,
-					"instruction": skill.Instruction,
-				}), nil
-			}
-		}
-		return "", fmt.Errorf("skill %q is not available", name)
 	case "apply_patch":
 		var args struct {
 			Diff    string `json:"diff"`
@@ -849,18 +831,6 @@ func toolSourceMetadata(name, inputJSON string, requiresApproval bool) (string, 
 	if strings.HasPrefix(name, "mcp.") {
 		ref := strings.TrimPrefix(name, "mcp.")
 		return "mcp", &ref, "MCP tools require approval unless configured read-only and safe."
-	}
-	if name == "use_skill" {
-		var args struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal([]byte(inputJSON), &args); err == nil {
-			ref := strings.TrimSpace(args.Name)
-			if ref != "" {
-				return "skill", &ref, "Skill instructions are loaded by name."
-			}
-		}
-		return "skill", nil, "Skill instructions are loaded by name."
 	}
 	if strings.HasPrefix(name, "skill.") {
 		ref := strings.TrimPrefix(name, "skill.")

@@ -72,11 +72,11 @@ Skills:
 
 ```txt
 add local skill directory -> index SKILL.md -> enable/disable
--> select relevant enabled skill metadata for a run -> agent calls use_skill by name
--> inject selected skill body only after use_skill
+-> select relevant enabled skill metadata/path for a run
+-> agent reads SKILL.md through run_command cat/sed when needed
 ```
 
-Skills are local directories with `SKILL.md`. A valid `SKILL.md` starts with YAML frontmatter containing non-empty `name` and `description` strings, followed by a non-empty instruction body. Discovery roots: `~/.patchpilot/skills` (user override) then `~/.agents/skills` (fallback). Duplicate keys use only the `~/.patchpilot/skills` copy for effective skills and agent context. Enablement comes from `~/.patchpilot/config.json`; skills missing from `config.skills` default enabled. Runs inject enabled valid skill names/descriptions into the prompt; the agent calls the read-only `use_skill` tool with a skill name to retrieve the body when needed. Duplicate enabled valid skill names after precedence are marked invalid so `use_skill` is deterministic.
+Skills are local directories with `SKILL.md`. A valid `SKILL.md` starts with YAML frontmatter containing non-empty `name` and `description` strings, followed by a non-empty instruction body. Discovery roots: `~/.patchpilot/skills` (user override) then `~/.agents/skills` (fallback). Duplicate keys use only the `~/.patchpilot/skills` copy for effective skills and agent context. Enablement comes from `~/.patchpilot/config.json`; skills missing from `config.skills` default enabled. Runs inject enabled valid skill names, descriptions, and `~` paths into the prompt; the agent reads the listed path with `run_command` using `cat` or `sed` when it needs the body. Duplicate enabled valid skill names after precedence are marked invalid.
 
 MCP:
 
@@ -277,20 +277,21 @@ Events: `workspace.ready`, `workspace.indexing`, `conversation.created`, `conver
 
 ## Agent Tools And Commands
 
-Tools: `list_files`, `search_files`, `run_command`, `use_skill`, approval-required `apply_patch`, and `mcp:<server>:<tool>` through backend bridge/policy. Agents inspect Git through `run_command` with allowlisted commands such as `git status`, `git diff`, and `git log`; dedicated agent Git status/diff tools are not exposed.
+Tools: `list_files`, `search_files`, `run_command`, approval-required `apply_patch`, and `mcp:<server>:<tool>` through backend bridge/policy. Agents inspect Git through `run_command` with allowlisted commands such as `git status`, `git diff`, and `git log`; dedicated agent Git status/diff tools are not exposed.
 
-Agents read file contents through `run_command`. Use `sed -n '1,160p' path/to/file` for ranged reads and `cat path/to/file` only when a full file is needed. Safe relative non-secret file reads may auto-run. Absolute paths, workspace escapes, unsupported read shapes, globs, extra flags, broad directory reads, and shell syntax are blocked. Secret-like read paths (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`) require approval.
+Agents read file contents through `run_command`. Use `sed -n '1,160p' path/to/file` for ranged reads and `cat path/to/file` only when a full file is needed. Safe relative non-secret workspace file reads may auto-run. Skill file reads under `~/.patchpilot/skills` and `~/.agents/skills` may auto-run. Other outside-workspace file reads, absolute paths, and secret-like read paths (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`) require approval. Workspace escapes, unsupported read shapes, globs, extra flags, broad directory reads, and shell syntax are blocked.
 
 `search_files` accepts a text `query` plus optional workspace-relative `path`. Empty or omitted `path` searches from workspace root; non-empty `path` must stay inside the workspace and may target either a directory subtree or one file.
 
 Vibe renders tool calls as compact activity rows with icons, human status text, concise labels, source metadata, and grouped consecutive calls per run. Approval, patch, command, diff, search, status, and list calls can expand. `run_command` calls that match the safe file-read command shapes render as one-line read-file activity and do not expose file output. Groups/calls open by default when attention is needed: waiting approval, running, or failed. Completed calls stay collapsed.
 
-Agents must not read outside workspace root, expose ports, call MCP servers directly, or run approval-required tools without approval. Secret-like file reads require explicit approval. Backend preserves provider tool-call order. If any tool in a batch requires approval, no tool in that batch runs until all approval-required calls have decisions. Rejected tools do not run.
+Agents must not expose ports, call MCP servers directly, or run approval-required tools without approval. Outside-workspace and secret-like file reads require explicit approval except enabled skill files under configured skill roots. Backend preserves provider tool-call order. If any tool in a batch requires approval, no tool in that batch runs until all approval-required calls have decisions. Rejected tools do not run.
 
 Agent auto-run requires exact allowlist match and no shell control operators:
 
 - `git status`, `git diff`, `git log`
 - `cat <safe-relative-file>`, `sed -n '<start>,<end>p' <safe-relative-file>`
+- `cat ~/.patchpilot/skills/<key>/SKILL.md`, `cat ~/.agents/skills/<key>/SKILL.md`, and equivalent `sed -n '<start>,<end>p' ...`
 - `npm run test|lint|build|dev`
 - `pnpm test|lint|build|dev`
 - `yarn test|lint|build|dev`
@@ -302,9 +303,9 @@ Agent auto-run requires exact allowlist match and no shell control operators:
 
 Direct user command classification:
 
-- Safe `202`: `git status|diff|log`; non-secret `cat <safe-relative-file>` and `sed -n '<start>,<end>p' <safe-relative-file>`; `npm run test|lint|build|dev`; `pnpm test|lint|build|dev`; `pnpm --dir <safe-relative-dir> test|lint|build|dev`; `yarn test|lint|build|dev`; `yarn --dir <safe-relative-dir> test|lint|build|dev`; `bun test`; `bun run lint|build|dev`; `go test ./...`; `go test ./<package>`; `go build ./...`; `pytest`; `python -m pytest`; `python3 -m pytest`; `cargo test|build`; `make test|lint|build|dev`.
-- Risky: syntactically valid but outside allowlist, including secret-like file reads; returns `409 confirmation_required` unless `confirmed:true`.
-- Blocked `400 blocked_command`: shell control/expansion (`&&`, `||`, `;`, `|`, `>`, `<`, backticks, `$(`, newlines), absolute executable paths, absolute path arguments, workspace escapes, `sudo`, `su`, forced recursive `rm`, `git clean`, `git reset --hard`, `chmod -R`, `chown -R`.
+- Safe `202`: `git status|diff|log`; non-secret `cat <safe-relative-file>` and `sed -n '<start>,<end>p' <safe-relative-file>`; `cat`/`sed` reads under `~/.patchpilot/skills` and `~/.agents/skills`; `npm run test|lint|build|dev`; `pnpm test|lint|build|dev`; `pnpm --dir <safe-relative-dir> test|lint|build|dev`; `yarn test|lint|build|dev`; `yarn --dir <safe-relative-dir> test|lint|build|dev`; `bun test`; `bun run lint|build|dev`; `go test ./...`; `go test ./<package>`; `go build ./...`; `pytest`; `python -m pytest`; `python3 -m pytest`; `cargo test|build`; `make test|lint|build|dev`.
+- Risky: syntactically valid but outside allowlist, including secret-like file reads and non-skill outside-workspace file reads; returns `409 confirmation_required` unless `confirmed:true`.
+- Blocked `400 blocked_command`: shell control/expansion (`&&`, `||`, `;`, `|`, `>`, `<`, backticks, `$(`, newlines), workspace escapes, globs, broad directory reads, unsupported `cat`/`sed` flags, `sudo`, `su`, forced recursive `rm`, `git clean`, `git reset --hard`, `chmod -R`, `chown -R`.
 
 Execution always parses arguments without a shell, runs at workspace root, and rejects traversal/shell operators. `confirmation_required` and `blocked_command` include `details.decision` with `level`, `reason`, and parsed `parts`.
 
@@ -382,7 +383,7 @@ Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestrat
 - Agent-context refresh reloads `~/.patchpilot/config.json`, scans `~/.patchpilot/skills` and `~/.agents/skills`, and shows safe warnings for invalid config.
 - Users can open Skills from the Vibe sidebar, see skill name/description/body detail from YAML frontmatter, and enable/disable discovered local skills through config without remote installs; missing `config.skills` entries default enabled.
 - Duplicate skill keys select only the `~/.patchpilot/skills` copy for effective list/context.
-- Enabled skills influence future runs through metadata in the prompt and body retrieval through `use_skill`; disabled/invalid skills are not injected or selectable by tool.
+- Enabled skills influence future runs through name, description, and `~` path metadata in the prompt; disabled/invalid skills are not injected.
 - Users can inspect stdio/HTTP MCP servers from `config.mcpServers`.
 - MCP discovery shows server, transport, tool/resource metadata, health, disabled state, last error, read-only hints, and effective approval policy.
 - Agent starts non-trivial work with a short plan, reads/searches approved files before changes, returns messages/tool calls rather than direct mutations, produces small reviewable patches, reports changed files, and runs/recommends narrow verification.
@@ -396,9 +397,9 @@ Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestrat
 - Command truncation: persistence keeps only latest 1 MiB per command; process detail replays retained output only. Verification: DB command-output and API process-detail tests.
 - Closed ports: unreachable exposed/detected ports become `closed`, emit `port.closed`, and expose/proxy returns `502 port_unreachable`. Verification: backend port/API handler tests.
 - Patch conflict: failed apply marks tool call failed, leaves files unchanged, records actionable error, and keeps run recoverable without executing later approval-required tools in that batch. Verification: backend agent/tool approval tests.
-- Invalid paths: file, Git, command, and agent tool paths reject absolute paths, traversal, and symlink escapes with standard errors and no host-path leakage. Verification: filestore, gitrepo, runner, agent, API tests.
-- Secret protection: agent reads and manual writes reject `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`. Verification: agent tool, filestore, API tests.
+- Invalid paths: file, Git, command, and agent tool paths reject traversal and symlink escapes with standard errors and no host-path leakage except explicit approved outside-workspace read commands. Verification: filestore, gitrepo, runner, agent, API tests.
+- Secret protection: agent reads of secret-like paths require approval; manual writes reject `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`. Verification: runner, agent, filestore, API tests.
 - Instruction context safety: `AGENTS.md` discovery rejects escapes, external symlinks, secret-like paths, binaries, oversized files, and shows safe warnings. Verification: agent context and API handler tests.
-- Skill manager safety: parser validates YAML-frontmatter `SKILL.md`, preserves invalid-skill warnings, respects config enablement, applies `~/.patchpilot/skills` duplicate precedence, rejects duplicate enabled names after precedence, and injects skill bodies only through `use_skill`. Verification: skill repository/parser and agent context tests.
+- Skill manager safety: parser validates YAML-frontmatter `SKILL.md`, preserves invalid-skill warnings, respects config enablement, applies `~/.patchpilot/skills` duplicate precedence, rejects duplicate enabled names after precedence, and injects skill bodies only through `cat`/`sed` command output. Verification: skill repository/parser and agent context tests.
 - MCP safety: stdio/HTTP fake servers can be added, refreshed, listed, and called from config; disabled servers do not start; unresolved env placeholders produce safe warnings; unknown/mutating tools require approval; read-only auto-run requires both metadata and PatchPilot policy. Verification: MCP client, approval-policy, API handler, agent manager tests.
 - Agent cockpit UI: context, skills, MCP, approvals, and run details are visible on desktop/mobile; long paths/tool names/server names/JSON summaries wrap or truncate without layout shifts. Verification: frontend component tests and Playwright smoke.

@@ -23,6 +23,7 @@ interface ToolCallDisplay {
   detail: string;
   expandable: boolean;
   label: string;
+  sourceLabel?: string;
   statusLabel: string;
   text: string;
 }
@@ -55,6 +56,7 @@ const TOOL_METADATA: Record<string, ToolCallMetadata> = {
 };
 
 const READ_FILE_METADATA = TOOL_METADATA.read_file as ToolCallMetadata;
+const LOAD_SKILL_METADATA = TOOL_METADATA.use_skill as ToolCallMetadata;
 
 export function parseToolInput(input: string): Record<string, unknown> {
   try {
@@ -82,9 +84,12 @@ export function toolCallDisplay(toolCall: AgentToolCall): ToolCallDisplay {
     toolCall.name === "run_command"
       ? readCommandFilePath(stringValue(input.command))
       : "";
-  const metadata = readCommandPath
-    ? READ_FILE_METADATA
-    : toolCallMetadata(toolCall.name);
+  const skillReadName = skillNameFromReadPath(readCommandPath);
+  const metadata = skillReadName
+    ? LOAD_SKILL_METADATA
+    : readCommandPath
+      ? READ_FILE_METADATA
+      : toolCallMetadata(toolCall.name);
   const statusLabel = toolCallStatusLabel(toolCall);
   const detail = toolCallDetail(toolCall, input);
 
@@ -93,9 +98,13 @@ export function toolCallDisplay(toolCall: AgentToolCall): ToolCallDisplay {
     detail,
     expandable:
       toolCall.name !== "read_file" &&
-      (!readCommandPath || toolCall.requiresApproval),
+      (!readCommandPath || Boolean(skillReadName) || toolCall.requiresApproval),
+    sourceLabel: skillReadName ? `skill/${skillReadName}` : undefined,
     statusLabel,
-    text: readCommandPath || toolCallText(toolCall.name, input, metadata.label),
+    text:
+      skillReadName ||
+      readCommandPath ||
+      toolCallText(toolCall.name, input, metadata.label),
   };
 }
 
@@ -155,10 +164,16 @@ function toolCallStatusLabel(toolCall: AgentToolCall) {
     case "read_file":
       return isFinished ? "Read" : "Reading";
     case "run_command":
-      if (
-        readCommandFilePath(stringValue(parseToolInput(toolCall.input).command))
-      ) {
-        return isFinished ? "Read" : "Reading";
+      {
+        const readPath = readCommandFilePath(
+          stringValue(parseToolInput(toolCall.input).command),
+        );
+        if (skillNameFromReadPath(readPath)) {
+          return isFinished ? "Loaded" : "Loading";
+        }
+        if (readPath) {
+          return isFinished ? "Read" : "Reading";
+        }
       }
       return isFinished ? "Ran" : "Running";
     case "search_files":
@@ -208,7 +223,12 @@ function toolCallDetail(
     return stringValue(input.diff) || toolCall.output || toolCall.input;
   }
   if (toolCall.name === "run_command") {
-    if (readCommandFilePath(stringValue(input.command))) {
+    const readPath = readCommandFilePath(stringValue(input.command));
+    if (skillNameFromReadPath(readPath)) {
+      const output = parseToolInput(toolCall.output);
+      return stringValue(output.output) || toolCall.output || toolCall.input;
+    }
+    if (readPath) {
       return "";
     }
     return toolCall.output || stringValue(input.command) || toolCall.input;
@@ -255,6 +275,14 @@ function readCommandFilePath(command: string) {
     return sedPath;
   }
   return "";
+}
+
+function skillNameFromReadPath(path: string) {
+  const match =
+    /(?:^~|^)\/?\.?(?:patchpilot|agents)\/skills\/([^/]+)\/SKILL\.md$/.exec(
+      path,
+    ) ?? /\/\.(?:patchpilot|agents)\/skills\/([^/]+)\/SKILL\.md$/.exec(path);
+  return match?.[1] ? humanizeSkillName(match[1]) : "";
 }
 
 function splitCommand(command: string) {

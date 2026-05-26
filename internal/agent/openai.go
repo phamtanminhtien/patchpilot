@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/phamtanminhtien/patchpilot/internal/skills"
 )
 
 var ErrOpenAIRequestFailed = errors.New("openai request failed")
@@ -471,6 +473,21 @@ func buildProviderPrompt(request ProviderRequest) string {
 	return providerInstructions() + "\n\nCurrent user prompt:\n" + strings.TrimSpace(request.Prompt)
 }
 
+func skillPromptPath(skill skills.Skill) string {
+	key := strings.TrimSpace(skill.Key)
+	if key == "" {
+		return ""
+	}
+	switch skill.Source {
+	case "patchpilot":
+		return "~/.patchpilot/skills/" + key + "/SKILL.md"
+	case "agents":
+		return "~/.agents/skills/" + key + "/SKILL.md"
+	default:
+		return ""
+	}
+}
+
 func buildRepoInstructionText(request ProviderRequest) string {
 	var builder strings.Builder
 	if len(request.RepoInstructions) > 0 {
@@ -497,6 +514,11 @@ func buildRepoInstructionText(request ProviderRequest) string {
 			builder.WriteString("\nDescription: ")
 			builder.WriteString(skill.Description)
 			builder.WriteString("\n")
+			if path := skillPromptPath(skill); path != "" {
+				builder.WriteString("Path: ")
+				builder.WriteString(path)
+				builder.WriteString("\n")
+			}
 		}
 	}
 	if len(request.ContextWarnings) > 0 {
@@ -523,7 +545,7 @@ Rules:
 - Inspect context only from the server-provided conversation context and the available workspace tools.
 - Return assistant text when useful.
 - Use tools for workspace discovery, file reads, commands, and patches.
-- Use use_skill with a selected skill name when a local skill description is relevant and you need its detailed instructions.
+- When a local skill description is relevant and you need its detailed instructions, read the listed skill Path through run_command. Prefer cat <skill-path>; use sed chunks only when needed.
 - When calling tools, include concise output_text in the same response that tells the user what you are checking or changing so the user sees progress while tool calls are pending.
 - Write assistant text, including output_text sent with tool calls, in the same language as the user's prompt unless the user explicitly asks for a different language.
 - If the user prompt asks for a change or investigation, do not answer with readiness, greetings, or "what would you like me to do" questions.
@@ -589,20 +611,6 @@ func openAITools() []openAITool {
 					"command": {Type: "string", Description: "Command to run from workspace root."},
 				},
 				Required:             []string{"command"},
-				AdditionalProperties: false,
-			},
-			Strict: true,
-		},
-		{
-			Type:        "function",
-			Name:        "use_skill",
-			Description: "Load detailed instructions for one selected local skill by name.",
-			Parameters: openAIToolParameters{
-				Type: "object",
-				Properties: map[string]openAIToolProperty{
-					"name": {Type: "string", Description: "Selected local skill name."},
-				},
-				Required:             []string{"name"},
 				AdditionalProperties: false,
 			},
 			Strict: true,

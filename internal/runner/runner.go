@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -18,7 +19,7 @@ var (
 	ErrBlockedCommand = errors.New("command is blocked")
 )
 
-var safeCommandToken = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+var safeCommandToken = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./~-]+$`)
 
 type SafetyLevel string
 
@@ -83,16 +84,16 @@ func Classify(command string) (SafetyDecision, error) {
 		Level: SafetyNeedsConfirmation,
 		Parts: invocation.Parts,
 	}
-	if reason := blockedReason(command, invocation.Parts); reason != "" {
+	read, isRead := readCommand(invocation.Parts)
+	if reason := blockedReason(command, invocation.Parts, isRead); reason != "" {
 		decision.Level = SafetyBlocked
 		decision.Reason = reason
 		return decision, nil
 	}
-	if read, ok := readCommand(invocation.Parts); ok {
-		decision.Reason = "Workspace file read command"
-		if read.secret {
+	if isRead {
+		decision.Reason = read.reason
+		if read.requiresApproval {
 			decision.Level = SafetyNeedsConfirmation
-			decision.Reason = "Secret-like file read requires approval"
 			return decision, nil
 		}
 		decision.Level = SafetyAllowed
@@ -113,7 +114,8 @@ func (r *Runner) Start(spec RunSpec, hooks Hooks) error {
 	if err != nil {
 		return err
 	}
-	if reason := blockedReason(spec.Command, invocation.Parts); reason != "" {
+	_, isRead := readCommand(invocation.Parts)
+	if reason := blockedReason(spec.Command, invocation.Parts, isRead); reason != "" {
 		return fmt.Errorf("%w: %s", ErrBlockedCommand, reason)
 	}
 	if _, ok := safeCommand(invocation.Parts); !ok {
@@ -282,7 +284,7 @@ func commandContext(ctx context.Context, invocation commandInvocation) *exec.Cmd
 	return exec.CommandContext(ctx, "false")
 }
 
-func blockedReason(command string, parts []string) string {
+func blockedReason(command string, parts []string, allowReadPath bool) string {
 	for _, token := range []string{"&&", "||", ";", "|", ">", "<", "`", "$(", "\n", "\r"} {
 		if strings.Contains(command, token) {
 			return fmt.Sprintf("Shell syntax %q is not allowed", token)
@@ -326,11 +328,11 @@ func blockedReason(command string, parts []string) string {
 		if !safeCommandToken.MatchString(part) {
 			return "Unsupported command token characters are blocked"
 		}
-		if filepath.IsAbs(part) {
+		if filepath.IsAbs(part) && !allowReadPath {
 			return "Absolute paths are not allowed in command arguments"
 		}
 		clean := filepath.Clean(part)
-		if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		if hasParentTraversal(clean) {
 			return "Workspace escape paths are blocked"
 		}
 	}
@@ -433,9 +435,10 @@ func safeCommand(parts []string) (commandFactory, bool) {
 }
 
 type readCommandSpec struct {
-	factory commandFactory
-	path    string
-	secret  bool
+	factory          commandFactory
+	path             string
+	requiresApproval bool
+	reason           string
 }
 
 func readCommand(parts []string) (readCommandSpec, bool) {
@@ -445,11 +448,9 @@ func readCommand(parts []string) (readCommandSpec, bool) {
 		if !validReadPath(path) {
 			return readCommandSpec{}, false
 		}
-		return readCommandSpec{
-			factory: func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "cat", path) },
-			path:    path,
-			secret:  isSecretLikeReadPath(path),
-		}, true
+		return buildReadCommandSpec(path, func(resolved string) commandFactory {
+			return func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "cat", resolved) }
+		})
 	case len(parts) == 4 && parts[0] == "sed" && parts[1] == "-n":
 		if !validSedPrintRange(parts[2]) {
 			return readCommandSpec{}, false
@@ -458,16 +459,34 @@ func readCommand(parts []string) (readCommandSpec, bool) {
 		if !validReadPath(path) {
 			return readCommandSpec{}, false
 		}
-		return readCommandSpec{
-			factory: func(ctx context.Context) *exec.Cmd {
-				return exec.CommandContext(ctx, "sed", "-n", parts[2], path)
-			},
-			path:   path,
-			secret: isSecretLikeReadPath(path),
-		}, true
+		return buildReadCommandSpec(path, func(resolved string) commandFactory {
+			return func(ctx context.Context) *exec.Cmd {
+				return exec.CommandContext(ctx, "sed", "-n", parts[2], resolved)
+			}
+		})
 	default:
 		return readCommandSpec{}, false
 	}
+}
+
+func buildReadCommandSpec(path string, factory func(string) commandFactory) (readCommandSpec, bool) {
+	resolved := expandHomePath(path)
+	spec := readCommandSpec{
+		factory: factory(resolved),
+		path:    path,
+		reason:  "Workspace file read command",
+	}
+	switch {
+	case isSkillRootReadPath(path):
+		spec.reason = "Skill file read command"
+	case isOutsideWorkspaceReadPath(path):
+		spec.requiresApproval = true
+		spec.reason = "Outside-workspace file read requires approval"
+	case isSecretLikeReadPath(path):
+		spec.requiresApproval = true
+		spec.reason = "Secret-like file read requires approval"
+	}
+	return spec, true
 }
 
 func validReadPath(path string) bool {
@@ -477,7 +496,20 @@ func validReadPath(path string) bool {
 	if path == "." {
 		return false
 	}
+	if hasParentTraversal(path) || hasParentTraversal(filepath.Clean(path)) {
+		return false
+	}
 	return true
+}
+
+func hasParentTraversal(path string) bool {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for _, part := range parts {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func validSedPrintRange(arg string) bool {
@@ -505,4 +537,34 @@ func isSecretLikeReadPath(path string) bool {
 		return true
 	}
 	return strings.HasSuffix(name, ".pem") || strings.HasSuffix(name, ".key")
+}
+
+func isOutsideWorkspaceReadPath(path string) bool {
+	return filepath.IsAbs(path) || strings.HasPrefix(path, "~/")
+}
+
+func isSkillRootReadPath(path string) bool {
+	clean := filepath.ToSlash(filepath.Clean(path))
+	if strings.HasPrefix(clean, "~/.patchpilot/skills/") || strings.HasPrefix(clean, "~/.agents/skills/") {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return false
+	}
+	abs := filepath.ToSlash(filepath.Clean(path))
+	patchpilotRoot := filepath.ToSlash(filepath.Join(home, ".patchpilot", "skills")) + "/"
+	agentsRoot := filepath.ToSlash(filepath.Join(home, ".agents", "skills")) + "/"
+	return strings.HasPrefix(abs, patchpilotRoot) || strings.HasPrefix(abs, agentsRoot)
+}
+
+func expandHomePath(path string) string {
+	if !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return path
+	}
+	return filepath.Join(home, path[2:])
 }

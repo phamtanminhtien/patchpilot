@@ -57,6 +57,23 @@ describe("toolCallDisplay", () => {
     expect(display.expandable).toBe(false);
   });
 
+  it("formats skill file read commands like loaded skill activity", () => {
+    const display = toolCallDisplay({
+      ...baseToolCall,
+      input: `{"command":"cat ~/.patchpilot/skills/incremental-implementation/SKILL.md"}`,
+      name: "run_command",
+      output: '{"output":"Implement in small verified steps."}',
+      status: "finished",
+    });
+
+    expect(display.label).toBe("Load skill");
+    expect(display.statusLabel).toBe("Loaded");
+    expect(display.text).toBe("Incremental Implementation");
+    expect(display.detail).toBe("Implement in small verified steps.");
+    expect(display.expandable).toBe(true);
+    expect(display.sourceLabel).toBe("skill/Incremental Implementation");
+  });
+
   it("keeps approval-required read commands expandable", () => {
     const display = toolCallDisplay({
       ...baseToolCall,

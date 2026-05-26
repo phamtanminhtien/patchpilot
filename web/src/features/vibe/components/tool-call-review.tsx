@@ -70,9 +70,13 @@ export function ToolCallReview({
           {display.detail}
         </pre>
       ) : null}
-      {source !== "builtin" || toolCall.policyReason ? (
+      {source !== "builtin" || toolCall.policyReason || display.sourceLabel ? (
         <div className="text-muted grid gap-1 text-xs">
-          <p>Source: {toolCallSourceLabel(source, toolCall.sourceRef)}</p>
+          <p>
+            Source:{" "}
+            {display.sourceLabel ??
+              toolCallSourceLabel(source, toolCall.sourceRef)}
+          </p>
           {toolCall.policyReason ? <p>{toolCall.policyReason}</p> : null}
         </div>
       ) : null}
