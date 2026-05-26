@@ -1,4 +1,4 @@
-FROM node:24-alpine AS web-build
+FROM node:26-alpine AS web-build
 
 WORKDIR /src/web
 COPY web/package.json web/pnpm-lock.yaml ./
@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /out/patchpilot ./cmd/patchpilot
 
-FROM alpine:3.22
+FROM alpine:3.23
 
 RUN apk add --no-cache ca-certificates git
 WORKDIR /app
