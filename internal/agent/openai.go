@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,6 +18,20 @@ import (
 )
 
 var ErrOpenAIRequestFailed = errors.New("openai request failed")
+
+const (
+	openAIXMLTagPatchPilotAgent    openAIXMLTag = "patchpilot_agent"
+	openAIXMLTagEnvironmentContext openAIXMLTag = "environment_context"
+	openAIXMLTagCWD                openAIXMLTag = "cwd"
+	openAIXMLTagShell              openAIXMLTag = "shell"
+	openAIXMLTagCurrentDate        openAIXMLTag = "current_date"
+	openAIXMLTagTimezone           openAIXMLTag = "timezone"
+	openAIXMLTagRepoInstructions   openAIXMLTag = "repo_instructions"
+	openAIXMLTagSkillsInstructions openAIXMLTag = "skills_instructions"
+	openAIXMLTagContextWarnings    openAIXMLTag = "context_warnings"
+	openAIXMLTagSummaryTask        openAIXMLTag = "summary_task"
+	openAIXMLTagSummaryRules       openAIXMLTag = "summary_rules"
+)
 
 type OpenAIProvider struct {
 	apiKey  string
@@ -45,9 +60,8 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, 
 		return ProviderResult{}, ErrProviderUnavailable
 	}
 	body := openAIResponsesRequest{
-		Model:        request.Run.Model,
-		Instructions: providerInstructions(),
-		Input:        buildOpenAIInput(request),
+		Model: request.Run.Model,
+		Input: buildOpenAIInput(request),
 		Reasoning: openAIReasoning{
 			Effort: request.Run.ReasoningEffort,
 		},
@@ -81,9 +95,8 @@ func (p *OpenAIProvider) Summarize(ctx context.Context, request SummaryRequest) 
 		return "", ErrProviderUnavailable
 	}
 	body := openAIResponsesRequest{
-		Model:        request.Run.Model,
-		Instructions: summaryInstructions(),
-		Input:        buildSummaryInput(request),
+		Model: request.Run.Model,
+		Input: buildSummaryInput(request),
 		Reasoning: openAIReasoning{
 			Effort: request.Run.ReasoningEffort,
 		},
@@ -395,20 +408,24 @@ func upsertOpenAIToolCall(calls []openAIToolCall, next openAIToolCall) []openAIT
 }
 
 func buildOpenAIInput(request ProviderRequest) []any {
-	input := make([]any, 0, 1+len(request.ConversationContext)+len(request.History))
-	if text := buildRepoInstructionText(request); text != "" {
-		input = append(input, openAIMessage("user", text))
+	input := make([]any, 0, 3+len(request.ConversationContext)+len(request.History))
+	input = append(input, openAIDeveloperMessage(buildProviderDeveloperPrompt(request)...))
+	if contextMessage := buildProviderUserContextMessage(request); contextMessage != "" {
+		input = append(input, openAIMessage("user", contextMessage))
 	}
+	hasConversationInput := false
 	if strings.TrimSpace(request.ContextSummary) != "" {
 		input = append(input, openAIMessage("user", "Conversation summary:\n"+strings.TrimSpace(request.ContextSummary)))
+		hasConversationInput = true
 	}
 	for _, message := range request.ConversationContext {
 		if strings.TrimSpace(message.Content) == "" {
 			continue
 		}
 		input = append(input, openAIMessage(message.Role, message.Content))
+		hasConversationInput = true
 	}
-	if len(input) == 0 {
+	if !hasConversationInput {
 		input = append(input, openAIMessage("user", strings.TrimSpace(request.Prompt)))
 	}
 	for _, item := range request.History {
@@ -458,8 +475,24 @@ func openAIMessage(role, text string) openAIInputMessage {
 	}
 }
 
+func openAIDeveloperMessage(parts ...string) openAIInputMessage {
+	content := make([]openAIInputContent, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
+		content = append(content, openAIInputContent{Type: "input_text", Text: strings.TrimSpace(part)})
+	}
+	return openAIInputMessage{
+		Type:    "message",
+		Role:    "developer",
+		Content: content,
+	}
+}
+
 func buildSummaryInput(request SummaryRequest) []any {
-	input := make([]any, 0, 1+len(request.Messages))
+	input := make([]any, 0, 2+len(request.Messages))
+	input = append(input, openAIDeveloperMessage(summaryDeveloperPrompt()...))
 	if strings.TrimSpace(request.ExistingSummary) != "" {
 		input = append(input, openAIMessage("user", "Existing conversation summary:\n"+strings.TrimSpace(request.ExistingSummary)))
 	}
@@ -470,7 +503,7 @@ func buildSummaryInput(request SummaryRequest) []any {
 }
 
 func buildProviderPrompt(request ProviderRequest) string {
-	return providerInstructions() + "\n\nCurrent user prompt:\n" + strings.TrimSpace(request.Prompt)
+	return strings.Join(buildProviderDeveloperPrompt(request), "\n\n") + "\n\nCurrent user prompt:\n" + strings.TrimSpace(request.Prompt)
 }
 
 func skillPromptPath(skill skills.Skill) string {
@@ -488,8 +521,11 @@ func skillPromptPath(skill skills.Skill) string {
 	}
 }
 
-func buildRepoInstructionText(request ProviderRequest) string {
+func buildProviderUserContextMessage(request ProviderRequest) string {
+	blocks := []string{}
 	var builder strings.Builder
+	blocks = append(blocks, xmlBlockPreserve(openAIXMLTagEnvironmentContext, buildEnvironmentContext(request)))
+
 	if len(request.RepoInstructions) > 0 {
 		builder.WriteString("Effective repo instructions, in precedence order:\n")
 		for _, source := range request.RepoInstructions {
@@ -503,9 +539,46 @@ func buildRepoInstructionText(request ProviderRequest) string {
 			builder.WriteString("\n")
 		}
 	}
-	if len(request.SelectedSkills) > 0 {
-		builder.WriteString("\nSelected local skills:\n")
-		for _, skill := range request.SelectedSkills {
+	if text := strings.TrimSpace(builder.String()); text != "" {
+		blocks = append(blocks, xmlBlock(openAIXMLTagRepoInstructions, text))
+	}
+
+	builder.Reset()
+	if len(request.ContextWarnings) > 0 {
+		builder.WriteString("Context warnings:\n")
+		for _, warning := range request.ContextWarnings {
+			if warning.Path != "" {
+				builder.WriteString("- ")
+				builder.WriteString(warning.Path)
+				builder.WriteString(": ")
+			} else {
+				builder.WriteString("- ")
+			}
+			builder.WriteString(warning.Message)
+			builder.WriteString("\n")
+		}
+	}
+	if text := strings.TrimSpace(builder.String()); text != "" {
+		blocks = append(blocks, xmlBlock(openAIXMLTagContextWarnings, text))
+	}
+	return strings.Join(blocks, "\n\n")
+}
+
+func buildProviderDeveloperPrompt(request ProviderRequest) []string {
+	blocks := []string{
+		xmlBlock(openAIXMLTagPatchPilotAgent, providerInstructions()),
+	}
+	if text := buildSelectedSkillsBlock(request.SelectedSkills); text != "" {
+		blocks = append(blocks, text)
+	}
+	return blocks
+}
+
+func buildSelectedSkillsBlock(selectedSkills []skills.Skill) string {
+	var builder strings.Builder
+	if len(selectedSkills) > 0 {
+		builder.WriteString("Selected local skills:\n")
+		for _, skill := range selectedSkills {
 			if strings.TrimSpace(skill.Name) == "" || strings.TrimSpace(skill.Description) == "" {
 				continue
 			}
@@ -521,21 +594,53 @@ func buildRepoInstructionText(request ProviderRequest) string {
 			}
 		}
 	}
-	if len(request.ContextWarnings) > 0 {
-		builder.WriteString("\nContext warnings:\n")
-		for _, warning := range request.ContextWarnings {
-			if warning.Path != "" {
-				builder.WriteString("- ")
-				builder.WriteString(warning.Path)
-				builder.WriteString(": ")
-			} else {
-				builder.WriteString("- ")
-			}
-			builder.WriteString(warning.Message)
-			builder.WriteString("\n")
-		}
+	if text := strings.TrimSpace(builder.String()); text != "" {
+		return xmlBlock(openAIXMLTagSkillsInstructions, text)
 	}
-	return strings.TrimSpace(builder.String())
+	return ""
+}
+
+func buildEnvironmentContext(request ProviderRequest) string {
+	now := time.Now()
+	cwd := strings.TrimSpace(request.WorkspaceRoot)
+	shell := strings.TrimSpace(request.Shell)
+	if shell == "" {
+		shell = filepath.Base(os.Getenv("SHELL"))
+	}
+	currentDate := strings.TrimSpace(request.CurrentDate)
+	if currentDate == "" {
+		currentDate = now.Format("2006-01-02")
+	}
+	timezone := strings.TrimSpace(request.Timezone)
+	if timezone == "" {
+		timezone = os.Getenv("TZ")
+	}
+	if timezone == "" {
+		timezone = now.Location().String()
+	}
+	return strings.Join([]string{
+		"\t" + xmlInlineBlock(openAIXMLTagCWD, cwd),
+		"\t" + xmlInlineBlock(openAIXMLTagShell, shell),
+		"\t" + xmlInlineBlock(openAIXMLTagCurrentDate, currentDate),
+		"\t" + xmlInlineBlock(openAIXMLTagTimezone, timezone),
+	}, "\n")
+}
+
+type openAIXMLTag string
+
+func xmlBlock(tag openAIXMLTag, content string) string {
+	name := string(tag)
+	return "<" + name + ">\n" + strings.TrimSpace(content) + "\n</" + name + ">"
+}
+
+func xmlBlockPreserve(tag openAIXMLTag, content string) string {
+	name := string(tag)
+	return "<" + name + ">\n" + content + "\n</" + name + ">"
+}
+
+func xmlInlineBlock(tag openAIXMLTag, content string) string {
+	name := string(tag)
+	return "<" + name + ">" + strings.TrimSpace(content) + "</" + name + ">"
 }
 
 func providerInstructions() string {
@@ -560,10 +665,15 @@ Rules:
 - Tool calls in one response may run as a batch. Approval-required tools are decided by the user before the batch runs.`
 }
 
-func summaryInstructions() string {
-	return `Summarize older PatchPilot conversation context for a coding agent.
+func summaryDeveloperPrompt() []string {
+	return []string{
+		xmlBlock(openAIXMLTagSummaryTask, "Summarize older PatchPilot conversation context for a coding agent."),
+		xmlBlock(openAIXMLTagSummaryRules, summaryRules()),
+	}
+}
 
-Rules:
+func summaryRules() string {
+	return `Rules:
 - Preserve user intent, decisions, constraints, referenced files, commands, applied or rejected changes, and open tasks.
 - Keep the summary concise and factual.
 - Do not invent details.
