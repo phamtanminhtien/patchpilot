@@ -6,13 +6,12 @@ services:
     environment:
       PATCHPILOT_ADDR: 0.0.0.0:8080
       PATCHPILOT_ALLOWED_ROOTS: /workspace
-      PATCHPILOT_DATA_DIR: /data
       PATCHPILOT_LOG_FORMAT: json
       PATCHPILOT_STATIC_DIR: /app/web/dist
     ports:
       - "8080:8080"
     volumes:
-      - patchpilot-data:/data
+      - patchpilot-data:/root/.patchpilot
       - .:/workspace/patchpilot
     working_dir: /workspace/patchpilot
 

@@ -313,7 +313,7 @@ Execution always parses arguments without a shell, runs at workspace root, and r
 
 SQLite stores app state; source files stay in original repos; Git owns repo history. PatchPilot-owned state may live under `~/.patchpilot`.
 
-Runtime config uses OS env, falling back to local `.env`: `PATCHPILOT_ADDR`, `PATCHPILOT_ALLOWED_ROOTS`, `PATCHPILOT_STATIC_DIR`, `PATCHPILOT_LOG_FORMAT`, `PATCHPILOT_ADMIN_TOKEN`, `PATCHPILOT_OPENAI_API_KEY`, `PATCHPILOT_OPENAI_BASE_URL`, `PATCHPILOT_DB_PATH`, `PATCHPILOT_DATA_DIR`. If `PATCHPILOT_DB_PATH` is unset, `PATCHPILOT_DATA_DIR` controls `patchpilot.db`; default is `~/.patchpilot/patchpilot.db`.
+Runtime config uses OS env, falling back to local `.env`: `PATCHPILOT_ADDR`, `PATCHPILOT_ALLOWED_ROOTS`, `PATCHPILOT_STATIC_DIR`, `PATCHPILOT_LOG_FORMAT`, `PATCHPILOT_ADMIN_TOKEN`, `PATCHPILOT_OPENAI_API_KEY`, `PATCHPILOT_OPENAI_BASE_URL`. PatchPilot-owned state always lives under `~/.patchpilot`; SQLite is always `~/.patchpilot/patchpilot.db`.
 
 Global agent runtime config lives at `~/.patchpilot/config.json`, loaded at startup and explicit agent-context refresh. Missing `enabled` fields default `true`.
 
