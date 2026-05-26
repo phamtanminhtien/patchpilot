@@ -101,6 +101,7 @@ Provider/Vibe settings:
 - Initial reasoning: `low`, `medium`, `high`, `xhigh`; default `medium`.
 - `PATCHPILOT_OPENAI_API_KEY` is backend-only.
 - `PATCHPILOT_OPENAI_BASE_URL` defaults to `https://api.openai.com/v1`; provider calls `/responses`.
+- `PATCHPILOT_LIGHT_MODEL` defaults to `gpt-5.4-mini` and is used for lightweight AI tasks such as conversation title generation.
 
 Tool approval:
 
@@ -226,8 +227,9 @@ Response contracts:
 - File write accepts `{"path":"...","content":"..."}` for an existing readable text file up to 1 MiB and returns written content. It does not create files. It rejects invalid paths, workspace escapes, ignored/symlink paths, secret-like names (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`), binary content, and oversized existing/replacement content. Missing files: `404 path_not_found`. Success refreshes index and emits `git.changed`.
 - File APIs ignore `.git`, `node_modules`, `build`, symlinks, and files over 1 MiB; invalid reads use standard error envelope.
 - Search returns `{"results":[],"nextCursor":"..."}` for filename/content matches.
-- Conversation create/update accept `{"title":"..."}`. List returns `{"conversations":[],"nextCursor":"..."}` newest-first; optional `q` trims whitespace and filters title case-insensitively. Detail returns `{"conversation":{...},"messages":[],"runs":[],"toolCalls":[]}`.
+- Conversation create accepts optional `{"title":"..."}`; empty/missing title stores `New conversation`. Conversation update accepts non-empty `{"title":"..."}`. List returns `{"conversations":[],"nextCursor":"..."}` newest-first; optional `q` trims whitespace and filters title case-insensitively. Detail returns `{"conversation":{...},"messages":[],"runs":[],"toolCalls":[]}`.
 - Message create accepts `{"content":"...","model":"gpt-5.5","reasoningEffort":"medium"}`, returns `202` with user message and run, and backend run continues if client disconnects.
+- The first message in an untitled conversation triggers best-effort asynchronous title generation with `PATCHPILOT_LIGHT_MODEL`; generation failure never fails message/run creation. Successful generated title updates emit `conversation.updated` with the updated conversation object.
 - Backend shutdown finalizes active runs (`queued`, `running`, `waiting_tool_approval`) as `failed` with durable shutdown error and backend-owned queued/running commands as `stopped`.
 - Run cancel marks non-terminal runs `canceled`, stops active run-owned command tools, is idempotent, and returns the run. Terminal runs return current state. Missing run: `404 agent_run_not_found`.
 - Tool approve/reject accept no body and return `{"toolCall":{...}}`. Approve runs the selected pending approval-required tool; reject records rejection. Missing/non-waiting calls return `404 agent_tool_call_not_found` or `409 agent_tool_not_approvable`.
@@ -272,6 +274,7 @@ Events: `workspace.ready`, `workspace.indexing`, `conversation.created`, `conver
 
 - `agent.delta` carries live token/text, is transient, and is not stored. Durable recovery source: final assistant messages, run summaries, tool calls, and run status.
 - `agent.output.snapshot` is transient, in-memory, not stored, and only restores in-flight text while the same backend process owns the run.
+- `conversation.updated` is a workspace-level event with the updated conversation object as payload.
 - After backend restart, active runs do not resume; durable `failed` run state and `stopped` process state from shutdown cleanup are source of truth.
 - Conversation responses include `hasRunningRun` derived from durable run state.
 - Workspace stream `GET /api/workspaces/:workspaceId/events` covers workspace/process/git/port events. Run stream covers run activity. Run streams replay durable events via `Last-Event-ID` and exclude transient `agent.delta`. Historical conversation state comes from conversation detail; command output from process detail.
@@ -314,7 +317,7 @@ Execution always parses arguments without a shell, runs at workspace root, and r
 
 SQLite stores app state; source files stay in original repos; Git owns repo history. PatchPilot-owned state may live under `~/.patchpilot`.
 
-Runtime config uses OS env, falling back to local `.env`: `PATCHPILOT_ADDR`, `PATCHPILOT_ALLOWED_ROOTS`, `PATCHPILOT_STATIC_DIR`, `PATCHPILOT_LOG_FORMAT`, `PATCHPILOT_ADMIN_TOKEN`, `PATCHPILOT_OPENAI_API_KEY`, `PATCHPILOT_OPENAI_BASE_URL`. PatchPilot-owned state always lives under `~/.patchpilot`; SQLite is always `~/.patchpilot/patchpilot.db`.
+Runtime config uses OS env, falling back to local `.env`: `PATCHPILOT_ADDR`, `PATCHPILOT_ALLOWED_ROOTS`, `PATCHPILOT_STATIC_DIR`, `PATCHPILOT_LOG_FORMAT`, `PATCHPILOT_ADMIN_TOKEN`, `PATCHPILOT_OPENAI_API_KEY`, `PATCHPILOT_OPENAI_BASE_URL`, `PATCHPILOT_LIGHT_MODEL`. PatchPilot-owned state always lives under `~/.patchpilot`; SQLite is always `~/.patchpilot/patchpilot.db`.
 
 Global agent runtime config lives at `~/.patchpilot/config.json`, loaded at startup and explicit agent-context refresh. Missing `enabled` fields default `true`.
 

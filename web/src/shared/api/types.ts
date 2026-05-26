@@ -187,7 +187,7 @@ export interface ConversationListResponse {
 }
 
 export interface CreateConversationRequest {
-  title: string;
+  title?: string;
 }
 
 export interface CreateMessageRequest {
@@ -207,6 +207,7 @@ export interface Message {
 }
 
 export interface MessageRunResponse {
+  conversation: Conversation;
   message: Message;
   run: AgentRun;
 }
@@ -370,6 +371,7 @@ export interface WorkspaceEvent {
     | AgentRunEvent["type"]
     | "workspace.indexing"
     | "workspace.ready"
+    | "conversation.updated"
     | "conversation.message.created"
     | "git.changed"
     | "port.opened"

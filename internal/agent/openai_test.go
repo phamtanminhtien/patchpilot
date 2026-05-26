@@ -336,6 +336,40 @@ func encodedJSON(t *testing.T, value any) string {
 	return string(encoded)
 }
 
+func TestOpenAIProviderGenerateTitleUsesLightModelAndSanitizes(t *testing.T) {
+	var body map[string]any
+	var requestPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"output_text":" \"Fix search modal title.\nPlease\" "}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("sk-test", server.URL+"/v1/")
+	title, err := provider.GenerateTitle(context.Background(), "please fix search", "gpt-light")
+	if err != nil {
+		t.Fatalf("GenerateTitle returned error: %v", err)
+	}
+	if requestPath != "/v1/responses" {
+		t.Fatalf("expected /v1/responses path, got %q", requestPath)
+	}
+	if body["model"] != "gpt-light" {
+		t.Fatalf("expected light model, got %#v", body["model"])
+	}
+	if _, ok := body["tools"]; ok {
+		t.Fatalf("expected title request to omit tools, got %#v", body["tools"])
+	}
+	if _, ok := body["stream"]; ok {
+		t.Fatalf("expected title request to omit stream, got %#v", body["stream"])
+	}
+	if title != "Fix search modal title. Please" {
+		t.Fatalf("unexpected sanitized title: %q", title)
+	}
+}
+
 func writeOpenAIStream(w http.ResponseWriter, eventType, data string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	_, _ = w.Write([]byte("event: " + eventType + "\n"))

@@ -13,6 +13,7 @@ const (
 	defaultAddr          = "127.0.0.1:8080"
 	defaultDataDir       = ".patchpilot"
 	defaultDBName        = "patchpilot.db"
+	defaultLightModel    = "gpt-5.4-mini"
 	defaultOpenAIBaseURL = "https://api.openai.com/v1"
 	defaultStaticDir     = "web/dist"
 )
@@ -24,6 +25,7 @@ type Config struct {
 	DataDir       string
 	DBPath        string
 	LogFormat     string
+	LightModel    string
 	OpenAIAPIKey  string
 	OpenAIBaseURL string
 	StaticDir     string
@@ -111,11 +113,20 @@ func LoadFromEnv(cwd string, home string, getenv func(string) string) (Config, e
 		AllowedRoots:  allowedRoots,
 		DataDir:       dataDir,
 		DBPath:        dbPath,
+		LightModel:    lightModel(getenv("PATCHPILOT_LIGHT_MODEL")),
 		LogFormat:     logFormat,
 		OpenAIAPIKey:  strings.TrimSpace(getenv("PATCHPILOT_OPENAI_API_KEY")),
 		OpenAIBaseURL: openAIBaseURL(getenv("PATCHPILOT_OPENAI_BASE_URL")),
 		StaticDir:     staticDir,
 	}, nil
+}
+
+func lightModel(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultLightModel
+	}
+	return value
 }
 
 func openAIBaseURL(value string) string {

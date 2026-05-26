@@ -38,7 +38,7 @@ import {
   updateToolCallCache,
   upsertConversation,
 } from "../lib/conversation-cache";
-import { titleFromPrompt, transientAssistantEvent } from "../lib/run-text";
+import { transientAssistantEvent } from "../lib/run-text";
 import { newConversationId } from "../vibe-options";
 
 export function useVibeController() {
@@ -129,15 +129,17 @@ export function useVibeController() {
               (item) => item.id === currentConversationId,
             )
           : undefined) ??
-        (await createConversation(workspaceId, {
-          title: titleFromPrompt(content),
-        }));
+        (await createConversation(workspaceId, {}));
       const created = await createMessage(workspaceId, conversation.id, {
         content,
         model,
         reasoningEffort,
       });
-      return { conversation, message: created.message, run: created.run };
+      return {
+        conversation: created.conversation ?? conversation,
+        message: created.message,
+        run: created.run,
+      };
     },
     onSuccess: ({ conversation, message, run }) => {
       setPrompt("");
@@ -223,6 +225,14 @@ export function useVibeController() {
 
   const handleWorkspaceEvent = useCallback(
     (event: WorkspaceEvent) => {
+      if (event.type === "conversation.updated") {
+        upsertConversation(
+          queryClient,
+          workspaceId,
+          event.payload as ConversationDetail["conversation"],
+        );
+        return;
+      }
       if (event.type === "conversation.message.created") {
         upsertMessageCache(queryClient, workspaceId, event.payload as Message);
         return;

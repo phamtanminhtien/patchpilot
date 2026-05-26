@@ -23,6 +23,17 @@ export function upsertConversation(
       ],
     }),
   );
+
+  queryClient.setQueryData<ConversationDetail>(
+    ["conversation", workspaceId, conversation.id],
+    (current) =>
+      current
+        ? {
+            ...current,
+            conversation,
+          }
+        : current,
+  );
 }
 
 export function updateToolCallCache(

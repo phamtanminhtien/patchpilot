@@ -32,6 +32,9 @@ func TestLoadFromEnvUsesDefaults(t *testing.T) {
 	if cfg.LogFormat != "console" {
 		t.Fatalf("expected default console log format, got %q", cfg.LogFormat)
 	}
+	if cfg.LightModel != "gpt-5.4-mini" {
+		t.Fatalf("expected default light model, got %q", cfg.LightModel)
+	}
 	if cfg.OpenAIBaseURL != defaultOpenAIBaseURL {
 		t.Fatalf("expected default OpenAI base URL, got %q", cfg.OpenAIBaseURL)
 	}
@@ -55,6 +58,8 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 			return "web/dist"
 		case "PATCHPILOT_LOG_FORMAT":
 			return "JSON"
+		case "PATCHPILOT_LIGHT_MODEL":
+			return " gpt-light-test "
 		case "PATCHPILOT_OPENAI_API_KEY":
 			return "sk-test"
 		case "PATCHPILOT_OPENAI_BASE_URL":
@@ -83,6 +88,9 @@ func TestLoadFromEnvUsesOverrides(t *testing.T) {
 	}
 	if cfg.LogFormat != "json" {
 		t.Fatalf("unexpected log format: %q", cfg.LogFormat)
+	}
+	if cfg.LightModel != "gpt-light-test" {
+		t.Fatalf("unexpected light model: %q", cfg.LightModel)
 	}
 	if cfg.OpenAIAPIKey != "sk-test" {
 		t.Fatalf("unexpected OpenAI API key: %q", cfg.OpenAIAPIKey)

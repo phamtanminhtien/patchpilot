@@ -131,6 +131,10 @@ type Provider interface {
 	Configured() bool
 }
 
+type titleProvider interface {
+	GenerateTitle(context.Context, string, string) (string, error)
+}
+
 type ProviderRequest struct {
 	Run                 Run
 	Prompt              string
@@ -318,6 +322,22 @@ func (m *Manager) DraftText(runID string) string {
 		return ""
 	}
 	return runtime.draftText.String()
+}
+
+func (m *Manager) GenerateTitle(ctx context.Context, prompt, model string) (string, error) {
+	prompt = strings.TrimSpace(prompt)
+	model = strings.TrimSpace(model)
+	if prompt == "" {
+		return "", ErrEmptyPrompt
+	}
+	if m.provider == nil || !m.provider.Configured() {
+		return "", ErrProviderUnavailable
+	}
+	provider, ok := m.provider.(titleProvider)
+	if !ok {
+		return "", ErrProviderUnavailable
+	}
+	return provider.GenerateTitle(ctx, prompt, model)
 }
 
 func (m *Manager) Cancel(ctx context.Context, workspaceID, conversationID, runID string) (Run, error) {
