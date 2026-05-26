@@ -56,8 +56,9 @@ open/create conversation -> load messages/activity
 - Conversation records persist `hasRunningRun` so sidebars show in-flight state without listing runs for every row.
 - Runs inspect relevant workspace context, produce a short plan for non-trivial work, propose reviewable patches or answer directly, then run/recommend narrow verification.
 - Final output reports changed files, verification, and remaining risks.
-- Context is assembled server-side from SQLite/workspace metadata. PatchPilot reserves room for system instructions, repo instructions, enabled skills, MCP registry, current prompt, tool schemas, and active-run tool history before prior conversation content.
-- Older history over budget is summarized onto the conversation; newest messages stay verbatim. Agent instructions are separate from conversation messages so history cannot displace the system prompt.
+- Context is assembled server-side from SQLite/workspace metadata. PatchPilot reserves room for provider control instructions, repo instructions, enabled skills, MCP registry, current prompt, tool schemas, and active-run tool history before prior conversation content.
+- Provider control instructions are sent as explicit developer-role messages whose `content` array contains XML-tagged system prompt blocks. Agent generation keeps PatchPilot rules and skill instructions in developer content blocks; repo `AGENTS.md` instructions, structured environment context (`cwd`, `shell`, `current_date`, `timezone`), and context warnings are sent separately as a user-role context message before conversation history. Summarization uses developer content blocks for the summary task and rules.
+- Older history over budget is summarized onto the conversation; newest messages stay verbatim. Developer instructions are separate from conversation messages so history cannot displace the control prompt.
 
 Agent instructions:
 

@@ -100,16 +100,39 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 
 		switch len(requests) {
 		case 1:
-			instructions, ok := body["instructions"].(string)
-			if !ok || !strings.Contains(instructions, "PatchPilot's coding agent") {
-				t.Fatalf("expected provider instructions, got %#v", body["instructions"])
+			if _, ok := body["instructions"]; ok {
+				t.Fatalf("expected provider request to omit top-level instructions, got %#v", body["instructions"])
 			}
-			encodedInput, err := json.Marshal(body["input"])
-			if err != nil {
-				t.Fatalf("marshal input: %v", err)
+			input, ok := body["input"].([]any)
+			if !ok || len(input) != 3 {
+				t.Fatalf("expected developer prompt, environment context, and user prompt, got %#v", body["input"])
 			}
-			if strings.Contains(string(encodedInput), "PatchPilot's coding agent") {
-				t.Fatalf("expected agent instructions outside input, got %s", encodedInput)
+			developer := inputMessage(t, input[0])
+			if developer["role"] != "developer" {
+				t.Fatalf("expected first input role developer, got %#v", developer)
+			}
+			if contentParts := inputMessageContentPartCount(t, developer); contentParts != 1 {
+				t.Fatalf("expected one developer content part, got %d", contentParts)
+			}
+			developerContent := inputMessageText(t, developer)
+			for _, expected := range []string{xmlOpen(openAIXMLTagPatchPilotAgent), "PatchPilot's coding agent", xmlClose(openAIXMLTagPatchPilotAgent)} {
+				if !strings.Contains(developerContent, expected) {
+					t.Fatalf("expected developer prompt to contain %q, got %s", expected, developerContent)
+				}
+			}
+			contextMessage := inputMessage(t, input[1])
+			if contextMessage["role"] != "user" {
+				t.Fatalf("expected second input role user, got %#v", contextMessage)
+			}
+			if !strings.Contains(inputMessageText(t, contextMessage), xmlOpen(openAIXMLTagEnvironmentContext)) {
+				t.Fatalf("expected environment context user message, got %#v", contextMessage)
+			}
+			user := inputMessage(t, input[2])
+			if user["role"] != "user" {
+				t.Fatalf("expected third input role user, got %#v", user)
+			}
+			if strings.Contains(inputMessageText(t, user), "PatchPilot's coding agent") {
+				t.Fatalf("expected ordinary user prompt to omit agent instructions, got %#v", user)
 			}
 			tools, ok := body["tools"].([]any)
 			if !ok || len(tools) != 4 {
@@ -121,8 +144,12 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 			writeOpenAIStream(w, "response.completed", `{"response":{"output_text":"I will inspect the workspace before patching."}}`)
 		case 2:
 			input, ok := body["input"].([]any)
-			if !ok || len(input) != 5 {
-				t.Fatalf("expected prompt, two calls, and two outputs, got %#v", body["input"])
+			if !ok || len(input) != 7 {
+				t.Fatalf("expected developer prompt, environment context, user prompt, two calls, and two outputs, got %#v", body["input"])
+			}
+			developer := inputMessage(t, input[0])
+			if developer["role"] != "developer" {
+				t.Fatalf("expected first input role developer, got %#v", developer)
 			}
 			encoded, err := json.Marshal(input)
 			if err != nil {
@@ -180,6 +207,133 @@ func TestOpenAIProviderReturnsToolCallsAndReplaysHistory(t *testing.T) {
 	if len(requests) != 2 {
 		t.Fatalf("expected two OpenAI requests, got %d", len(requests))
 	}
+}
+
+func TestOpenAIProviderSummarizeUsesDeveloperXMLPrompt(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"output_text":"compressed context"}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("sk-test", server.URL)
+	run := Run{
+		ID:              "run_1",
+		WorkspaceID:     "ws_1",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+	}
+	summary, err := provider.Summarize(context.Background(), SummaryRequest{
+		Run:             run,
+		ExistingSummary: "old summary",
+		Messages:        []ProviderMessage{{Role: "user", Content: "Ship the feature."}},
+	})
+	if err != nil {
+		t.Fatalf("Summarize returned error: %v", err)
+	}
+	if summary != "compressed context" {
+		t.Fatalf("unexpected summary: %q", summary)
+	}
+	if _, ok := body["instructions"]; ok {
+		t.Fatalf("expected summary request to omit top-level instructions, got %#v", body["instructions"])
+	}
+	input, ok := body["input"].([]any)
+	if !ok || len(input) != 3 {
+		t.Fatalf("expected developer prompt, existing summary, and message, got %#v", body["input"])
+	}
+	developer := inputMessage(t, input[0])
+	if developer["role"] != "developer" {
+		t.Fatalf("expected first summary input role developer, got %#v", developer)
+	}
+	if contentParts := inputMessageContentPartCount(t, developer); contentParts != 2 {
+		t.Fatalf("expected two summary developer content parts, got %d", contentParts)
+	}
+	content := inputMessageText(t, developer)
+	for _, expected := range []string{
+		xmlOpen(openAIXMLTagSummaryTask),
+		xmlClose(openAIXMLTagSummaryTask),
+		xmlOpen(openAIXMLTagSummaryRules),
+		xmlClose(openAIXMLTagSummaryRules),
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("expected summary developer prompt to contain %q, got %s", expected, content)
+		}
+	}
+}
+
+func inputMessage(t *testing.T, value any) map[string]any {
+	t.Helper()
+	if typed, ok := value.(openAIInputMessage); ok {
+		return map[string]any{
+			"type":    typed.Type,
+			"role":    typed.Role,
+			"content": typed.Content,
+		}
+	}
+	message, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("expected input message, got %#v", value)
+	}
+	return message
+}
+
+func inputMessageText(t *testing.T, message map[string]any) string {
+	t.Helper()
+	switch content := message["content"].(type) {
+	case []openAIInputContent:
+		var builder strings.Builder
+		for _, item := range content {
+			builder.WriteString(item.Text)
+		}
+		return builder.String()
+	case []any:
+		var builder strings.Builder
+		for _, item := range content {
+			part, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("expected input content part, got %#v", item)
+			}
+			text, _ := part["text"].(string)
+			builder.WriteString(text)
+		}
+		return builder.String()
+	default:
+		t.Fatalf("expected input content, got %#v", message["content"])
+	}
+	return ""
+}
+
+func inputMessageContentPartCount(t *testing.T, message map[string]any) int {
+	t.Helper()
+	switch content := message["content"].(type) {
+	case []openAIInputContent:
+		return len(content)
+	case []any:
+		return len(content)
+	default:
+		t.Fatalf("expected input content, got %#v", message["content"])
+	}
+	return 0
+}
+
+func xmlOpen(tag openAIXMLTag) string {
+	return "<" + string(tag) + ">"
+}
+
+func xmlClose(tag openAIXMLTag) string {
+	return "</" + string(tag) + ">"
+}
+
+func encodedJSON(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal JSON: %v", err)
+	}
+	return string(encoded)
 }
 
 func writeOpenAIStream(w http.ResponseWriter, eventType, data string) {
@@ -253,18 +407,78 @@ func TestOpenAIProviderInputListsSkillMetadataWithoutBody(t *testing.T) {
 			},
 		},
 	})
-	encodedInput, err := json.Marshal(input)
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
+	developer := inputMessage(t, input[0])
+	if developer["role"] != "developer" {
+		t.Fatalf("expected first input role developer, got %#v", developer)
 	}
-	encoded := string(encodedInput)
-	for _, expected := range []string{"Selected local skills", "Name: Browser", "Description: Browser automation.", "Path: ~/.patchpilot/skills/browser/SKILL.md"} {
-		if !strings.Contains(encoded, expected) {
-			t.Fatalf("expected provider input to contain %q, got %s", expected, encoded)
+	if contentParts := inputMessageContentPartCount(t, developer); contentParts != 2 {
+		t.Fatalf("expected two developer content parts, got %d", contentParts)
+	}
+	developerText := inputMessageText(t, developer)
+	for _, expected := range []string{xmlOpen(openAIXMLTagSkillsInstructions), xmlClose(openAIXMLTagSkillsInstructions), "Selected local skills", "Name: Browser", "Description: Browser automation.", "Path: ~/.patchpilot/skills/browser/SKILL.md"} {
+		if !strings.Contains(developerText, expected) {
+			t.Fatalf("expected provider developer prompt to contain %q, got %s", expected, developerText)
 		}
 	}
-	if strings.Contains(encoded, "Secret body instructions") {
-		t.Fatalf("expected provider input to omit skill body, got %s", encoded)
+	if strings.Contains(developerText, "Secret body instructions") {
+		t.Fatalf("expected provider developer prompt to omit skill body, got %s", developerText)
+	}
+}
+
+func TestOpenAIProviderInputListsRepoInstructionsWarningsAndEnvironmentAsUserXML(t *testing.T) {
+	run := Run{
+		ID:              "run_1",
+		WorkspaceID:     "ws_1",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "medium",
+	}
+	input := buildOpenAIInput(ProviderRequest{
+		Run:           run,
+		Prompt:        "Follow the repo rules.",
+		WorkspaceRoot: "/workspace/project",
+		Shell:         "zsh",
+		CurrentDate:   "2026-05-26",
+		Timezone:      "Asia/Ho_Chi_Minh",
+		RepoInstructions: []InstructionSource{
+			{Path: "AGENTS.md", Content: "Use patches only.", Precedence: 0},
+		},
+		ContextWarnings: []ContextWarning{
+			{Path: "docs/large.md", Message: "skipped oversized file"},
+		},
+	})
+	if len(input) != 3 {
+		t.Fatalf("expected developer prompt, user context, and user prompt, got %#v", input)
+	}
+	developer := inputMessage(t, input[0])
+	if developer["role"] != "developer" {
+		t.Fatalf("expected first input role developer, got %#v", developer)
+	}
+	if strings.Contains(inputMessageText(t, developer), "Use patches only.") {
+		t.Fatalf("expected repo instructions outside developer prompt, got %#v", developer)
+	}
+	contextMessage := inputMessage(t, input[1])
+	if contextMessage["role"] != "user" {
+		t.Fatalf("expected second input role user, got %#v", contextMessage)
+	}
+	contextText := inputMessageText(t, contextMessage)
+	for _, expected := range []string{
+		xmlOpen(openAIXMLTagEnvironmentContext),
+		"\t<cwd>/workspace/project</cwd>",
+		"\t<shell>zsh</shell>",
+		"\t<current_date>2026-05-26</current_date>",
+		"\t<timezone>Asia/Ho_Chi_Minh</timezone>",
+		xmlClose(openAIXMLTagEnvironmentContext),
+		xmlOpen(openAIXMLTagRepoInstructions),
+		"Source: AGENTS.md",
+		"Use patches only.",
+		xmlClose(openAIXMLTagRepoInstructions),
+		xmlOpen(openAIXMLTagContextWarnings),
+		"docs/large.md: skipped oversized file",
+		xmlClose(openAIXMLTagContextWarnings),
+	} {
+		if !strings.Contains(contextText, expected) {
+			t.Fatalf("expected provider user context to contain %q, got %s", expected, contextText)
+		}
 	}
 }
 

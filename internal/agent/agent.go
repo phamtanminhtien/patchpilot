@@ -135,6 +135,9 @@ type ProviderRequest struct {
 	Run                 Run
 	Prompt              string
 	WorkspaceRoot       string
+	Shell               string
+	CurrentDate         string
+	Timezone            string
 	RepoInstructions    []InstructionSource
 	SelectedSkills      []skills.Skill
 	ContextWarnings     []ContextWarning

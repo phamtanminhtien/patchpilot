@@ -171,7 +171,7 @@ flowchart TB
   History --> Provider
 ```
 
-Agent context is assembled server-side. PatchPilot loads `~/.patchpilot/config.json`, reads applicable `AGENTS.md`, discovers skills from `~/.patchpilot/skills` then `~/.agents/skills`, and discovers enabled MCP servers from config before a run. Duplicate skill keys select only the `~/.patchpilot/skills` copy. Provider priority: system instructions, repo instructions, selected skills, MCP registry, current prompt, tool schemas, active-run history, conversation summary, recent messages. Instruction/skill/MCP context passes workspace-root, symlink, secret, size, and host-path redaction checks before provider use.
+Agent context is assembled server-side. PatchPilot loads `~/.patchpilot/config.json`, reads applicable `AGENTS.md`, discovers skills from `~/.patchpilot/skills` then `~/.agents/skills`, and discovers enabled MCP servers from config before a run. Duplicate skill keys select only the `~/.patchpilot/skills` copy. Provider priority: developer control instructions, repo instructions, selected skills, MCP registry, current prompt, tool schemas, active-run history, conversation summary, recent messages. Control instructions are sent as explicit developer-role messages whose `content` array contains XML-tagged system prompt blocks, including skill instructions. Repo `AGENTS.md` instructions, structured environment context (`cwd`, `shell`, `current_date`, `timezone`), and context warnings are sent separately as a user-role context message before user/assistant conversation history. Instruction/skill/MCP context passes workspace-root, symlink, secret, size, and host-path redaction checks before provider use.
 
 ## Agent Tool Flow
 
@@ -206,4 +206,4 @@ sequenceDiagram
   FE-->>User: Show Git status
 ```
 
-Agents inspect approved context and request built-in/MCP tools. Conversation history is bounded before provider calls: summaries cover older messages, recent messages stay verbatim, and system/repo instructions, selected skills, and MCP metadata remain separate from conversation content. File mutations and unknown/mutating MCP calls happen only through approved tool execution.
+Agents inspect approved context and request built-in/MCP tools. Conversation history is bounded before provider calls: summaries cover older messages, recent messages stay verbatim, and developer control instructions, repo instructions, selected skills, and MCP metadata remain separate from conversation content. File mutations and unknown/mutating MCP calls happen only through approved tool execution.
