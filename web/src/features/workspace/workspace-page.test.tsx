@@ -91,7 +91,11 @@ vi.mock("nuqs", async () => {
         (nextValue: string) => {
           queryState.set(key, nextValue);
           setValue(nextValue);
-          return Promise.resolve(new URLSearchParams([...queryState]));
+          const searchParams = new URLSearchParams();
+          queryState.forEach((paramValue, paramKey) => {
+            searchParams.set(paramKey, paramValue);
+          });
+          return Promise.resolve(searchParams);
         },
       ] as const;
     },
