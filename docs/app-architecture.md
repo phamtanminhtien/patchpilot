@@ -33,7 +33,6 @@ flowchart TB
   Agent["Agent runs"]
   Skills["Skills"]
   MCP["MCP bridge"]
-  Patch["Patch review/apply"]
   Runner["Command runner"]
   Git["Git adapter"]
   Files["File service"]
@@ -47,7 +46,6 @@ flowchart TB
   API --> Agent
   API --> Skills
   API --> MCP
-  API --> Patch
   API --> Runner
   API --> Git
   API --> Files
@@ -57,10 +55,8 @@ flowchart TB
   Auth --> DB
   Workspace --> DB
   Agent --> DB
-  Skills --> DB
-  MCP --> DB
-  Patch --> DB
   Runner --> DB
+  Ports --> DB
   Events --> DB
 
   Workspace --> Repo
@@ -69,12 +65,10 @@ flowchart TB
   Agent --> Runner
   Agent --> Skills
   Agent --> MCP
-  Patch --> Repo
   Runner --> Repo
   Git --> Repo
   Files --> Repo
   Ports --> Runner
-  MCP --> Repo
 ```
 
 Modules:
@@ -88,7 +82,8 @@ Modules:
 - `internal/gitrepo`: Git status, diff, commit operations.
 - `internal/runner`: workspace-root command execution.
 - `internal/skills`: local skill registry, `SKILL.md` indexing, bounded skill context.
-- `internal/mcp`: MCP stdio/HTTP registry, discovery cache, health checks, backend-only tool bridge.
+- `internal/mcp`: local MCP server config discovery and backend-only tool metadata.
+- `internal/ports`: same-host listener scanning and preview proxy support.
 - `internal/events`: SSE fan-out for command lifecycle/output.
 
 Command runner flow: create durable record before process start, run without shell at workspace root, append stdout/stderr chunks to SQLite, publish `process.started`, `command.output`, `process.exited`, and replay latest retained output to SSE clients.
@@ -144,7 +139,13 @@ flowchart LR
   Repo --> Git
 ```
 
-SQLite stores conversations, messages, agent runs/events/tool calls, command records/output, ports, Git snapshots, and optional skill/MCP cache/status data. `AGENTS.md` is read directly from workspace filesystem on context refresh/run creation. `~/.patchpilot/config.json` plus filesystem skill discovery remain source of truth for Skills/MCP lists. Conversations persist `hasRunningRun` so Vibe can show in-flight state without listing every run. Source files stay in the workspace repo.
+SQLite stores conversations, messages, agent runs/events/tool calls, command
+records/output, ports, and Git snapshots. `AGENTS.md` is read directly from
+workspace filesystem on context refresh/run creation. `~/.patchpilot/config.json`
+plus filesystem skill discovery remain source of truth for Skills/MCP lists; v0.3
+derives those lists at runtime instead of persisting them. Conversations persist
+`hasRunningRun` so Vibe can show in-flight state without listing every run.
+Source files stay in the workspace repo.
 
 ## Agent Context
 

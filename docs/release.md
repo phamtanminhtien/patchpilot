@@ -10,11 +10,14 @@ keeps the manual verification around that automation explicit.
 - Run the release verification commands:
 
 ```sh
-go test ./...
+make test-go
 pnpm --dir web test
+pnpm --dir web test:e2e
 pnpm --dir web lint
 pnpm --dir web build
 ```
+
+`make test` is equivalent to the Go, Vitest, and Playwright test commands above.
 
 ## After merging the release PR
 

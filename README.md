@@ -10,8 +10,9 @@ PatchPilot is a self-hosted, single-user coding assistant for running chat-drive
 - Stream conversation, agent run, tool, command, and workspace activity through SSE.
 - Inspect effective repo instructions, enabled local skills, MCP server/tool
   metadata, context warnings, approvals, and run details in the Vibe cockpit.
-- Use local skill discovery and `use_skill` context retrieval without remote
-  marketplaces.
+- Use local skill discovery; enabled skill names, descriptions, and paths enter
+  agent context, and skill bodies are read only through approved `cat`/`sed`
+  command flow when needed.
 - Configure MCP servers locally and execute MCP tools only through the backend
   bridge and approval policy.
 - Approve or reject mutating agent tools before they touch the workspace.
@@ -158,7 +159,7 @@ docker run --rm \
   ghcr.io/phamtanminhtien/patchpilot:latest
 ```
 
-Use a version tag such as `0.2.0` instead of `latest` for reproducible runs.
+Use a version tag such as `0.3.0` instead of `latest` for reproducible runs.
 
 ## Releases 🚢
 
@@ -198,7 +199,10 @@ internal/database    SQLite connection and manual migrations
 internal/events      SSE event fan-out
 internal/filestore   Safe workspace file access
 internal/gitrepo     Git status, diff, staging, discard, and commit helpers
+internal/mcp         Local MCP config discovery and backend-only tool metadata
+internal/ports       Same-host port scanning and preview proxy support
 internal/runner      Workspace command classification and execution
+internal/skills      Local skill discovery and enablement
 internal/workspace   Workspace validation, metadata, and file indexing
 web/src/app          Frontend shell, routing, theme, and mode defaults
 web/src/features     Vibe and Workspace feature UI
