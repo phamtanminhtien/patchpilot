@@ -24,6 +24,9 @@ func TestClassifyAllowsCommonProjectCommands(t *testing.T) {
 		"cat README.md",
 		"sed -n '1,160p' README.md",
 		"sed -n 1,160p README.md",
+		"cat ~/.patchpilot/skills/browser/SKILL.md",
+		"cat ~/.agents/skills/browser/SKILL.md",
+		"sed -n '1,160p' ~/.patchpilot/skills/browser/SKILL.md",
 		"pnpm test",
 		"pnpm --dir web build",
 		"npm run lint",
@@ -42,6 +45,24 @@ func TestClassifyAllowsCommonProjectCommands(t *testing.T) {
 			}
 			if decision.Level != SafetyAllowed {
 				t.Fatalf("expected allowed, got %+v", decision)
+			}
+		})
+	}
+}
+
+func TestClassifyRequiresApprovalForOutsideWorkspaceFileReads(t *testing.T) {
+	for _, command := range []string{
+		"cat ~/notes.txt",
+		"cat /tmp/secret.txt",
+		"sed -n '1,160p' /tmp/secret.txt",
+	} {
+		t.Run(command, func(t *testing.T) {
+			decision, err := Classify(command)
+			if err != nil {
+				t.Fatalf("Classify returned error: %v", err)
+			}
+			if decision.Level != SafetyNeedsConfirmation {
+				t.Fatalf("expected needs confirmation, got %+v", decision)
 			}
 		})
 	}
@@ -139,9 +160,9 @@ func TestClassifyBlocksDestructivePathAndShellCommands(t *testing.T) {
 		"echo $(date)",
 		"pnpm test\nrm -rf dist",
 		"cat ../secret.txt",
-		"cat /tmp/secret.txt",
 		"cat *.md",
 		"sed -n '1,160p' ../secret.txt",
+		"cat ~/.patchpilot/skills/../config.json",
 		"pnpm --dir ../other test",
 		"go test ../other",
 		"go test /tmp/project",

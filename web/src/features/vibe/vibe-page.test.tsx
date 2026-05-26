@@ -1147,6 +1147,81 @@ describe("VibePage", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("renders skill file read commands with legacy skill UI", async () => {
+    const user = userEvent.setup();
+    const skillReadToolCall = {
+      ...toolCall,
+      finishedAt: "2026-05-20T00:00:02Z",
+      input:
+        '{"command":"cat ~/.patchpilot/skills/incremental-implementation/SKILL.md"}',
+      name: "run_command",
+      output: '{"output":"Implement in small verified steps."}',
+      requiresApproval: false,
+      status: "finished" as const,
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "done" }],
+      toolCalls: [skillReadToolCall],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const summary = await screen.findByRole("button", {
+      name: "Loaded Incremental Implementation",
+    });
+    await user.click(summary);
+
+    expect(
+      screen.getByText("Source: skill/Incremental Implementation"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Implement in small verified steps."),
+    ).toBeInTheDocument();
+  });
+
+  it("opens approval-required outside-workspace file reads for review", async () => {
+    const outsideReadToolCall = {
+      ...toolCall,
+      input: '{"command":"cat /tmp/outside.txt"}',
+      name: "run_command",
+      output: "{}",
+      policyReason: "Outside-workspace file read requires approval",
+      requiresApproval: true,
+      status: "waiting_approval" as const,
+    };
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [conversation],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation,
+      events: [],
+      messages: [message],
+      runs: [{ ...run, status: "waiting_tool_approval" }],
+      toolCalls: [outsideReadToolCall],
+    });
+
+    renderVibe("/vibe?workspaceId=ws_1");
+    await openExistingConversation();
+
+    const group = (await screen.findByText("/tmp/outside.txt")).closest(
+      "[data-tool-call]",
+    );
+
+    expect(screen.getByText("Waiting approval")).toBeInTheDocument();
+    expect(group).toHaveAttribute("data-state", "open");
+    expect(screen.getByText("Approve tool")).toBeInTheDocument();
+    expect(
+      screen.getByText("Outside-workspace file read requires approval"),
+    ).toBeInTheDocument();
+  });
+
   it("keeps previous conversation messages visible after newer runs", async () => {
     const secondMessage = {
       ...message,
