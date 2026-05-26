@@ -2,19 +2,27 @@
 
 PatchPilot is a self-hosted, single-user coding assistant for running chat-driven AI coding loops against local Git repositories. It lets you open an allowed workspace, continue multiple conversations, review approval-required tool calls, run project commands, inspect Git status, and commit selected paths from a mobile-friendly web UI.
 
-## v0.2 Product Direction ✅
+## v0.3 Product Baseline ✅
 
 - Open and index local Git workspaces under configured allowed roots.
 - Use Vibe Mode to create and continue multiple workspace conversations.
 - Send chat messages that trigger agent runs with model and reasoning-effort choices.
 - Stream conversation, agent run, tool, command, and workspace activity through SSE.
+- Inspect effective repo instructions, enabled local skills, MCP server/tool
+  metadata, context warnings, approvals, and run details in the Vibe cockpit.
+- Use local skill discovery and `use_skill` context retrieval without remote
+  marketplaces.
+- Configure MCP servers locally and execute MCP tools only through the backend
+  bridge and approval policy.
 - Approve or reject mutating agent tools before they touch the workspace.
 - Browse files, read small text files, search workspace contents, and inspect diffs.
 - Run classified workspace commands without a shell and replay the latest command output.
 - Stage, unstage, discard, and commit explicit selected paths.
 - Serve the frontend through Vite in development or through the Go server in a built deployment.
 
-The v0.2 focus is the conversation agent: follow-up chat, visible agent plans, reviewable patches, and narrow verification after changes.
+The v0.3 focus is managed agent context/runtime: repo instructions, local
+skills, MCP metadata, approval-gated tools, visible agent plans, reviewable
+patches, and narrow verification after changes.
 
 ## Tech Stack 🧱
 
@@ -209,7 +217,7 @@ Commands run from the workspace root without a shell. Shell control operators, w
 ## Documentation 📚
 
 - `docs/project-rules.md`: locked implementation rules.
-- `docs/product-spec.md`: v0.2 scope, flows, API, and data contracts.
+- `docs/product-spec.md`: v0.3 scope, flows, API, and data contracts.
 - `docs/app-architecture.md`: architecture overview.
 - `docs/design-language.md`: frontend design system and UI rules.
 - `docs/release.md`: release checklist and post-release verification.
