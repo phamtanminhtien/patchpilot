@@ -37,7 +37,14 @@ type Server struct {
 	health      HealthChecker
 	ports       ports.ListenerScanner
 	backendAddr string
+	lightModel  string
 }
+
+const (
+	defaultConversationTitle = "New conversation"
+	defaultLightModel        = "gpt-5.4-mini"
+	titleGenerationTimeout   = 20 * time.Second
+)
 
 type HealthChecker interface {
 	Ping(context.Context) error
@@ -56,6 +63,10 @@ func NewServerWithAuth(workspaces *workspace.Manager, files *filestore.Service, 
 
 func (s *Server) SetBackendAddr(addr string) {
 	s.backendAddr = strings.TrimSpace(addr)
+}
+
+func (s *Server) SetLightModel(model string) {
+	s.lightModel = strings.TrimSpace(model)
 }
 
 func (s *Server) Shutdown(ctx context.Context, reason string) error {
@@ -620,7 +631,7 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
-		title = "New conversation"
+		title = defaultConversationTitle
 	}
 	conversation, err := s.store.CreateConversation(r.Context(), database.ConversationRecord{
 		WorkspaceID: ws.ID,
@@ -697,7 +708,9 @@ func (s *Server) updateConversation(w http.ResponseWriter, r *http.Request) {
 		writeConversationError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, conversationResponseFromRecord(conversation))
+	response := conversationResponseFromRecord(conversation)
+	s.publishConversationUpdated(ws.ID, response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
@@ -710,9 +723,19 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conversationID := r.PathValue("conversationId")
-	if _, err := s.store.GetConversation(r.Context(), ws.ID, conversationID); err != nil {
+	conversation, err := s.store.GetConversation(r.Context(), ws.ID, conversationID)
+	if err != nil {
 		writeConversationError(w, err)
 		return
+	}
+	shouldGenerateTitle := isDefaultConversationTitle(conversation.Title)
+	if shouldGenerateTitle {
+		messages, err := s.store.ListMessages(r.Context(), ws.ID, conversationID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "message_list_failed", "Conversation messages could not be listed", nil)
+			return
+		}
+		shouldGenerateTitle = len(messages) == 0
 	}
 	var req createMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -745,7 +768,14 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "message_update_failed", "Message could not be linked to the run", nil)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"message": messageResponseFromRecord(updatedMessage), "run": run})
+	if shouldGenerateTitle {
+		s.generateConversationTitleAsync(ws.ID, conversationID, message.Content)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"conversation": conversationResponseFromRecord(conversation),
+		"message":      messageResponseFromRecord(updatedMessage),
+		"run":          run,
+	})
 }
 
 func (s *Server) cancelAgentRun(w http.ResponseWriter, r *http.Request) {
@@ -1431,6 +1461,49 @@ func (s *Server) publishWorkspaceState(workspaceID, eventType string, ws workspa
 		Type:        eventType,
 		Payload:     ws,
 	})
+}
+
+func (s *Server) generateConversationTitleAsync(workspaceID, conversationID, prompt string) {
+	if s.agent == nil {
+		return
+	}
+	lightModel := strings.TrimSpace(s.lightModel)
+	if lightModel == "" {
+		lightModel = defaultLightModel
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), titleGenerationTimeout)
+		defer cancel()
+		title, err := s.agent.GenerateTitle(ctx, prompt, lightModel)
+		if err != nil {
+			return
+		}
+		title = strings.TrimSpace(title)
+		if title == "" {
+			return
+		}
+		conversation, err := s.store.GetConversation(ctx, workspaceID, conversationID)
+		if err != nil || !isDefaultConversationTitle(conversation.Title) {
+			return
+		}
+		updated, err := s.store.UpdateConversation(ctx, workspaceID, conversationID, map[string]any{"title": title})
+		if err != nil {
+			return
+		}
+		s.publishConversationUpdated(workspaceID, conversationResponseFromRecord(updated))
+	}()
+}
+
+func (s *Server) publishConversationUpdated(workspaceID string, conversation conversationResponse) {
+	s.events.Publish(events.Event{
+		WorkspaceID: workspaceID,
+		Type:        "conversation.updated",
+		Payload:     conversation,
+	})
+}
+
+func isDefaultConversationTitle(title string) bool {
+	return strings.TrimSpace(title) == defaultConversationTitle
 }
 
 func (s *Server) workspaceFromRequest(w http.ResponseWriter, r *http.Request) (workspace.Workspace, bool) {

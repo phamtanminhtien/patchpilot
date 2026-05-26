@@ -19,10 +19,6 @@ export function assistantMessagesForRun(messages: Message[], run: AgentRun) {
     );
 }
 
-export function titleFromPrompt(prompt: string) {
-  return prompt.length > 80 ? `${prompt.slice(0, 77)}...` : prompt;
-}
-
 export function transientAssistantEvent(
   runId: string,
   text: string,

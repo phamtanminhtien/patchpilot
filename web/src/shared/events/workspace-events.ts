@@ -5,6 +5,7 @@ export type WorkspaceEventHandler = (event: WorkspaceEvent) => void;
 const workspaceEventTypes: WorkspaceEvent["type"][] = [
   "workspace.indexing",
   "workspace.ready",
+  "conversation.updated",
   "conversation.message.created",
   "git.changed",
   "port.opened",
@@ -58,13 +59,13 @@ export function subscribeWorkspaceEvents(
 }
 
 export function closeWorkspaceEventConnectionsForTest() {
-  for (const [workspaceId, connection] of connections) {
+  connections.forEach((connection, workspaceId) => {
     if (connection.closeTimer !== undefined) {
       clearTimeout(connection.closeTimer);
     }
     connection.source.close();
     connections.delete(workspaceId);
-  }
+  });
 }
 
 function connectionForWorkspace(workspaceId: string) {
@@ -83,9 +84,7 @@ function connectionForWorkspace(workspaceId: string) {
   };
   const handleMessage = (message: MessageEvent<string>) => {
     const event = JSON.parse(message.data) as WorkspaceEvent;
-    for (const handler of connection.handlers) {
-      handler(event);
-    }
+    connection.handlers.forEach((handler) => handler(event));
   };
   for (const eventType of workspaceEventTypes) {
     source.addEventListener(eventType, handleMessage);

@@ -33,6 +33,8 @@ const (
 	openAIXMLTagSummaryRules       openAIXMLTag = "summary_rules"
 )
 
+const maxGeneratedTitleLength = 80
+
 type OpenAIProvider struct {
 	apiKey  string
 	client  *http.Client
@@ -62,7 +64,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, request ProviderRequest, 
 	body := openAIResponsesRequest{
 		Model: request.Run.Model,
 		Input: buildOpenAIInput(request),
-		Reasoning: openAIReasoning{
+		Reasoning: &openAIReasoning{
 			Effort: request.Run.ReasoningEffort,
 		},
 		Tools:  openAITools(),
@@ -97,7 +99,7 @@ func (p *OpenAIProvider) Summarize(ctx context.Context, request SummaryRequest) 
 	body := openAIResponsesRequest{
 		Model: request.Run.Model,
 		Input: buildSummaryInput(request),
-		Reasoning: openAIReasoning{
+		Reasoning: &openAIReasoning{
 			Effort: request.Run.ReasoningEffort,
 		},
 	}
@@ -110,6 +112,63 @@ func (p *OpenAIProvider) Summarize(ctx context.Context, request SummaryRequest) 
 		return "", fmt.Errorf("%w: empty summary response", ErrOpenAIRequestFailed)
 	}
 	return text, nil
+}
+
+func (p *OpenAIProvider) GenerateTitle(ctx context.Context, prompt, model string) (string, error) {
+	if !p.Configured() {
+		return "", ErrProviderUnavailable
+	}
+	prompt = strings.TrimSpace(prompt)
+	model = strings.TrimSpace(model)
+	if prompt == "" {
+		return "", ErrEmptyPrompt
+	}
+	if model == "" {
+		return "", ErrInvalidModel
+	}
+	body := openAIResponsesRequest{
+		Model: model,
+		Input: []any{
+			openAIInputMessage{
+				Type: "message",
+				Role: "developer",
+				Content: []openAIInputContent{{
+					Type: "input_text",
+					Text: "Create a concise conversation title from the user's first message. Return only the title. Use 3 to 8 words. Do not use quotation marks or trailing punctuation.",
+				}},
+			},
+			openAIInputMessage{
+				Type: "message",
+				Role: "user",
+				Content: []openAIInputContent{{
+					Type: "input_text",
+					Text: prompt,
+				}},
+			},
+		},
+	}
+	response, err := p.createResponse(ctx, body)
+	if err != nil {
+		return "", err
+	}
+	title := sanitizeGeneratedTitle(extractResponseText(response))
+	if title == "" {
+		return "", fmt.Errorf("%w: empty title response", ErrOpenAIRequestFailed)
+	}
+	return title, nil
+}
+
+func sanitizeGeneratedTitle(title string) string {
+	title = strings.TrimSpace(title)
+	title = strings.Trim(title, "\"'`“”‘’")
+	title = strings.Join(strings.Fields(title), " ")
+	title = strings.TrimSpace(title)
+	title = strings.Trim(title, "\"'`“”‘’")
+	runes := []rune(title)
+	if len(runes) <= maxGeneratedTitleLength {
+		return title
+	}
+	return strings.TrimSpace(string(runes[:maxGeneratedTitleLength]))
 }
 
 func (p *OpenAIProvider) createResponse(ctx context.Context, body openAIResponsesRequest) (openAIResponsesResponse, error) {
@@ -144,12 +203,12 @@ func (p *OpenAIProvider) createResponse(ctx context.Context, body openAIResponse
 }
 
 type openAIResponsesRequest struct {
-	Model        string          `json:"model"`
-	Instructions string          `json:"instructions,omitempty"`
-	Input        any             `json:"input"`
-	Reasoning    openAIReasoning `json:"reasoning"`
-	Tools        []openAITool    `json:"tools,omitempty"`
-	Stream       bool            `json:"stream,omitempty"`
+	Model        string           `json:"model"`
+	Instructions string           `json:"instructions,omitempty"`
+	Input        any              `json:"input"`
+	Reasoning    *openAIReasoning `json:"reasoning,omitempty"`
+	Tools        []openAITool     `json:"tools,omitempty"`
+	Stream       bool             `json:"stream,omitempty"`
 }
 
 type openAIReasoning struct {

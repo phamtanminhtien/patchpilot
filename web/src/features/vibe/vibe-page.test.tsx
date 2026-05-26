@@ -240,7 +240,7 @@ describe("VibePage", () => {
       toolCalls: [],
     });
     vi.mocked(createConversation).mockResolvedValue(conversation);
-    vi.mocked(createMessage).mockResolvedValue({ message, run });
+    vi.mocked(createMessage).mockResolvedValue({ conversation, message, run });
   });
 
   it("creates an agent run with selected model and reasoning effort", async () => {
@@ -263,9 +263,7 @@ describe("VibePage", () => {
     await user.click(startButton);
 
     await waitFor(() => {
-      expect(createConversation).toHaveBeenCalledWith("ws_1", {
-        title: "Fix the failing test",
-      });
+      expect(createConversation).toHaveBeenCalledWith("ws_1", {});
       expect(createMessage).toHaveBeenCalledWith("ws_1", "conv_1", {
         content: "Fix the failing test",
         model: "gpt-5.4-mini",
@@ -273,6 +271,44 @@ describe("VibePage", () => {
       });
     });
     expect(await screen.findAllByText("Fix the failing test")).toHaveLength(3);
+  });
+
+  it("updates conversation title from workspace events", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      conversations: [{ ...conversation, title: "New conversation" }],
+    });
+    vi.mocked(getConversation).mockResolvedValue({
+      conversation: { ...conversation, title: "New conversation" },
+      events: [],
+      messages: [message],
+      runs: [run],
+      toolCalls: [],
+    });
+    renderVibe("/vibe?workspaceId=ws_1&conversationId=conv_1");
+
+    await waitFor(() => {
+      expect(screen.getAllByText("New conversation").length).toBeGreaterThan(0);
+    });
+    const source = await waitForWorkspaceEventSource();
+    act(() => {
+      source.emit("conversation.updated", {
+        createdAt: "2026-05-20T00:00:02Z",
+        id: "evt_title",
+        payload: {
+          ...conversation,
+          title: "Investigate flaky tests",
+          updatedAt: "2026-05-20T00:00:02Z",
+        },
+        type: "conversation.updated",
+        workspaceId: "ws_1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("Investigate flaky tests").length,
+      ).toBeGreaterThan(0);
+    });
   });
 
   it("shows stop in the send position for an active run", async () => {
@@ -574,6 +610,7 @@ describe("VibePage", () => {
       toolCalls: [],
     });
     vi.mocked(createMessage).mockResolvedValue({
+      conversation,
       message: {
         ...message,
         content: "Apply the fix",
@@ -839,6 +876,7 @@ describe("VibePage", () => {
       toolCalls: [],
     });
     vi.mocked(createMessage).mockResolvedValue({
+      conversation,
       message: {
         ...message,
         content: "Investigate logs",
@@ -905,6 +943,7 @@ describe("VibePage", () => {
     });
     vi.mocked(createMessage)
       .mockResolvedValueOnce({
+        conversation,
         message: {
           ...message,
           content: "First follow-up",
@@ -921,6 +960,7 @@ describe("VibePage", () => {
         },
       })
       .mockResolvedValueOnce({
+        conversation,
         message: {
           ...message,
           content: "Second follow-up",

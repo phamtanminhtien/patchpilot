@@ -162,6 +162,34 @@ func (fakeAgentProvider) Summarize(context.Context, agent.SummaryRequest) (strin
 	return "fake summary", nil
 }
 
+type titleAgentProvider struct {
+	fakeAgentProvider
+	err     error
+	models  chan string
+	prompts chan string
+	release chan struct{}
+	title   string
+}
+
+func (p titleAgentProvider) GenerateTitle(_ context.Context, prompt, model string) (string, error) {
+	if p.models != nil {
+		p.models <- model
+	}
+	if p.prompts != nil {
+		p.prompts <- prompt
+	}
+	if p.release != nil {
+		<-p.release
+	}
+	if p.err != nil {
+		return "", p.err
+	}
+	if p.title != "" {
+		return p.title, nil
+	}
+	return "Generated title", nil
+}
+
 type blockingAgentProvider struct {
 	delta string
 	done  chan struct{}
@@ -654,6 +682,139 @@ func TestConversationRunHandlersCreateListAndGet(t *testing.T) {
 	}
 	if !listBody.Conversations[0].HasRunningRun {
 		t.Fatalf("expected conversation list to show active run, got %+v", listBody.Conversations[0])
+	}
+}
+
+func TestConversationTitleGenerationPublishesUpdateEvent(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	provider := titleAgentProvider{
+		models:  make(chan string, 1),
+		prompts: make(chan string, 1),
+		release: make(chan struct{}),
+		title:   "Investigate flaky tests",
+	}
+	fixture := newServerFixture(t, root, provider)
+	fixture.server.SetLightModel("gpt-light")
+	handler := fixture.server.Routes()
+	events, unsubscribe := fixture.hub.Subscribe()
+	defer unsubscribe()
+
+	create := request(handler, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+	conversation := request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{}`)
+	if conversation.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", conversation.Code, conversation.Body.String())
+	}
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+	if createdConversation.Title != defaultConversationTitle {
+		t.Fatalf("expected default title, got %+v", createdConversation)
+	}
+
+	response := request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix flaky tests","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+	var created struct {
+		Conversation conversationResponse `json:"conversation"`
+		Message      messageResponse      `json:"message"`
+		Run          agent.Run            `json:"run"`
+	}
+	mustDecode(t, response, &created)
+	if created.Conversation.Title != defaultConversationTitle {
+		t.Fatalf("expected create message response to keep placeholder title, got %+v", created.Conversation)
+	}
+
+	if got := receiveString(t, provider.models); got != "gpt-light" {
+		t.Fatalf("expected light model, got %q", got)
+	}
+	if got := receiveString(t, provider.prompts); got != "fix flaky tests" {
+		t.Fatalf("expected first prompt, got %q", got)
+	}
+	close(provider.release)
+
+	event := waitForEvent(t, events, "conversation.updated")
+	updated, ok := event.Payload.(conversationResponse)
+	if !ok {
+		t.Fatalf("expected conversation payload, got %T", event.Payload)
+	}
+	if updated.Title != "Investigate flaky tests" || updated.ID != createdConversation.ID {
+		t.Fatalf("unexpected updated conversation: %+v", updated)
+	}
+	detail := getConversationDetail(t, handler, ws.ID, createdConversation.ID)
+	if detail.Conversation.Title != "Investigate flaky tests" {
+		t.Fatalf("expected generated title in detail, got %+v", detail.Conversation)
+	}
+}
+
+func TestConversationTitleGenerationDoesNotOverwriteManualTitle(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	provider := titleAgentProvider{
+		models:  make(chan string, 1),
+		release: make(chan struct{}),
+		title:   "Generated title",
+	}
+	fixture := newServerFixture(t, root, provider)
+	handler := fixture.server.Routes()
+
+	create := request(handler, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+	conversation := request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{}`)
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+	response := request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix flaky tests","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+	_ = receiveString(t, provider.models)
+
+	rename := request(handler, http.MethodPatch, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID, `{"title":"Manual title"}`)
+	if rename.Code != http.StatusOK {
+		t.Fatalf("expected rename 200, got %d: %s", rename.Code, rename.Body.String())
+	}
+	close(provider.release)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		detail := getConversationDetail(t, handler, ws.ID, createdConversation.ID)
+		if detail.Conversation.Title == "Generated title" {
+			t.Fatalf("generated title overwrote manual title: %+v", detail.Conversation)
+		}
+		if detail.Conversation.Title == "Manual title" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	detail := getConversationDetail(t, handler, ws.ID, createdConversation.ID)
+	if detail.Conversation.Title != "Manual title" {
+		t.Fatalf("expected manual title, got %+v", detail.Conversation)
+	}
+}
+
+func TestConversationTitleGenerationFailureDoesNotFailMessageCreate(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	provider := titleAgentProvider{
+		err:    errors.New("title failed"),
+		models: make(chan string, 1),
+	}
+	fixture := newServerFixture(t, root, provider)
+	handler := fixture.server.Routes()
+
+	create := request(handler, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+	conversation := request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations", `{}`)
+	var createdConversation conversationResponse
+	mustDecode(t, conversation, &createdConversation)
+	response := request(handler, http.MethodPost, "/api/workspaces/"+ws.ID+"/conversations/"+createdConversation.ID+"/messages", `{"content":"fix flaky tests","model":"gpt-5.5","reasoningEffort":"medium"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+	_ = receiveString(t, provider.models)
+	detail := getConversationDetail(t, handler, ws.ID, createdConversation.ID)
+	if detail.Conversation.Title != defaultConversationTitle {
+		t.Fatalf("expected placeholder title after title failure, got %+v", detail.Conversation)
 	}
 }
 
@@ -1501,6 +1662,33 @@ func waitForConversationActiveState(t *testing.T, handler http.Handler, workspac
 	}
 	t.Fatalf("conversation active state did not become %v", hasRunningRun)
 	return conversationDetailResponse{}
+}
+
+func receiveString(t *testing.T, ch <-chan string) string {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for string")
+		return ""
+	}
+}
+
+func waitForEvent(t *testing.T, eventsCh <-chan events.Event, eventType string) events.Event {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-eventsCh:
+			if event.Type == eventType {
+				return event
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for event %s", eventType)
+			return events.Event{}
+		}
+	}
 }
 
 func waitForAgentStatus(t *testing.T, manager *agent.Manager, workspaceID, conversationID, runID, status string) agent.Detail {
