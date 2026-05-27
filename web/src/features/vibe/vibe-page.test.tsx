@@ -19,6 +19,7 @@ import {
   getHealth,
   getWorkspace,
   listConversations,
+  listFileIndex,
   listWorkspaces,
   refreshAgentContext,
   rejectAgentToolCall,
@@ -35,6 +36,7 @@ import {
   agentContext,
   conversation,
   doneRun,
+  fileIndex,
   message,
   MockEventSource,
   openExistingConversation,
@@ -60,6 +62,7 @@ vi.mock("@/shared/api", () => ({
   getConversation: vi.fn(),
   getHealth: vi.fn(),
   getWorkspace: vi.fn(),
+  listFileIndex: vi.fn(),
   listConversations: vi.fn(),
   listWorkspaces: vi.fn(),
   refreshAgentContext: vi.fn(),
@@ -80,6 +83,7 @@ beforeEach(() => {
   vi.mocked(createWorkspace).mockResolvedValue(workspace);
   vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
   vi.mocked(getWorkspace).mockResolvedValue(workspace);
+  vi.mocked(listFileIndex).mockResolvedValue(fileIndex);
   vi.mocked(getAgentContext).mockResolvedValue(agentContext);
   vi.mocked(refreshAgentContext).mockResolvedValue(agentContext);
   vi.mocked(setAgentSkillEnabled).mockResolvedValue({
@@ -137,6 +141,173 @@ it("creates an agent run with selected model and reasoning effort", async () => 
   });
   expect(await screen.findAllByText("Fix the failing test")).toHaveLength(3);
 });
+
+it("inserts slash skill links without submitting", async () => {
+  const user = userEvent.setup();
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  const promptInput = await screen.findByLabelText("Ask AI");
+  await waitFor(() => {
+    expect(promptInput).toBeEnabled();
+  });
+  await user.type(promptInput, "/bro");
+
+  const slashList = await screen.findByRole("listbox", {
+    name: "Slash suggestions",
+  });
+  expect(within(slashList).getByText("Skills")).toBeInTheDocument();
+  await user.click(screen.getByRole("option", { name: /Browser/i }));
+
+  expect(screen.getByText("Browser")).toBeInTheDocument();
+  expect(composerToken("Browser")).toHaveAttribute(
+    "data-markdown",
+    "[$browser](patchpilot/browser)",
+  );
+  expect(createMessage).not.toHaveBeenCalled();
+});
+
+it("submits composer tokens as plain markdown content", async () => {
+  const user = userEvent.setup();
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  const promptInput = await screen.findByLabelText("Ask AI");
+  await waitFor(() => {
+    expect(promptInput).toBeEnabled();
+  });
+  await user.type(promptInput, "/bro");
+  await user.click(await screen.findByRole("option", { name: /Browser/i }));
+  await user.click(screen.getByRole("button", { name: "Start run" }));
+
+  await waitFor(() => {
+    expect(createMessage).toHaveBeenCalledWith("ws_1", "conv_1", {
+      content: "[$browser](patchpilot/browser)",
+      model: "gpt-5.5",
+      reasoningEffort: "medium",
+    });
+  });
+});
+
+it("shows invalid slash skills as disabled", async () => {
+  const user = userEvent.setup();
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  const promptInput = await screen.findByLabelText("Ask AI");
+  await waitFor(() => {
+    expect(promptInput).toBeEnabled();
+  });
+  await user.type(promptInput, "/broken");
+
+  const brokenSkill = await screen.findByRole("option", {
+    name: /Broken Skill/i,
+  });
+  expect(brokenSkill).toBeDisabled();
+});
+
+it("deletes composer tokens as atomic units", async () => {
+  const user = userEvent.setup();
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  const promptInput = await screen.findByLabelText("Ask AI");
+  await waitFor(() => {
+    expect(promptInput).toBeEnabled();
+  });
+  await user.type(promptInput, "/bro");
+  await user.click(await screen.findByRole("option", { name: /Browser/i }));
+
+  expect(composerToken("Browser")).toBeInTheDocument();
+  await user.keyboard("{Backspace}");
+  expect(screen.queryByText("Browser")).not.toBeInTheDocument();
+});
+
+it("inserts grouped mention links for skills folders and files", async () => {
+  const user = userEvent.setup();
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  const promptInput = await screen.findByLabelText("Ask AI");
+  await waitFor(() => {
+    expect(promptInput).toBeEnabled();
+  });
+  await user.type(promptInput, "@");
+
+  const mentionList = await screen.findByRole("listbox", {
+    name: "Mention suggestions",
+  });
+  expect(within(mentionList).getByText("Skills")).toBeInTheDocument();
+  expect(within(mentionList).queryByText("Folders")).not.toBeInTheDocument();
+  expect(within(mentionList).queryByText("Files")).not.toBeInTheDocument();
+
+  await user.type(promptInput, "docs");
+  expect(await within(mentionList).findByText("Folders")).toBeInTheDocument();
+  expect(within(mentionList).getByText("Files")).toBeInTheDocument();
+  await user.click(optionButton(within(mentionList).getByText("docs")));
+  expect(composerToken("docs/")).toHaveAttribute(
+    "data-markdown",
+    "[docs](docs/)",
+  );
+
+  await user.clear(promptInput);
+  await user.type(promptInput, "@composer");
+  await user.click(optionButton(await screen.findByText("composer.tsx")));
+  expect(composerToken("composer.tsx")).toHaveAttribute(
+    "data-markdown",
+    "[composer.tsx](web/src/features/vibe/components/composer.tsx)",
+  );
+
+  await user.clear(promptInput);
+  await user.type(promptInput, "@browser");
+  await user.click(screen.getByRole("option", { name: /Browser/i }));
+  expect(screen.getByText("Browser")).toBeInTheDocument();
+  expect(composerToken("Browser")).toHaveAttribute(
+    "data-markdown",
+    "[$browser](patchpilot/browser)",
+  );
+});
+
+it("accepts composer suggestions with the keyboard and closes with escape", async () => {
+  const user = userEvent.setup();
+  const scrollIntoView = vi.fn();
+  Element.prototype.scrollIntoView = scrollIntoView;
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  const promptInput = await screen.findByLabelText("Ask AI");
+  await waitFor(() => {
+    expect(promptInput).toBeEnabled();
+  });
+  await user.type(promptInput, "@docs");
+  await screen.findByRole("listbox", { name: "Mention suggestions" });
+
+  await user.keyboard("{Enter}");
+  expect(composerToken("docs/")).toHaveAttribute(
+    "data-markdown",
+    "[docs](docs/)",
+  );
+
+  await user.clear(promptInput);
+  await user.type(promptInput, "/");
+  await screen.findByRole("listbox", { name: "Slash suggestions" });
+  await user.keyboard("{ArrowDown}");
+  expect(scrollIntoView).toHaveBeenCalled();
+  await user.keyboard("{Escape}");
+  expect(
+    screen.queryByRole("listbox", { name: "Slash suggestions" }),
+  ).not.toBeInTheDocument();
+});
+
+function optionButton(element: HTMLElement) {
+  const button = element.closest("button");
+  if (button === null) {
+    throw new Error("Suggestion button was not found");
+  }
+  return button;
+}
+
+function composerToken(label: string) {
+  const token = screen.getByText(label).closest("[data-composer-link-token]");
+  if (token === null) {
+    throw new Error(`Composer token was not found for ${label}`);
+  }
+  return token;
+}
 
 it("updates conversation title from workspace events", async () => {
   vi.mocked(listConversations).mockResolvedValue({

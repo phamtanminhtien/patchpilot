@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
-import { type FormEvent, useCallback, useState } from "react";
+import { type FormEvent, useCallback, useRef, useState } from "react";
 
 import {
   type AgentModel,
@@ -23,6 +23,7 @@ import {
   getConversation,
   getWorkspace,
   listConversations,
+  listFileIndex,
   listWorkspaces,
   type Message,
   refreshAgentContext,
@@ -48,6 +49,8 @@ export function useVibeController() {
   );
   const [rootPath, setRootPath] = useState("");
   const [prompt, setPrompt] = useState("");
+  const promptRef = useRef("");
+  const [promptResetKey, setPromptResetKey] = useState(0);
   const defaults = readAgentDefaults();
   const [model, setModel] = useState<AgentModel>(defaults.model);
   const [reasoningEffort, setReasoningEffort] = useState<AgentReasoningEffort>(
@@ -106,6 +109,12 @@ export function useVibeController() {
     queryKey: ["agent-context", workspaceId],
   });
 
+  const fileIndexQuery = useQuery({
+    enabled: workspaceId.length > 0,
+    queryFn: () => listFileIndex(workspaceId, { limit: 100 }),
+    queryKey: ["composer-file-index", workspaceId],
+  });
+
   const refreshContextMutation = useMutation({
     mutationFn: () => refreshAgentContext(workspaceId),
     onSuccess: (context) =>
@@ -123,7 +132,7 @@ export function useVibeController() {
 
   const createMessageMutation = useMutation({
     mutationFn: async () => {
-      const content = prompt.trim();
+      const content = promptRef.current.trim();
       const conversation =
         conversationDetailQuery.data?.conversation ??
         (currentConversationId.length > 0
@@ -144,7 +153,9 @@ export function useVibeController() {
       };
     },
     onSuccess: ({ conversation, message, run }) => {
+      promptRef.current = "";
       setPrompt("");
+      setPromptResetKey((current) => current + 1);
       void setActiveConversationId(conversation.id);
       const nextConversation = {
         ...conversation,
@@ -335,7 +346,7 @@ export function useVibeController() {
   function handleTaskSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
-      prompt.trim().length === 0 ||
+      promptRef.current.trim().length === 0 ||
       workspace === undefined ||
       createMessageMutation.isPending ||
       activeRun !== undefined
@@ -350,16 +361,25 @@ export function useVibeController() {
     agentContextQuery.error ??
     refreshContextMutation.error ??
     skillMutation.error;
+  const handlePromptChange = useCallback((nextPrompt: string) => {
+    promptRef.current = nextPrompt;
+  }, []);
 
   return {
     composer: {
       activeRun: activeRun !== undefined,
       error: error ? apiErrorMessage(error) : undefined,
+      fileIndexEntries: fileIndexQuery.data?.entries ?? [],
+      fileIndexError: fileIndexQuery.error
+        ? apiErrorMessage(fileIndexQuery.error)
+        : undefined,
+      isFileIndexLoading: fileIndexQuery.isPending,
+      isSkillsLoading: agentContextQuery.isPending,
       isPending: createMessageMutation.isPending,
       isStopping: cancelRunMutation.isPending,
       model,
       onModelChange: setModel,
-      onPromptChange: setPrompt,
+      onPromptChange: handlePromptChange,
       onReasoningEffortChange: setReasoningEffort,
       onStop: () => {
         if (activeRun === undefined || currentConversationId.length === 0) {
@@ -372,7 +392,12 @@ export function useVibeController() {
       },
       onSubmit: handleTaskSubmit,
       prompt,
+      promptResetKey,
       reasoningEffort,
+      skills: agentContextQuery.data?.skills ?? [],
+      skillsError: agentContextQuery.error
+        ? apiErrorMessage(agentContextQuery.error)
+        : undefined,
       workspaceReady: workspace !== undefined,
     },
     conversation: {

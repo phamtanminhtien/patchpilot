@@ -1,10 +1,10 @@
 # PatchPilot Product Spec
 
-`docs/project-rules.md` owns locked rules. This file owns active v0.3 scope, flows, API, data, and acceptance.
+`docs/project-rules.md` owns locked rules. This file owns active v0.4 scope, flows, API, data, and acceptance.
 
 ## Objective
 
-PatchPilot v0.3 is a self-hosted, single-user AI coding workspace centered on workspace conversations with managed agent context/runtime:
+PatchPilot v0.4 is a self-hosted, single-user AI coding workspace centered on workspace conversations with managed agent context/runtime:
 
 ```txt
 open repo -> index instructions/skills/MCP -> open/create conversation
@@ -22,7 +22,7 @@ Core decisions:
 - Agent commands run as the server OS user at workspace root, without a shell. Workspace terminal sessions run a real shell through PTY at workspace root.
 - Agent changes happen through tool calls; mutating tools require approval.
 - Agent context may include repo `AGENTS.md`, enabled local skills, MCP tool metadata, bounded conversation context, and active-run tool history.
-- Skills are local PatchPilot-managed directories; remote install/marketplaces are outside v0.3.
+- Skills are local PatchPilot-managed directories; remote install/marketplaces are outside v0.4.
 - MCP supports explicit per-workspace stdio/HTTP server configs; tools execute only through the backend bridge.
 - Workspace Mode supports files, search, diffs, small edits, interactive terminal sessions, preview, and Git status.
 - Settings is a compact app-wide local/server configuration screen for appearance, agent defaults, local skills, MCP status/config, and safe runtime status.
@@ -61,6 +61,26 @@ open/create conversation -> load messages/activity
 - Provider control instructions are sent as explicit developer-role messages whose `content` array contains XML-tagged system prompt blocks. Agent generation keeps PatchPilot rules and skill instructions in developer content blocks; repo `AGENTS.md` instructions, structured environment context (`cwd`, `shell`, `current_date`, `timezone`), and context warnings are sent separately as a user-role context message before conversation history. Summarization uses developer content blocks for the summary task and rules.
 - Older history over budget is summarized onto the conversation; newest messages stay verbatim. Developer instructions are separate from conversation messages so history cannot displace the control prompt.
 
+Composer assist (v0.4):
+
+- `/` opens a grouped command list. The first v0.4 group is local skills from
+  the agent context snapshot.
+- `@` opens a grouped mention list. Skills appear immediately; derived folders
+  and indexed files appear only after the user types a mention query.
+- Selecting a skill inserts Markdown text `[$skill-name](skill-path)`, using the
+  skill key/name as the label and the skill path exposed by agent context.
+- Selecting a file or folder inserts Markdown text `[name](path)`, using the
+  basename as the label and a workspace-relative path as the target. Folder
+  targets keep a trailing `/`.
+- The composer rich input uses a Tiptap editor with atomic inline tokens for
+  inserted skills, folders, and files. Tokens render as compact chips, preserve
+  their original Markdown text for serialization, and delete as single units.
+- Composer suggestions only edit the submitted prompt text. They never submit a
+  run, read file contents, attach files, or change the message API payload.
+- Suggestions support keyboard navigation with arrow keys, Enter/Tab to insert,
+  and Escape to close. Group headings and disabled rows are skipped by keyboard
+  selection.
+
 Agent instructions:
 
 ```txt
@@ -68,7 +88,7 @@ workspace opened/context refreshed -> discover applicable AGENTS.md
 -> validate path/size/secret rules -> include effective instructions in future runs
 ```
 
-PatchPilot reads root and task-relevant descendant `AGENTS.md` files. Effective instructions preserve source order, precedence, and skipped-file warnings. Files outside root, symlink escapes, secret-like paths, binaries, and oversized files are rejected. Discovery reads filesystem during context refresh/run creation; v0.3 has no DB registry/cache table for instruction sources.
+PatchPilot reads root and task-relevant descendant `AGENTS.md` files. Effective instructions preserve source order, precedence, and skipped-file warnings. Files outside root, symlink escapes, secret-like paths, binaries, and oversized files are rejected. Discovery reads filesystem during context refresh/run creation; v0.4 has no DB registry/cache table for instruction sources.
 
 Skills:
 

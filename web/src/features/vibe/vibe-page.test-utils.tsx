@@ -135,6 +135,22 @@ export const agentContext = {
   skippedSources: [],
 };
 
+export const fileIndex = {
+  entries: [
+    {
+      modifiedAt: "2026-05-20T00:00:00Z",
+      path: "docs/product-spec.md",
+      size: 128,
+    },
+    {
+      modifiedAt: "2026-05-20T00:00:00Z",
+      path: "web/src/features/vibe/components/composer.tsx",
+      size: 256,
+    },
+  ],
+  nextCursor: null,
+};
+
 export const toolCall = {
   batchId: "batch_1",
   createdAt: "2026-05-20T00:00:00Z",

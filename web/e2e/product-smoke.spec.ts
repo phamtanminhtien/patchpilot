@@ -98,7 +98,9 @@ test("covers workspace files, Git, terminal, and preview smoke flows", async ({
   await expect(
     page.getByLabel("Terminal Dev shell", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Rename terminal" }).click();
   await expect(page.getByLabel("Session title")).toHaveValue("Dev shell");
+  await page.getByRole("button", { name: "Cancel rename" }).click();
   await expect(
     page
       .getByRole("navigation", { name: "Workspace tools" })
