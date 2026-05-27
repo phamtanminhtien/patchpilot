@@ -36,14 +36,14 @@ export function ToolCallGroup({
 
   return (
     <div
-      className="grid min-w-0 py-2"
+      className="bg-surface grid min-w-0 rounded-xl px-3 py-2"
       data-state={isOpen ? "open" : "closed"}
       data-tool-call-group
     >
       <button
         aria-controls={contentId}
         aria-expanded={isOpen}
-        className="text-muted/45 hover:text-message flex min-h-6 cursor-pointer items-center gap-2 text-left transition-colors"
+        className="text-muted hover:text-message flex min-h-7 cursor-pointer items-center gap-2 text-left transition-colors"
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >
@@ -76,7 +76,7 @@ export function ToolCallGroup({
         style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="grid gap-1 pt-1 pb-0.5">{children}</div>
+          <div className="grid gap-1 pt-2 pb-0.5">{children}</div>
         </div>
       </div>
     </div>

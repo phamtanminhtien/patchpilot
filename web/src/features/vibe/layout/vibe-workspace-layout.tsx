@@ -30,11 +30,11 @@ export function VibeWorkspaceLayout({
   workspaceId: string;
 }) {
   return (
-    <main className="bg-canvas grid h-screen min-h-0 w-full overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
+    <main className="bg-canvas grid h-screen min-h-0 w-full overflow-hidden md:grid-cols-[19rem_minmax(0,1fr)]">
       {sidebar}
 
       <section className="grid min-h-0 min-w-0 grid-rows-[3.5rem_minmax(0,1fr)]">
-        <header className="border-line/30 bg-canvas flex min-w-0 items-center justify-between border-b px-4">
+        <header className="bg-panel flex min-w-0 items-center justify-between px-4">
           <div className="flex min-w-0 items-center gap-2">
             <h1 className="text-ink truncate text-sm font-semibold">{title}</h1>
           </div>
@@ -53,7 +53,7 @@ export function VibeWorkspaceLayout({
               icon={<Cpu />}
               onClick={onOpenContext}
               size="compact"
-              variant="secondary"
+              variant="surface"
             >
               Cockpit
             </Button>
@@ -61,7 +61,7 @@ export function VibeWorkspaceLayout({
               aria-label="Open workspace"
               asChild
               size="compact"
-              variant="secondary"
+              variant="surface"
             >
               <Link
                 to={`/workspace?workspaceId=${encodeURIComponent(workspaceId)}`}
@@ -76,7 +76,7 @@ export function VibeWorkspaceLayout({
         <div className="relative min-h-0 min-w-0">
           <div
             aria-label="Conversation timeline"
-            className="absolute inset-0 min-w-0 overflow-auto px-4 pt-4 pb-48 sm:pb-52"
+            className="absolute inset-0 min-w-0 overflow-auto px-4 pt-5 pb-48 sm:pb-52"
             onScroll={onScroll}
             ref={scrollContainerRef}
             role="region"
@@ -101,7 +101,7 @@ export function VibeWorkspaceLayout({
             </div>
           ) : null}
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
+          <div className="from-canvas via-canvas/95 pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-linear-to-t to-transparent px-4 pt-12 pb-4">
             <div className="pointer-events-auto mx-auto w-full max-w-3xl">
               {composer}
             </div>

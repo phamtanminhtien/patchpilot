@@ -246,7 +246,7 @@ export function Composer({
         />
         <div className="bg-composer-bar flex min-w-0 flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="hover:bg-hover text-muted inline-flex min-h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium transition">
+            <span className="bg-surface hover:bg-hover text-muted inline-flex min-h-7 min-w-0 cursor-pointer items-center gap-1.5 rounded-xl px-2 text-xs font-medium transition">
               <ShieldCheck aria-hidden="true" className="size-3.5" />
               <span className="truncate">Default permissions</span>
               <ChevronDown aria-hidden="true" className="size-3.5" />
@@ -287,7 +287,7 @@ export function Composer({
                   <ArrowUp className="size-4!" />
                 )
               }
-              className="size-8 shrink-0 rounded-md"
+              className="size-8 shrink-0 rounded-xl"
               onClick={activeRun ? onStop : undefined}
               size="icon"
               type={activeRun ? "button" : "submit"}

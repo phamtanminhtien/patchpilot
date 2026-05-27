@@ -7,7 +7,6 @@ export const modeParser = parseAsStringLiteral([
 export const panelParser = parseAsStringLiteral([
   "files",
   "git",
-  "commands",
   "preview",
 ] as const).withDefault("files");
 export const pathParser = parseAsString.withDefault("");

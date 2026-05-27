@@ -39,8 +39,8 @@ export function WorkspaceGitChangeItem({
   return (
     <div
       className={cn(
-        "group hover:bg-hover focus-within:bg-hover relative grid min-h-5.5 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 text-xs",
-        isSelected ? "bg-hover text-ink" : undefined,
+        "group hover:bg-hover focus-within:bg-hover relative grid min-h-6 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-xl px-2 text-xs",
+        isSelected ? "bg-accent-soft text-accent" : undefined,
       )}
     >
       <button
@@ -64,7 +64,7 @@ export function WorkspaceGitChangeItem({
         </span>
       </button>
 
-      <div className="bg-hover pointer-events-none absolute top-1/2 right-7 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
+      <div className="bg-surface pointer-events-none absolute top-1/2 right-7 flex -translate-y-1/2 items-center gap-0.5 rounded-xl opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
         {actionKind === "changes" ? (
           <>
             <GitChangeActionButton
@@ -131,7 +131,7 @@ function GitChangeStatusBadge({ change }: { change: GitChange }) {
     <span
       aria-hidden="true"
       className={cn(
-        "mr-1 min-w-4 shrink-0 rounded-sm px-1 text-center text-[10px] leading-4 font-semibold",
+        "mr-1 min-w-4 shrink-0 rounded-xl px-1 text-center text-[10px] leading-4 font-semibold",
         gitStatusBadgeTone(change.status),
       )}
       title={change.status}

@@ -72,13 +72,16 @@ func TestOpenCreatesSQLiteDatabaseAndEnablesForeignKeys(t *testing.T) {
 	if !store.db.Migrator().HasTable(&GitSnapshotRecord{}) {
 		t.Fatal("expected git_snapshots table to be migrated")
 	}
+	if !store.db.Migrator().HasTable(&TerminalSessionRecord{}) {
+		t.Fatal("expected terminal_sessions table to be migrated")
+	}
 
 	var version Metadata
 	if err := store.db.First(&version, "key = ?", schemaVersionKey).Error; err != nil {
 		t.Fatalf("expected schema version metadata: %v", err)
 	}
-	if version.Value != "5" {
-		t.Fatalf("expected schema version 5, got %q", version.Value)
+	if version.Value != "6" {
+		t.Fatalf("expected schema version 6, got %q", version.Value)
 	}
 }
 

@@ -8,15 +8,15 @@ interface StatusPillProps {
 export function StatusPill({ className, status }: StatusPillProps) {
   const tone =
     status === "ready" || status === "exited"
-      ? "bg-accent-soft text-accent"
+      ? "bg-success/12 text-success"
       : status === "error" || status === "failed" || status === "stopped"
-        ? "bg-panel text-warning"
-        : "bg-hover text-muted";
+        ? "bg-danger/12 text-danger"
+        : "bg-surface text-muted";
 
   return (
     <span
       className={cn(
-        "inline-flex min-h-7 max-w-full items-center rounded-md px-2 text-xs font-medium shadow-sm",
+        "inline-flex min-h-5.5 max-w-full items-center rounded-xl px-1.5 text-[11px] font-medium",
         tone,
         className,
       )}

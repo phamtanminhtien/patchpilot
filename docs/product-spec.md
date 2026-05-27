@@ -17,17 +17,18 @@ Core decisions:
 
 - Local filesystem + SQLite; multiple conversations per workspace.
 - Public model: `conversation -> message -> agent run`. Product APIs, DTOs, and DB tables use conversation/run naming; `session` is auth-only.
-- REST mutations, SSE realtime, no WebSocket.
+- REST mutations, SSE realtime, and WebSocket only for Workspace terminal sessions.
 - Admin-token login with HTTP-only session cookie.
-- Commands run as the server OS user at workspace root, without a shell.
+- Agent commands run as the server OS user at workspace root, without a shell. Workspace terminal sessions run a real shell through PTY at workspace root.
 - Agent changes happen through tool calls; mutating tools require approval.
 - Agent context may include repo `AGENTS.md`, enabled local skills, MCP tool metadata, bounded conversation context, and active-run tool history.
 - Skills are local PatchPilot-managed directories; remote install/marketplaces are outside v0.4.
 - MCP supports explicit per-workspace stdio/HTTP server configs; tools execute only through the backend bridge.
-- Workspace Mode supports files, search, diffs, small edits, command output, preview, and Git status.
+- Workspace Mode supports files, search, diffs, small edits, interactive terminal sessions, preview, and Git status.
+- Settings is a compact app-wide local/server configuration screen for appearance, agent defaults, local skills, MCP status/config, and safe runtime status.
 - Manual edits are limited to small text files under workspace root.
 - Agent commands auto-run only when exactly allowlisted below.
-- Command replay keeps latest 1 MiB per command.
+- Agent command replay keeps latest 1 MiB per command. Terminal sessions keep a bounded in-memory 1 MiB replay buffer per active session and do not persist transcripts.
 - Commits require explicit selected paths; no push.
 - Schema changes use explicit manual migrations; GORM models are persistence structs, not schema sources.
 
@@ -133,14 +134,14 @@ approval-required batch -> show approvals one at a time
 
 Patch approval verifies clean apply, applies server-side, updates Git status, and returns the result. Reject leaves files unchanged; invalid applies fail safely. MCP tools require approval unless PatchPilot policy and server/tool metadata both mark the tool read-only and safe. Approval review shows server, tool name, source, input summary, and policy reason.
 
-Commands:
+Workspace terminal:
 
 ```txt
-enter/select command -> classify -> start at workspace root
--> stream stdout/stderr -> show exit code/duration
+create/open terminal session -> start PTY shell at workspace root
+-> bridge input/output/resize over WebSocket -> close session deliberately
 ```
 
-Common user commands run immediately. Other commands are blocked until deliberately added. Commands execute without a shell and only as exact enumerated executable/argument shapes. Shell syntax, absolute executable paths, workspace escapes, interpreter snippets, and unsupported arbitrary binaries are blocked. Dangerous agent commands need approval.
+Users may create multiple terminal sessions per workspace. The Workspace UI keeps the terminal in a persistent bottom panel while users switch the primary Files, Git, and Preview panels; terminal session tabs live on the right side of the bottom panel. Each session starts in the workspace root using the server OS user and shell fallback `$SHELL`, `/bin/zsh`, `/bin/bash`, then `/bin/sh`. Terminal transcripts are not persisted; active sessions keep only the latest 1 MiB in memory for reconnect. Terminal WebSocket messages are the only bidirectional realtime channel in v0.3.
 
 Preview:
 
@@ -170,6 +171,13 @@ GET  /api/health
 POST /api/auth/login
 GET  /api/auth/session
 POST /api/auth/logout
+
+GET    /api/settings
+PATCH  /api/settings/preferences
+GET    /api/settings/fonts
+POST   /api/settings/fonts
+GET    /api/settings/fonts/:fontId/file
+DELETE /api/settings/fonts/:fontId
 
 POST   /api/workspaces
 GET    /api/workspaces
@@ -207,10 +215,11 @@ PATCH /api/workspaces/:workspaceId/mcp/servers/:serverId
 POST  /api/workspaces/:workspaceId/mcp/servers/:serverId/refresh
 GET   /api/workspaces/:workspaceId/mcp/servers/:serverId/tools
 
-POST /api/workspaces/:workspaceId/commands
-GET  /api/workspaces/:workspaceId/processes
-GET  /api/workspaces/:workspaceId/processes/:processId
-POST /api/workspaces/:workspaceId/processes/:processId/stop
+GET   /api/workspaces/:workspaceId/terminal/sessions
+POST  /api/workspaces/:workspaceId/terminal/sessions
+PATCH /api/workspaces/:workspaceId/terminal/sessions/:sessionId
+POST  /api/workspaces/:workspaceId/terminal/sessions/:sessionId/close
+GET   /api/workspaces/:workspaceId/terminal/sessions/:sessionId/socket
 
 GET  /api/workspaces/:workspaceId/git/status
 GET  /api/workspaces/:workspaceId/git/diff?path=
@@ -231,7 +240,7 @@ Pagination:
 - Larger/non-positive limits return `400 invalid_limit`; invalid cursors return `400 invalid_cursor`.
 - Cursors are opaque strings from previous responses.
 - Paginated responses keep their array field and add optional `nextCursor`.
-- Sorts: workspaces newest by `updatedAt,id`; file index by `path`; search by `path,kind,line`; conversations newest by `lastMessageAt,updatedAt,id`; skills/MCP servers/tools by `name,id`; processes newest by `createdAt,id`; ports by port number.
+- Sorts: workspaces newest by `updatedAt,id`; file index by `path`; search by `path,kind,line`; conversations newest by `lastMessageAt,updatedAt,id`; skills/MCP servers/tools by `name,id`; terminal sessions newest by `updatedAt,id`; ports by port number.
 
 Response contracts:
 
@@ -250,19 +259,21 @@ Response contracts:
 - Conversation create accepts optional `{"title":"..."}`; empty/missing title stores `New conversation`. Conversation update accepts non-empty `{"title":"..."}`. List returns `{"conversations":[],"nextCursor":"..."}` newest-first; optional `q` trims whitespace and filters title case-insensitively. Detail returns `{"conversation":{...},"messages":[],"runs":[],"toolCalls":[]}`.
 - Message create accepts `{"content":"...","model":"gpt-5.5","reasoningEffort":"medium"}`, returns `202` with user message and run, and backend run continues if client disconnects.
 - The first message in an untitled conversation triggers best-effort asynchronous title generation with `PATCHPILOT_LIGHT_MODEL`; generation failure never fails message/run creation. Successful generated title updates emit `conversation.updated` with the updated conversation object.
-- Backend shutdown finalizes active runs (`queued`, `running`, `waiting_tool_approval`) as `failed` with durable shutdown error and backend-owned queued/running commands as `stopped`.
+- Backend shutdown finalizes active runs (`queued`, `running`, `waiting_tool_approval`) as `failed` with durable shutdown error, stops active run-owned commands, and closes active terminal sessions.
 - Run cancel marks non-terminal runs `canceled`, stops active run-owned command tools, is idempotent, and returns the run. Terminal runs return current state. Missing run: `404 agent_run_not_found`.
 - Tool approve/reject accept no body and return `{"toolCall":{...}}`. Approve runs the selected pending approval-required tool; reject records rejection. Missing/non-waiting calls return `404 agent_tool_call_not_found` or `409 agent_tool_not_approvable`.
 - Agent context returns effective instruction sources, skill summaries and bodies for UI detail, MCP server/tool summaries, context-budget warnings, and refresh time. Refresh rereads instructions, enabled skills, and MCP discovery state where possible; failures use standard errors without leaking host paths.
 - Skill create accepts a local directory path. Patch accepts `{"enabled":true|false}` plus optional display metadata. Refresh reparses enabled/disabled directories. Invalid skill directories stay visible with warnings.
 - MCP server create accepts `{"name":"...","transport":"stdio|http",...}` with transport-specific config. Patch can enable/disable, update policy, or replace config. Refresh updates health/tools/resources. Tool list returns cached metadata, source server, read-only hints, and effective approval policy.
+- Settings returns safe local/server configuration status and user preferences from PatchPilot-owned config. It never returns secrets, raw env values, secret placeholders, or host paths outside safe workspace/config summaries. Preferences may update only non-secret app-owned values: theme, app/code/terminal font selections, custom OS-resolved font-family stacks, and default model/reasoning effort.
+- Font install stores uploaded `.woff2`, `.woff`, `.ttf`, or `.otf` files under PatchPilot-owned data, with metadata in `~/.patchpilot/config.json`. Font file responses are same-origin and scoped by generated `font_` ids. Upload rejects invalid names, extensions, MIME/content shape, oversized files, traversal, and duplicate unsafe filenames. Deleting a font selected by any font role returns `409 font_in_use` unless the role is reassigned first.
 - Run event stream replays durable run events after `Last-Event-ID`; without it, replays durable run events from the beginning, then continues live.
 - Git status returns `{"porcelain":"..."}` with expanded untracked files. Optional params: `ignored` boolean default `false`; `untracked` `"all"|"normal"|"no"` default `"all"`; `ignore_submodules` `"none"|"untracked"|"dirty"|"all"` default `""`; `paths` workspace-relative array.
 - Git diff returns `{"path":"...","diff":"..."}` for workspace/path; untracked diffs show without staging.
 - Git stage/unstage/discard accept explicit non-empty `{"paths":["..."]}` and return updated status; discard affects only selected unstaged paths and selected untracked paths.
 - Git commit accepts exact user `message` plus explicit non-empty `paths`, stages only those paths, commits, returns `{"hash":"..."}`, and never pushes.
-- Commands accept `{"command":"...","confirmed":false}`; safe returns `202`, risky returns `409 confirmation_required`, blocked returns `400 blocked_command`.
-- Process list returns `{"processes":[],"nextCursor":"..."}`; detail returns `{"command":{...},"output":[]}` with latest retained output; stop stops running commands and returns current state for finished commands.
+- Terminal session list returns `{"sessions":[],"nextCursor":"..."}`. Create accepts optional `{"title":"...","rows":24,"cols":80}` and returns `201 {"session":{...}}`. Patch accepts optional `title`, `rows`, and `cols` and returns the updated session. Close is idempotent and returns the current session. Unknown sessions return `404 terminal_session_not_found`.
+- Terminal WebSocket upgrades at `/socket`. Client messages are `{"type":"input","data":"..."}`, `{"type":"resize","rows":24,"cols":80}`, and `{"type":"ping"}`. Server messages are `{"type":"ready","session":{...}}`, `{"type":"output","data":"..."}`, `{"type":"closed","exitCode":0}`, and `{"type":"error","message":"..."}`.
 - Port list refreshes reachability and returns `{"ports":[],"nextCursor":"..."}`. Expose returns `{"port":{...}}` with `exposedPath` and same-origin `exposedUrl`. Closed/unreachable ports return `502 port_unreachable` and are marked closed; unknown `404 port_not_found`; invalid path value `400 invalid_port`.
 
 Primary fields:
@@ -275,8 +286,7 @@ Primary fields:
 - Skill: `id`, `workspaceId`, `name`, `description`, `directory`, `enabled`, `status`, `warning?`, `updatedAt`.
 - MCP server: `id`, `workspaceId`, `name`, `transport`, `enabled`, `status`, `approvalPolicy`, `lastError?`, timestamps.
 - MCP tool: `id`, `workspaceId`, `serverId`, `name`, `description`, `inputSchema`, `readOnlyHint?`, `approvalPolicy`, `discoveredAt`.
-- Command: `id`, `workspaceId`, `runId?`, `command`, `cwd`, `status`, `exitCode?`, `startedAt?`, `finishedAt?`, `createdAt`, `durationMs?`.
-- Command output: `id`, `commandId`, `stream(stdout|stderr)`, `chunk`, `createdAt`.
+- Terminal session: `id`, `workspaceId`, `title`, `cwd`, `status(open|closed|failed)`, `pid?`, `rows`, `cols`, `exitCode?`, timestamps.
 
 SSE envelope:
 
@@ -290,14 +300,14 @@ SSE envelope:
 }
 ```
 
-Events: `workspace.ready`, `workspace.indexing`, `conversation.created`, `conversation.updated`, `conversation.message.created`, `agent.delta`, `agent.output.snapshot`, `agent.tool.started`, `agent.tool.finished`, `agent.approval_required`, `agent.run.status_changed`, `command.output`, `process.started`, `process.exited`, `port.opened`, `port.exposed`, `git.changed`, `agent.context.refreshed`, `skill.changed`, `mcp.server.status_changed`, `mcp.tools.refreshed`.
+Events: `workspace.ready`, `workspace.indexing`, `conversation.created`, `conversation.updated`, `conversation.message.created`, `agent.delta`, `agent.output.snapshot`, `agent.tool.started`, `agent.tool.finished`, `agent.approval_required`, `agent.run.status_changed`, `terminal.session.created`, `terminal.session.updated`, `terminal.session.closed`, `port.opened`, `port.exposed`, `git.changed`, `agent.context.refreshed`, `skill.changed`, `mcp.server.status_changed`, `mcp.tools.refreshed`.
 
 - `agent.delta` carries live token/text, is transient, and is not stored. Durable recovery source: final assistant messages, run summaries, tool calls, and run status.
 - `agent.output.snapshot` is transient, in-memory, not stored, and only restores in-flight text while the same backend process owns the run.
 - `conversation.updated` is a workspace-level event with the updated conversation object as payload.
-- After backend restart, active runs do not resume; durable `failed` run state and `stopped` process state from shutdown cleanup are source of truth.
+- After backend restart, active runs and terminal sessions do not resume; durable `failed` run state and `closed` terminal session state from shutdown cleanup are source of truth.
 - Conversation responses include `hasRunningRun` derived from durable run state.
-- Workspace stream `GET /api/workspaces/:workspaceId/events` covers workspace/process/git/port events. Run stream covers run activity. Run streams replay durable events via `Last-Event-ID` and exclude transient `agent.delta`. Historical conversation state comes from conversation detail; command output from process detail.
+- Workspace stream `GET /api/workspaces/:workspaceId/events` covers workspace/terminal/git/port events. Terminal output uses its session WebSocket. Run stream covers run activity. Run streams replay durable events via `Last-Event-ID` and exclude transient `agent.delta`. Historical conversation state comes from conversation detail.
 
 ## Agent Tools And Commands
 
@@ -325,13 +335,13 @@ Agent auto-run requires exact allowlist match and no shell control operators:
 - `cargo test`, `cargo build`
 - `make test|lint|build|dev`
 
-Direct user command classification:
+Agent command classification:
 
-- Safe `202`: `git status|diff|log`; non-secret `cat <safe-relative-file>` and `sed -n '<start>,<end>p' <safe-relative-file>`; `cat`/`sed` reads under `~/.patchpilot/skills` and `~/.agents/skills`; `npm run test|lint|build|dev`; `pnpm test|lint|build|dev`; `pnpm --dir <safe-relative-dir> test|lint|build|dev`; `yarn test|lint|build|dev`; `yarn --dir <safe-relative-dir> test|lint|build|dev`; `bun test`; `bun run lint|build|dev`; `go test ./...`; `go test ./<package>`; `go build ./...`; `pytest`; `python -m pytest`; `python3 -m pytest`; `cargo test|build`; `make test|lint|build|dev`.
+- Safe auto-run: `git status|diff|log`; non-secret `cat <safe-relative-file>` and `sed -n '<start>,<end>p' <safe-relative-file>`; `cat`/`sed` reads under `~/.patchpilot/skills` and `~/.agents/skills`; `npm run test|lint|build|dev`; `pnpm test|lint|build|dev`; `pnpm --dir <safe-relative-dir> test|lint|build|dev`; `yarn test|lint|build|dev`; `yarn --dir <safe-relative-dir> test|lint|build|dev`; `bun test`; `bun run lint|build|dev`; `go test ./...`; `go test ./<package>`; `go build ./...`; `pytest`; `python -m pytest`; `python3 -m pytest`; `cargo test|build`; `make test|lint|build|dev`.
 - Risky: syntactically valid but outside allowlist, including secret-like file reads and non-skill outside-workspace file reads; returns `409 confirmation_required` unless `confirmed:true`.
 - Blocked `400 blocked_command`: shell control/expansion (`&&`, `||`, `;`, `|`, `>`, `<`, backticks, `$(`, newlines), workspace escapes, globs, broad directory reads, unsupported `cat`/`sed` flags, `sudo`, `su`, forced recursive `rm`, `git clean`, `git reset --hard`, `chmod -R`, `chown -R`.
 
-Execution always parses arguments without a shell, runs at workspace root, and rejects traversal/shell operators. `confirmation_required` and `blocked_command` include `details.decision` with `level`, `reason`, and parsed `parts`.
+Agent command execution always parses arguments without a shell, runs at workspace root, and rejects traversal/shell operators. `confirmation_required` and `blocked_command` include `details.decision` with `level`, `reason`, and parsed `parts`.
 
 ## Data Model
 
@@ -379,8 +389,9 @@ Active tables:
 - `agent_run_events`: `id`, `workspace_id`, `run_id`, `type`, `payload_json`, `created_at`.
 - `agent_tool_calls`: `id`, `workspace_id`, `run_id`, `batch_id`, `sequence`, `name`, `source`, `source_ref?`, `input_json`, `output_json`, `status`, `requires_approval`, `decision?`, timestamps.
 - Optional skill/MCP cache tables may store metadata, health, and discovery results for efficiency; `~/.patchpilot/config.json` plus filesystem skill discovery remain source of truth.
-- `commands`: `id`, `workspace_id`, `run_id?`, `command`, `cwd`, `status`, `exit_code?`, `started_at?`, `finished_at?`, `created_at`.
-- `command_output`: `id`, `command_id`, `stream(stdout|stderr)`, `chunk`, `created_at`.
+- `terminal_sessions`: `id`, `workspace_id`, `title`, `cwd`, `status`, `pid?`, `rows`, `cols`, `exit_code?`, timestamps.
+- PatchPilot-owned user config (`~/.patchpilot/config.json`): local skill enablement, MCP server config, settings preferences, and installed font metadata. Installed font binaries live under `~/.patchpilot/fonts`; source files are not copied into repositories.
+- Legacy `commands` and `command_output` tables may remain on upgraded installs for old workspace command history, but v0.3 Workspace APIs no longer create or expose them.
 - `ports`: `id`, `workspace_id`, `process_id?`, `port`, `status(detected|exposed|closed)`, `exposed_path?`, timestamps.
 - `git_snapshots`: `id`, `workspace_id`, `commit_sha?`, `status_json`, `created_at`.
 
@@ -389,14 +400,12 @@ Statuses:
 ```txt
 agent:   queued -> running -> waiting_tool_approval -> running -> done
 agent:   queued -> running -> done|failed|canceled
-command: queued -> running -> exited|stopped
-command: queued -> failed
-command: running -> failed
+terminal: open -> closed|failed
 ```
 
 ## Frontend Structure
 
-Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestration, `layout` for shell regions, `components` for Vibe-only UI, and `lib` for pure helpers. Vibe owns context, instructions, skills, MCP, approvals, and run details. Workspace Mode stays a compact support console for files, Git, commands, and preview.
+Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestration, `layout` for shell regions, `components` for Vibe-only UI, and `lib` for pure helpers. Vibe owns context, instructions, skills, MCP, approvals, and run details. Workspace Mode stays a compact support console for files, Git, terminal sessions, and preview. Settings UI lives under `web/src/features/settings`. Appearance preferences are applied through app-level providers and CSS variables: app font maps to the global sans role, code font maps to code/diff/file monospace surfaces, and terminal font is read by xterm session creation.
 
 ## Acceptance
 
@@ -413,15 +422,16 @@ Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestrat
 - Agent starts non-trivial work with a short plan, reads/searches approved files before changes, returns messages/tool calls rather than direct mutations, produces small reviewable patches, reports changed files, and runs/recommends narrow verification.
 - Users approve/reject approval-required tools; server executes only approved mutating tools.
 - MCP tools execute only through the backend bridge and share durable tool-call/event/approval flow with built-ins.
-- Users see streamed command output and exit status, view Git status/diff, commit explicit non-empty selected paths, and preview through same-host proxy.
+- Users create, switch, resize, rename, and close Workspace terminal sessions from the persistent bottom terminal panel, view Git status/diff, commit explicit non-empty selected paths, and preview through same-host proxy.
+- Users open Settings from the shared top bar, update theme and app/code/terminal font preferences, enter custom OS-resolved font-family fallback stacks, install local font files, and see live font previews without network font loading. Verification: settings API tests, frontend settings tests, and browser smoke at mobile/desktop widths.
 - Mobile/iPad users complete a Vibe Mode chat-driven AI coding loop and inspect the agent cockpit through tabs/sheets without losing primary flow.
 - Auth/session expiry: expired/missing/invalid cookies return `401 unauthorized`; valid logout clears cookie. Verification: backend auth/API handler tests.
 - Indexing failure: workspace create/get/index refresh return standard error envelope without host-path leakage and do not send stale successful index responses. Verification: backend API handler tests.
 - SSE replay: run streams replay durable events after `Last-Event-ID`, exclude transient `agent.delta`, and emit in-memory `agent.output.snapshot` only for active local runs. Verification: backend SSE handler tests.
-- Command truncation: persistence keeps only latest 1 MiB per command; process detail replays retained output only. Verification: DB command-output and API process-detail tests.
+- Terminal replay: active sessions keep only the latest 1 MiB in memory; transcripts are not persisted and closed sessions do not replay output. Verification: terminal service and WebSocket API tests.
 - Closed ports: unreachable exposed/detected ports become `closed`, emit `port.closed`, and expose/proxy returns `502 port_unreachable`. Verification: backend port/API handler tests.
 - Patch conflict: failed apply marks tool call failed, leaves files unchanged, records actionable error, and keeps run recoverable without executing later approval-required tools in that batch. Verification: backend agent/tool approval tests.
-- Invalid paths: file, Git, command, and agent tool paths reject traversal and symlink escapes with standard errors and no host-path leakage except explicit approved outside-workspace read commands. Verification: filestore, gitrepo, runner, agent, API tests.
+- Invalid paths: file, Git, terminal, and agent tool paths reject traversal and symlink escapes with standard errors and no host-path leakage except explicit approved outside-workspace read commands. Verification: filestore, gitrepo, terminal, runner, agent, API tests.
 - Secret protection: agent reads of secret-like paths require approval; manual writes reject `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `.npmrc`, `.pypirc`, `.netrc`. Verification: runner, agent, filestore, API tests.
 - Instruction context safety: `AGENTS.md` discovery rejects escapes, external symlinks, secret-like paths, binaries, oversized files, and shows safe warnings. Verification: agent context and API handler tests.
 - Skill manager safety: parser validates YAML-frontmatter `SKILL.md`, preserves invalid-skill warnings, respects config enablement, applies `~/.patchpilot/skills` duplicate precedence, rejects duplicate enabled names after precedence, and injects skill bodies only through `cat`/`sed` command output. Verification: skill repository/parser and agent context tests.

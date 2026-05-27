@@ -136,7 +136,7 @@ export function VibePage() {
       />
       <DialogRoot onOpenChange={setIsContextOpen} open={isContextOpen}>
         <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-h-[min(42rem,calc(100vh-2rem))] sm:max-w-2xl">
-          <DialogHeader className="border-line/30 border-b px-5 py-4">
+          <DialogHeader className="px-5 py-4">
             <DialogTitle>Agent context</DialogTitle>
             <DialogDescription>
               {controller.context.data
@@ -155,7 +155,7 @@ export function VibePage() {
               }
             />
           </div>
-          <DialogFooter className="border-line/30 border-t px-5 py-3">
+          <DialogFooter className="px-5 py-3">
             <Button
               disabled={controller.context.isRefreshing}
               icon={

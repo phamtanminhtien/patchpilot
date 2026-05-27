@@ -43,14 +43,20 @@ export function VibeConversationSidebar({
   ];
 
   return (
-    <aside className="bg-panel hidden min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-5 py-4 md:grid">
-      <div className=""></div>
-
-      <nav className="grid gap-1 px-1.5" aria-label="Vibe navigation">
+    <aside className="bg-panel hidden min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] md:grid">
+      <nav className="grid gap-1 p-2" aria-label="Vibe navigation">
+        <div className="px-2 py-2">
+          <p className="text-muted text-xs font-semibold tracking-wide uppercase">
+            Vibe
+          </p>
+          <h2 className="text-ink truncate text-sm font-semibold">
+            Conversations
+          </h2>
+        </div>
         {navItems.map((item) => (
           <button
             className={cn(
-              "text-muted hover:bg-hover hover:text-ink flex min-h-9 min-w-0 cursor-pointer items-center gap-2 rounded-full px-3 text-left text-sm transition",
+              "text-muted hover:bg-hover hover:text-ink flex min-h-9 min-w-0 cursor-pointer items-center gap-2 rounded-xl px-2.5 text-left text-sm transition",
               "disabled:hover:text-muted disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-none disabled:hover:bg-transparent",
             )}
             key={item.label}
@@ -65,10 +71,10 @@ export function VibeConversationSidebar({
         ))}
       </nav>
 
-      <div className="grid min-h-0 gap-4 overflow-hidden">
+      <div className="grid min-h-0 gap-4 overflow-hidden py-2">
         <div
           aria-label="Agent conversations"
-          className="min-h-0 min-w-0 overflow-auto px-1.5"
+          className="min-h-0 min-w-0 overflow-auto px-2"
           role="region"
         >
           {conversations.length === 0 ? (
@@ -84,7 +90,7 @@ export function VibeConversationSidebar({
                       ? "page"
                       : undefined
                   }
-                  className="hover:bg-hover aria-[current=page]:bg-hover flex min-h-10 min-w-0 cursor-pointer items-center gap-2 rounded-full px-3 py-2 text-left transition"
+                  className="hover:bg-hover aria-[current=page]:bg-accent-soft aria-[current=page]:text-accent flex min-h-10 min-w-0 cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 text-left transition"
                   key={conversation.id}
                   onClick={() => onSelectConversation(conversation.id)}
                   type="button"
@@ -92,7 +98,7 @@ export function VibeConversationSidebar({
                   <span className="text-ink min-w-0 flex-1 truncate text-sm">
                     {conversation.title}
                   </span>
-                  <span className="text-muted flex w-8 shrink-0 justify-end text-xs">
+                  <span className="text-muted flex w-10 shrink-0 justify-end text-xs">
                     {conversation.hasRunningRun ? (
                       <Loader2
                         aria-label="Conversation run in progress"
@@ -109,8 +115,8 @@ export function VibeConversationSidebar({
         </div>
       </div>
 
-      <div className="grid gap-2 px-1.5">
-        <Button asChild size="compact" variant="ghost" width="full">
+      <div className="grid gap-2 p-2">
+        <Button asChild size="compact" variant="surface" width="full">
           <Link
             to={`/workspace?workspaceId=${encodeURIComponent(workspaceId)}`}
           >

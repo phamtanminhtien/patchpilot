@@ -4,7 +4,7 @@ import { cn } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const surfaceVariant = createVariant({
-  base: "bg-panel shadow-sm",
+  base: "bg-panel",
   variants: {
     layout: {
       block: "",
@@ -16,8 +16,8 @@ const surfaceVariant = createVariant({
       none: "p-0",
     },
     radius: {
-      default: "rounded-lg",
-      md: "rounded-md",
+      default: "rounded-xl",
+      md: "rounded-xl",
     },
   },
   defaultVariants: {

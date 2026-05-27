@@ -12,7 +12,7 @@ Locked engineering contract. Precedence: this file > `docs/product-spec.md` > `d
 
 - Self-hosted, single-user, mobile-first AI coding workspace.
 - Active direction: Vibe Mode conversations + agent-run tool loop with managed agent context/runtime.
-- Workspace Mode only supports files, search, diffs, small edits, command output, preview, and Git status.
+- Workspace Mode only supports files, search, diffs, small edits, interactive terminal sessions, preview, and Git status.
 - Do not build VS Code parity.
 - Agents return assistant text and tool calls; mutating tools and risky commands require explicit user approval.
 - Server executes approved mutating tools only after every approval-required tool in the current batch has a decision.
@@ -22,20 +22,20 @@ Locked engineering contract. Precedence: this file > `docs/product-spec.md` > `d
 
 Backend:
 
-- Go 1.26.x, `net/http`, `http.ServeMux`, REST mutations, SSE realtime.
+- Go 1.26.x, `net/http`, `http.ServeMux`, REST mutations, SSE realtime, and WebSocket only for Workspace terminal sessions.
 - SQLite via GORM 1.x with `github.com/glebarez/sqlite` / pure-Go `modernc.org/sqlite`; product schema changes use explicit manual migrations, never GORM `AutoMigrate`.
 - Logging via `go.uber.org/zap`; default local console logs colorize level/time/caller; `PATCHPILOT_LOG_FORMAT=json` enables JSON.
-- Git only through `internal/gitrepo`; process execution only through `internal/runner`.
+- Git only through `internal/gitrepo`; agent command execution only through `internal/runner`; Workspace terminal processes only through `internal/terminal`.
 - MCP execution only through backend-managed stdio or explicitly configured HTTP clients; agents/frontend never call MCP servers directly.
 - One Go binary serves API and embedded frontend.
-- No Go web framework, GraphQL, gRPC, WebSocket, non-GORM ORM, or CGO-only default dependency for the active product.
+- No Go web framework, GraphQL, gRPC, non-terminal WebSocket, non-GORM ORM, or CGO-only default dependency for the active product.
 
 Frontend:
 
 - Node.js 24.x LTS, pnpm 10.x, TypeScript 5.x, React 19.x, Vite 8.x.
-- React Router 7.x, TanStack Query 5.x, Axios 1.x, nuqs 2.x, Zustand 5.x, Radix UI primitives, CodeMirror 6, `lucide-react`, `react-markdown`, `react-syntax-highlighter`, `remark-gfm`.
+- React Router 7.x, TanStack Query 5.x, Axios 1.x, nuqs 2.x, Zustand 5.x, Radix UI primitives, CodeMirror 6, xterm.js for Workspace terminal only, `lucide-react`, `react-markdown`, `react-syntax-highlighter`, `remark-gfm`.
 - Tailwind CSS 4.x via `@tailwindcss/vite`; Vitest, React Testing Library, Playwright.
-- No competing app framework, state store other than Zustand, non-Radix UI framework, CSS Modules, xterm.js, WebSocket, direct frontend API `fetch`, or generated SVG primary UI.
+- No competing app framework, state store other than Zustand, non-Radix UI framework, CSS Modules, non-terminal xterm.js/WebSocket, direct frontend API `fetch`, or generated SVG primary UI.
 
 Runtime:
 
@@ -59,7 +59,8 @@ internal/agent/        conversation agent runs and tool execution
 internal/skills/       local skill registry, indexing, context selection
 internal/mcp/          MCP registry, discovery, backend tool bridge
 internal/gitrepo/      only package that may execute Git
-internal/runner/       only package that may execute workspace processes
+internal/runner/       agent command runner only
+internal/terminal/     Workspace PTY terminal sessions and WebSocket bridge
 internal/ports/        port detection and same-host proxy
 web/src/app/           app shell, providers, cross-route context
 web/src/features/vibe/ Vibe Mode screens and flows
@@ -77,19 +78,19 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 ## API And SSE
 
 - Routes use `/api`; workspace resources use `/api/workspaces/:workspaceId`.
-- JSON bodies except SSE and preview proxy traffic.
+- JSON bodies except SSE, terminal WebSocket, and preview proxy traffic.
 - Reads use `GET`; mutations use `POST`/`PUT`/`DELETE`.
 - Lists are newest-first unless naturally tree-ordered; lists over 100 records support `limit`/`cursor`, max `limit=100`.
 - REST error shape: `{ "error": { "code": "snake_case", "message": "...", "details": {} } }`.
 - UI errors must not expose stack traces, secrets, raw env, or host paths outside workspace root.
-- ID prefixes: `ws_`, `auth_`, `sess_`, `conv_`, `msg_`, `run_`, `evt_`, `cmd_`, `port_`, `skill_`, `mcp_`.
+- ID prefixes: `ws_`, `auth_`, `sess_`, `term_`, `conv_`, `msg_`, `run_`, `evt_`, `cmd_`, `port_`, `skill_`, `mcp_`.
 - API and SQLite timestamps are UTC; API uses RFC3339.
 - Frontend APIs use the shared Axios client at `web/src/shared/api/client.ts` with `baseURL: "/api"` and `withCredentials: true`.
 - Features call typed APIs from `web/src/shared/api`; DTOs/errors live there and preserve backend error fields.
 - Do not use raw `fetch` for PatchPilot APIs.
 - SSE endpoint: `GET /api/workspaces/:workspaceId/events`; server-to-client only, no mutations.
 - Every SSE event has ID and the `docs/product-spec.md` envelope.
-- SSE replays `Last-Event-ID` for stored conversation/run events and latest 1 MiB command output.
+- SSE replays `Last-Event-ID` for stored conversation/run events; active terminal WebSockets replay only their bounded in-memory session buffer.
 - Non-replayable transient events need durable follow-up state events.
 
 ## Data And Security
@@ -98,7 +99,7 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 - App-owned runtime/state may live under `~/.patchpilot`; workspace source files must not be copied there.
 - Manual migrations run before API traffic and enable foreign keys; multi-table writes use transactions.
 - JSON columns only for event payloads, snapshots, and unindexed metadata; query-critical fields are columns.
-- No plaintext secrets. Agent prompts, events, command lines/output are user data.
+- No plaintext secrets. Agent prompts, events, terminal input/output, and agent command lines/output are user data.
 - Local skill and MCP runtime config lives in `~/.patchpilot/config.json`; Skills/MCP list APIs derive from config plus filesystem skill discovery, not DB registry rows.
 - Auth: admin token -> `POST /api/auth/login` -> HTTP-only session cookie; all other APIs require a valid cookie.
 - Cookies: `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS; session tokens are hashed in SQLite.
@@ -112,7 +113,7 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 - User commands run only after direct submission.
 - Agent commands auto-run only if allowed by `docs/product-spec.md` and free of shell control operators.
 - Patch tools always require approval. Non-allowlisted agent commands require approval.
-- Commands run at workspace root, without elevation, with output capped to latest 1 MiB.
+- Agent commands run at workspace root, without elevation, with output capped to latest 1 MiB. Workspace terminal sessions run a real shell at workspace root through PTY without transcript persistence.
 - MCP HTTP servers require explicit config; no public discovery, marketplace sync, or automatic network scanning.
 - MCP env placeholder values must not be persisted, logged, emitted in events, or sent to agent context.
 - Unknown or mutating MCP tools require approval; read-only MCP tools may auto-run only when server/tool metadata and PatchPilot policy both mark them safe.
@@ -141,7 +142,7 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 - Install React Router 7 nuqs adapter at route root from `nuqs/adapters/react-router/v7`.
 - Deep-linkable workspace/mode/conversation/run/file/tool/port/tab selections live in URL state.
 - Shared query parsers live in `web/src/shared/url`; features do not define ad hoc parsers.
-- Do not duplicate server state into Zustand or keep command output in React state/Zustand beyond visible buffer.
+- Do not duplicate server state into Zustand or keep command/terminal output in React state/Zustand beyond visible buffer.
 - Current approved Git scope: status, diff, stage, unstage, discard, commit.
 - Commits require non-empty selected paths, never push or auto-stage unrelated files, show untracked files, and use the exact user message.
 - Push/pull/branch/merge/rebase are outside active scope.
@@ -150,9 +151,9 @@ web/src/shared/        shared api, events, ui, styles, url, utils
 Coverage when area exists:
 
 - Go unit: domain logic.
-- Go integration: manual migrations, repositories, Git adapter, runner, API handlers.
+- Go integration: manual migrations, repositories, Git adapter, runner, terminal, API handlers.
 - Frontend unit: pure utilities/reducers.
-- Frontend component: Vibe lifecycle, tool approval, command output, Git status.
+- Frontend component: Vibe lifecycle, tool approval, terminal surface, Git status.
 - Playwright: critical mobile AI loop once frontend shell exists.
 
 Canonical commands:
@@ -168,7 +169,7 @@ pnpm --dir web lint
 pnpm --dir web exec playwright test
 ```
 
-Verify by change: backend `go test ./...`; frontend `pnpm --dir web test` + `pnpm --dir web build`; UI browser/Playwright; API handler tests; data schema/repository tests; runner stdout/stderr/exit/cancel/truncation tests; port proxy route/workspace tests. If scaffolding is absent, say so.
+Verify by change: backend `go test ./...`; frontend `pnpm --dir web test` + `pnpm --dir web build`; UI browser/Playwright; API handler tests; data schema/repository tests; runner stdout/stderr/exit/cancel/truncation tests; terminal session/WebSocket tests; port proxy route/workspace tests. If scaffolding is absent, say so.
 
 ## Docs, Dependencies, Agent Rules
 
@@ -196,4 +197,4 @@ Agents must not add disallowed deps, broaden active product scope, implement out
 
 ## Out Of Scope
 
-Full IDE, terminal emulator, WebSocket, unbounded plugin execution, Docker-required runtime, public tunnels, multi-user/team/RBAC, hosted SaaS, billing, push/pull/branch/merge/rebase, LSP, inline diagnostics, multi-tab editor, marketplace integrations, skill marketplace/install from remote sources, MCP public discovery.
+Full IDE, non-terminal WebSocket, unbounded plugin execution, Docker-required runtime, public tunnels, multi-user/team/RBAC, hosted SaaS, billing, push/pull/branch/merge/rebase, LSP, inline diagnostics, multi-tab editor, marketplace integrations, skill marketplace/install from remote sources, MCP public discovery.

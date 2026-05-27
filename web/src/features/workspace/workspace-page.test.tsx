@@ -14,25 +14,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "@/app/theme";
 import {
+  closeTerminalSession,
   commitGitChanges,
+  createTerminalSession,
   createWorkspace,
   discardGitChanges,
   exposePort,
   getGitDiff,
   getGitStatus,
   getHealth,
-  getProcess,
   getWorkspace,
   listFileIndex,
   listPorts,
-  listProcesses,
+  listTerminalSessions,
   listWorkspaces,
-  queueCommand,
+  patchTerminalSession,
   readFile,
   refreshFileIndex,
   searchFiles,
   stageGitFiles,
-  stopProcess,
+  type TerminalSession,
   unstageGitFiles,
   writeFile,
 } from "@/shared/api";
@@ -47,27 +48,47 @@ vi.mock("@/shared/api", () => ({
       ?.data?.error?.code,
   apiErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : "Request failed",
+  closeTerminalSession: vi.fn(),
   commitGitChanges: vi.fn(),
+  createTerminalSession: vi.fn(),
   createWorkspace: vi.fn(),
   discardGitChanges: vi.fn(),
   exposePort: vi.fn(),
   getHealth: vi.fn(),
-  getProcess: vi.fn(),
   getGitDiff: vi.fn(),
   getGitStatus: vi.fn(),
   getWorkspace: vi.fn(),
   listFileIndex: vi.fn(),
   listPorts: vi.fn(),
-  listProcesses: vi.fn(),
+  listTerminalSessions: vi.fn(),
   listWorkspaces: vi.fn(),
-  queueCommand: vi.fn(),
+  patchTerminalSession: vi.fn(),
   readFile: vi.fn(),
   refreshFileIndex: vi.fn(),
   searchFiles: vi.fn(),
   stageGitFiles: vi.fn(),
-  stopProcess: vi.fn(),
+  terminalSocketUrl: vi.fn(() => "ws://localhost/terminal"),
   unstageGitFiles: vi.fn(),
   writeFile: vi.fn(),
+}));
+
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: class {
+    fit = vi.fn();
+  },
+}));
+
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class {
+    cols = 80;
+    rows = 24;
+    dispose = vi.fn();
+    loadAddon = vi.fn();
+    onData = vi.fn(() => ({ dispose: vi.fn() }));
+    open = vi.fn();
+    write = vi.fn();
+    writeln = vi.fn();
+  },
 }));
 
 vi.mock("nuqs", async () => {
@@ -111,9 +132,42 @@ const workspace = {
   updatedAt: "2026-05-20T00:00:00Z",
 };
 
+function terminalSession(
+  overrides: Partial<TerminalSession> = {},
+): TerminalSession {
+  return {
+    closedAt: null,
+    cols: 80,
+    createdAt: "2026-05-20T00:00:00Z",
+    cwd: "/workspace/patchpilot",
+    exitCode: null,
+    id: "term_1",
+    pid: 123,
+    rows: 24,
+    status: "open" as const,
+    title: "Terminal",
+    updatedAt: "2026-05-20T00:00:00Z",
+    workspaceId: "ws_1",
+    ...overrides,
+  };
+}
+
 describe("WorkspacePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    class MockResizeObserver {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    }
+    class MockWebSocket extends EventTarget {
+      static OPEN = 1;
+      readyState = MockWebSocket.OPEN;
+      close = vi.fn();
+      send = vi.fn();
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    vi.stubGlobal("WebSocket", MockWebSocket);
 
     vi.mocked(createWorkspace).mockResolvedValue(workspace);
     vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
@@ -191,21 +245,8 @@ describe("WorkspacePage", () => {
     vi.mocked(commitGitChanges).mockResolvedValue({
       hash: "1234567890abcdef",
     });
-    vi.mocked(listProcesses).mockResolvedValue({
-      processes: [
-        {
-          command: "pnpm --dir web test",
-          createdAt: "2026-05-20T00:00:00Z",
-          cwd: "/workspace/patchpilot",
-          durationMs: 1200,
-          exitCode: 0,
-          finishedAt: "2026-05-20T00:00:02Z",
-          id: "cmd_1",
-          startedAt: "2026-05-20T00:00:00Z",
-          status: "exited",
-          workspaceId: "ws_1",
-        },
-      ],
+    vi.mocked(listTerminalSessions).mockResolvedValue({
+      sessions: [terminalSession({ id: "term_1", title: "Dev shell" })],
     });
     vi.mocked(listPorts).mockResolvedValue({
       ports: [
@@ -216,7 +257,7 @@ describe("WorkspacePage", () => {
           exposedUrl: null,
           id: "port_5173",
           port: 5173,
-          processId: "cmd_1",
+          processId: "term_1",
           status: "detected",
           updatedAt: "2026-05-20T00:00:00Z",
           workspaceId: "ws_1",
@@ -228,7 +269,7 @@ describe("WorkspacePage", () => {
           exposedUrl: "/workspaces/ws_1/ports/8080/proxy/",
           id: "port_8080",
           port: 8080,
-          processId: "cmd_1",
+          processId: "term_1",
           status: "exposed",
           updatedAt: "2026-05-20T00:00:00Z",
           workspaceId: "ws_1",
@@ -242,58 +283,20 @@ describe("WorkspacePage", () => {
       exposedUrl: "/workspaces/ws_1/ports/5173/proxy/",
       id: "port_5173",
       port: 5173,
-      processId: "cmd_1",
+      processId: "term_1",
       status: "exposed",
       updatedAt: "2026-05-20T00:00:01Z",
       workspaceId: "ws_1",
     });
-    vi.mocked(getProcess).mockResolvedValue({
-      command: {
-        command: "pnpm --dir web test",
-        createdAt: "2026-05-20T00:00:00Z",
-        cwd: "/workspace/patchpilot",
-        durationMs: 1200,
-        exitCode: 0,
-        finishedAt: "2026-05-20T00:00:02Z",
-        id: "cmd_1",
-        startedAt: "2026-05-20T00:00:00Z",
-        status: "exited",
-        workspaceId: "ws_1",
-      },
-      output: [
-        {
-          chunk: "tests passed\n",
-          commandId: "cmd_1",
-          createdAt: "2026-05-20T00:00:01Z",
-          id: "out_1",
-          stream: "stdout",
-        },
-      ],
-    });
-    vi.mocked(stopProcess).mockResolvedValue({
-      command: "pnpm --dir web dev",
-      createdAt: "2026-05-20T00:00:00Z",
-      cwd: "/workspace/patchpilot",
-      durationMs: 500,
-      exitCode: null,
-      finishedAt: "2026-05-20T00:00:01Z",
-      id: "cmd_2",
-      startedAt: "2026-05-20T00:00:00Z",
-      status: "stopped",
-      workspaceId: "ws_1",
-    });
-    vi.mocked(queueCommand).mockResolvedValue({
-      command: "pnpm --dir web test",
-      createdAt: "2026-05-20T00:00:00Z",
-      cwd: "/workspace/patchpilot",
-      durationMs: null,
-      exitCode: null,
-      finishedAt: null,
-      id: "cmd_1",
-      status: "queued",
-      startedAt: null,
-      workspaceId: "ws_1",
-    });
+    vi.mocked(createTerminalSession).mockResolvedValue(
+      terminalSession({ id: "term_2", title: "Terminal" }),
+    );
+    vi.mocked(patchTerminalSession).mockResolvedValue(
+      terminalSession({ id: "term_1", title: "Renamed shell" }),
+    );
+    vi.mocked(closeTerminalSession).mockResolvedValue(
+      terminalSession({ id: "term_1", status: "closed" }),
+    );
   });
 
   it("renders the workspace shell and reads a selected file", async () => {
@@ -667,69 +670,52 @@ describe("WorkspacePage", () => {
     ).toBeInTheDocument();
   });
 
-  it("runs a submitted command and shows output replay", async () => {
+  it("creates, renames, and closes terminal sessions", async () => {
     const user = userEvent.setup();
-    renderWorkspace("/workspace?workspaceId=ws_1&panel=commands");
+    vi.mocked(patchTerminalSession).mockResolvedValueOnce(
+      terminalSession({ id: "term_2", title: "Renamed shell" }),
+    );
+    vi.mocked(closeTerminalSession).mockResolvedValueOnce(
+      terminalSession({
+        closedAt: "2026-05-20T00:00:01Z",
+        id: "term_2",
+        status: "closed",
+        title: "Renamed shell",
+      }),
+    );
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
 
-    await user.type(screen.getByLabelText("Command"), "pnpm --dir web test");
-    await user.click(screen.getByRole("button", { name: "Run" }));
-
+    expect(await screen.findByText("Dev shell")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(screen.getByRole("button", { name: "New terminal" }));
     await waitFor(() => {
-      expect(queueCommand).toHaveBeenCalledWith(
-        "ws_1",
-        "pnpm --dir web test",
-        false,
-      );
+      expect(createTerminalSession).toHaveBeenCalledWith("ws_1");
     });
-    expect(await screen.findByText("tests passed")).toBeInTheDocument();
-    expect(screen.getAllByText(/cmd_1/).length).toBeGreaterThan(0);
-  });
 
-  it("confirms risky commands before running", async () => {
-    const user = userEvent.setup();
-    vi.mocked(queueCommand)
-      .mockRejectedValueOnce(
-        Object.assign(new Error("Command requires confirmation"), {
-          response: {
-            data: {
-              error: {
-                code: "confirmation_required",
-                details: {},
-                message: "Command requires confirmation",
-              },
-            },
-          },
-        }),
-      )
-      .mockResolvedValueOnce({
-        command: "node scripts/check.js",
-        createdAt: "2026-05-20T00:00:00Z",
-        cwd: "/workspace/patchpilot",
-        durationMs: null,
-        exitCode: null,
-        finishedAt: null,
-        id: "cmd_3",
-        startedAt: null,
-        status: "queued",
-        workspaceId: "ws_1",
+    await user.click(screen.getByRole("button", { name: "Rename terminal" }));
+    expect(screen.getByLabelText("Session title")).toHaveValue("Terminal");
+
+    fireEvent.change(screen.getByLabelText("Session title"), {
+      target: { value: "Renamed shell" },
+    });
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    await waitFor(() => {
+      expect(patchTerminalSession).toHaveBeenCalledWith("ws_1", "term_2", {
+        title: "Renamed shell",
       });
-    renderWorkspace("/workspace?workspaceId=ws_1&panel=commands");
-
-    await user.type(screen.getByLabelText("Command"), "node scripts/check.js");
-    await user.click(screen.getByRole("button", { name: "Run" }));
-
-    expect(
-      await screen.findByText("Confirm risky command"),
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Run anyway" }));
-
-    await waitFor(() => {
-      expect(queueCommand).toHaveBeenLastCalledWith(
-        "ws_1",
-        "node scripts/check.js",
-        true,
-      );
     });
+
+    await user.click(screen.getByRole("button", { name: "Close terminal" }));
+    await waitFor(() => {
+      expect(closeTerminalSession).toHaveBeenCalledWith("ws_1", "term_2");
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Renamed shell")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Dev shell")).toBeInTheDocument();
   });
 
   it("shows preview ports and exposes detected ports from the main panel", async () => {

@@ -25,7 +25,7 @@ export function ThemeSwitcher({
     <div
       aria-label="Theme"
       className={cn(
-        "bg-panel inline-grid grid-cols-3 rounded-md p-0.5 shadow-sm",
+        "bg-surface inline-grid grid-cols-3 rounded-xl p-0.5",
         className,
       )}
       role="group"
@@ -34,10 +34,8 @@ export function ThemeSwitcher({
         <button
           aria-pressed={value === option.value}
           className={cn(
-            "text-muted hover:bg-hover hover:text-ink inline-flex min-h-7 min-w-7 cursor-pointer items-center justify-center rounded-sm px-1.5 transition",
-            value === option.value
-              ? "bg-accent-soft text-accent shadow-sm"
-              : undefined,
+            "text-muted hover:bg-hover hover:text-ink inline-flex min-h-7 min-w-7 cursor-pointer items-center justify-center rounded-xl px-1.5 transition",
+            value === option.value ? "bg-accent-soft text-accent" : undefined,
           )}
           key={option.value}
           onClick={() => onChange(option.value)}

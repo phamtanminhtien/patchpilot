@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/phamtanminhtien/patchpilot/internal/agent"
@@ -16,22 +17,32 @@ import (
 	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
 	"github.com/phamtanminhtien/patchpilot/internal/ports"
 	"github.com/phamtanminhtien/patchpilot/internal/runner"
+	terminalsvc "github.com/phamtanminhtien/patchpilot/internal/terminal"
 	"github.com/phamtanminhtien/patchpilot/internal/workspace"
 )
 
 type Server struct {
-	workspaces  *workspace.Manager
-	files       *filestore.Service
-	git         *gitrepo.Client
-	runner      *runner.Runner
-	store       *database.Store
-	events      *events.Hub
-	agent       *agent.Manager
-	auth        *auth.Service
-	health      HealthChecker
-	ports       ports.ListenerScanner
-	backendAddr string
-	lightModel  string
+	workspaces       *workspace.Manager
+	files            *filestore.Service
+	git              *gitrepo.Client
+	runner           *runner.Runner
+	terminal         *terminalsvc.Manager
+	store            *database.Store
+	events           *events.Hub
+	agent            *agent.Manager
+	auth             *auth.Service
+	health           HealthChecker
+	ports            ports.ListenerScanner
+	backendAddr      string
+	lightModel       string
+	settingsHome     string
+	providerReady    bool
+	openAIBaseURL    string
+	allowedRootCount int
+	logFormat        string
+	staticDirReady   bool
+	terminalScansMu  sync.Mutex
+	terminalScans    map[string]context.CancelFunc
 }
 
 const (
@@ -52,7 +63,9 @@ func NewServerWithAuth(workspaces *workspace.Manager, files *filestore.Service, 
 	if hub == nil {
 		hub = events.NewHub()
 	}
-	return &Server{workspaces: workspaces, files: files, git: git, runner: runner, store: store, events: hub, agent: agentManager, auth: authService, health: health, ports: ports.NewListenerScanner()}
+	s := &Server{workspaces: workspaces, files: files, git: git, runner: runner, store: store, events: hub, agent: agentManager, auth: authService, health: health, ports: ports.NewListenerScanner(), terminalScans: map[string]context.CancelFunc{}}
+	s.terminal = terminalsvc.NewManager(store, s.onTerminalClosed)
+	return s
 }
 
 func (s *Server) SetBackendAddr(addr string) {
@@ -63,9 +76,26 @@ func (s *Server) SetLightModel(model string) {
 	s.lightModel = strings.TrimSpace(model)
 }
 
+func (s *Server) SetSettingsHome(home string) {
+	s.settingsHome = strings.TrimSpace(home)
+}
+
+func (s *Server) SetRuntimeConfigStatus(providerReady bool, openAIBaseURL string, allowedRootCount int, logFormat string, staticDirReady bool) {
+	s.providerReady = providerReady
+	s.openAIBaseURL = strings.TrimSpace(openAIBaseURL)
+	s.allowedRootCount = allowedRootCount
+	s.logFormat = strings.TrimSpace(logFormat)
+	s.staticDirReady = staticDirReady
+}
+
 func (s *Server) Shutdown(ctx context.Context, reason string) error {
 	if s.agent != nil {
 		if err := s.agent.Shutdown(ctx, reason); err != nil {
+			return err
+		}
+	}
+	if s.terminal != nil {
+		if err := s.terminal.CloseAll(ctx); err != nil {
 			return err
 		}
 	}
@@ -91,6 +121,12 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.login)
 	mux.Handle("GET /api/auth/session", s.requireAuth(http.HandlerFunc(s.getSession)))
 	mux.Handle("POST /api/auth/logout", s.requireAuth(http.HandlerFunc(s.logout)))
+	mux.HandleFunc("GET /api/settings", s.getSettings)
+	mux.HandleFunc("PATCH /api/settings/preferences", s.patchSettingsPreferences)
+	mux.HandleFunc("GET /api/settings/fonts", s.listSettingsFonts)
+	mux.HandleFunc("POST /api/settings/fonts", s.createSettingsFont)
+	mux.HandleFunc("GET /api/settings/fonts/{fontId}/file", s.getSettingsFontFile)
+	mux.HandleFunc("DELETE /api/settings/fonts/{fontId}", s.deleteSettingsFont)
 	mux.HandleFunc("POST /api/workspaces", s.createWorkspace)
 	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}", s.getWorkspace)
@@ -123,10 +159,11 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/skills/refresh", s.listAgentSkills)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/mcp/servers", s.listMCPServers)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/mcp/servers/{serverId}/tools", s.listMCPServerTools)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/commands", s.createCommand)
-	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes", s.listProcesses)
-	mux.HandleFunc("GET /api/workspaces/{workspaceId}/processes/{processId}", s.getProcess)
-	mux.HandleFunc("POST /api/workspaces/{workspaceId}/processes/{processId}/stop", s.stopProcess)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/terminal/sessions", s.listTerminalSessions)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/terminal/sessions", s.createTerminalSession)
+	mux.HandleFunc("PATCH /api/workspaces/{workspaceId}/terminal/sessions/{sessionId}", s.patchTerminalSession)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/terminal/sessions/{sessionId}/close", s.closeTerminalSession)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/terminal/sessions/{sessionId}/socket", s.terminalSocket)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/ports", s.listPorts)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/ports/{port}/expose", s.exposePort)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/events", s.workspaceEvents)

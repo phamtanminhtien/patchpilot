@@ -12,7 +12,7 @@ export const Checkbox = forwardRef<
   return (
     <RadixCheckbox.Root
       className={cn(
-        "bg-panel text-accent data-[state=checked]:bg-accent data-[state=checked]:text-accent-ink data-[state=indeterminate]:bg-accent data-[state=indeterminate]:text-accent-ink grid size-5 shrink-0 cursor-pointer place-items-center rounded-sm shadow-sm transition disabled:cursor-not-allowed disabled:opacity-55",
+        "bg-panel text-accent data-[state=checked]:bg-accent data-[state=checked]:text-accent-ink data-[state=indeterminate]:bg-accent data-[state=indeterminate]:text-accent-ink grid size-5 shrink-0 cursor-pointer place-items-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-55",
         className,
       )}
       ref={ref}

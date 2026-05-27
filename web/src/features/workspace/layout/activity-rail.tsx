@@ -18,16 +18,16 @@ export function ActivityRail({
   return (
     <nav
       aria-label="Workspace tools"
-      className="bg-panel flex min-w-0 gap-1 overflow-x-auto px-1.5 py-1.5 shadow-sm lg:min-h-0 lg:flex-col lg:items-center lg:overflow-visible"
+      className="border-line/45 bg-panel flex min-w-0 gap-1 overflow-x-auto border-b px-1.5 py-1.5 lg:min-h-0 lg:flex-col lg:items-center lg:overflow-visible lg:border-r lg:border-b-0"
     >
       {workspacePanels.map((item) => (
         <button
           aria-label={item.label}
           aria-pressed={activePanel === item.value}
           className={cn(
-            "text-muted hover:bg-hover hover:text-ink grid aspect-square min-w-14 cursor-pointer place-items-center gap-0.5 rounded-md px-2 text-xs font-medium transition lg:size-10 lg:min-w-0",
+            "text-muted hover:bg-hover hover:text-ink grid aspect-square min-w-14 cursor-pointer place-items-center gap-0.5 rounded-xl px-2 text-xs font-medium transition lg:size-10 lg:min-w-0",
             activePanel === item.value
-              ? "bg-accent-soft text-accent shadow-sm"
+              ? "bg-accent-soft text-accent"
               : undefined,
           )}
           key={item.value}
@@ -44,7 +44,7 @@ export function ActivityRail({
         asChild
         className="aspect-square min-w-14 px-2 text-xs lg:mt-auto lg:size-10 lg:min-w-0 lg:px-0"
         size="small"
-        variant="ghost"
+        variant="action"
       >
         <Link
           aria-label="Open Vibe Mode"

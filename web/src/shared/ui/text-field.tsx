@@ -4,18 +4,18 @@ import { cn } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const inputVariant = createVariant({
-  base: "w-full rounded-md shadow-sm transition placeholder:text-muted focus-visible:!outline-none",
+  base: "w-full rounded-xl transition placeholder:text-muted focus-visible:!outline-none disabled:cursor-not-allowed disabled:opacity-60",
   variants: {
     size: {
-      small: "min-h-9 px-2.5 py-1.5 text-xs",
-      compact: "min-h-10 px-3 py-2 text-sm",
-      default: "min-h-11 px-3 py-2 text-base",
+      small: "min-h-8 px-2.5 py-1 text-xs",
+      compact: "min-h-9 px-3 py-1.5 text-sm",
+      default: "min-h-10 px-3 py-2 text-sm",
     },
     state: {
       default:
-        "bg-panel text-ink focus-visible:shadow-[inset_0_0_0_1px_var(--pp-color-focus)]",
+        "bg-panel text-ink hover:bg-surface focus-visible:bg-panel focus-visible:shadow-[inset_0_0_0_1px_var(--pp-color-focus)]",
       invalid:
-        "bg-panel text-ink focus-visible:shadow-[inset_0_0_0_1px_var(--pp-color-warning)]",
+        "bg-panel text-ink shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--pp-color-warning)_70%,transparent)] focus-visible:shadow-[inset_0_0_0_1px_var(--pp-color-warning)]",
     },
   },
   defaultVariants: {

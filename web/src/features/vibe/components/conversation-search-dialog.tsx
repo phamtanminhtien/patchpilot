@@ -49,7 +49,7 @@ export function ConversationSearchDialog({
   return (
     <DialogRoot onOpenChange={onOpenChange} open={open}>
       <DialogContent className="max-h-[min(34rem,calc(100vh-2rem))] grid-rows-[auto_auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
-        <DialogHeader className="px-3 pt-3 sm:px-4 sm:pt-4">
+        <DialogHeader className="px-3 py-3 sm:px-4">
           <DialogTitle>Search conversations</DialogTitle>
           <DialogDescription>
             Find a workspace conversation by title.
@@ -59,7 +59,7 @@ export function ConversationSearchDialog({
         <div className="px-3 pt-3 pb-2 sm:px-4">
           <TextField
             autoFocus
-            className="bg-hover"
+            className="bg-panel"
             label="Search conversations"
             labelHidden
             onChange={(event) => setQuery(event.target.value)}
@@ -110,7 +110,7 @@ export function ConversationSearchDialog({
                       ? "page"
                       : undefined
                   }
-                  className="hover:bg-hover aria-[current=page]:bg-hover grid min-h-11 min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-3 py-2 text-left transition"
+                  className="hover:bg-hover aria-[current=page]:bg-surface grid min-h-11 min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2 text-left transition"
                   key={conversation.id}
                   onClick={() => handleSelect(conversation)}
                   type="button"

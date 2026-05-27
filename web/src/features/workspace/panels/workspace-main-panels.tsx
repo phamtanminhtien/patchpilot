@@ -1,38 +1,16 @@
-import type { FormEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import type { Command, CommandOutput, Port } from "@/shared/api";
+import type { Port } from "@/shared/api";
 import { cn } from "@/shared/ui";
 
 import type { GitChange } from "../git/workspace-git";
 import type { WorkspacePanel } from "../workspace-panels";
-import { CommandsPanel } from "./commands-panel";
 import { FilesPanel } from "./files-panel";
 import { GitPanel } from "./git-panel";
 import { PreviewPanel } from "./preview-panel";
 
 interface WorkspaceMainPanelsProps {
   activePanel: WorkspacePanel;
-  command: {
-    error?: string;
-    activeCommand: Command | null;
-    activeCommandId: string;
-    confirmationCommand: string;
-    isPending: boolean;
-    isLoadingProcesses: boolean;
-    isStopping: boolean;
-    onCancelConfirmation: () => void;
-    onCommandChange: (value: string) => void;
-    onCommandConfirm: () => void;
-    onCommandSelect: (commandId: string) => void;
-    onCommandShortcut: (command: string) => void;
-    onCommandStop: () => void;
-    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-    output: CommandOutput[];
-    processes: Command[];
-    queuedCommand: Command | null;
-    stopError?: string;
-    text: string;
-  };
   files: {
     file?: string;
     fileError?: string;
@@ -63,14 +41,13 @@ interface WorkspaceMainPanelsProps {
 
 export function WorkspaceMainPanels({
   activePanel,
-  command,
   files,
   git,
   preview,
   selectedPath,
 }: WorkspaceMainPanelsProps) {
   return (
-    <section className="workspace-main-scroll bg-panel min-h-0 overflow-hidden shadow-md">
+    <section className="workspace-main-scroll bg-raised min-h-0 overflow-hidden">
       <WorkspaceMainPanelFrame activePanel={activePanel} panel="files">
         <FilesPanel
           file={files.file}
@@ -91,30 +68,6 @@ export function WorkspaceMainPanels({
           hasChanges={git.changes.length > 0}
           isLoading={git.isDiffLoading || git.isLoading}
           selectedPath={selectedPath}
-        />
-      </WorkspaceMainPanelFrame>
-
-      <WorkspaceMainPanelFrame activePanel={activePanel} panel="commands">
-        <CommandsPanel
-          activeCommand={command.activeCommand}
-          activeCommandId={command.activeCommandId}
-          commandText={command.text}
-          confirmationCommand={command.confirmationCommand}
-          error={command.error}
-          isLoadingProcesses={command.isLoadingProcesses}
-          isPending={command.isPending}
-          isStopping={command.isStopping}
-          onCancelConfirmation={command.onCancelConfirmation}
-          onCommandChange={command.onCommandChange}
-          onCommandConfirm={command.onCommandConfirm}
-          onCommandSelect={command.onCommandSelect}
-          onCommandShortcut={command.onCommandShortcut}
-          onCommandStop={command.onCommandStop}
-          onSubmit={command.onSubmit}
-          output={command.output}
-          processes={command.processes}
-          queuedCommand={command.queuedCommand}
-          stopError={command.stopError}
         />
       </WorkspaceMainPanelFrame>
 

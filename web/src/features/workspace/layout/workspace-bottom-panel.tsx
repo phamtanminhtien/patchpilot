@@ -1,129 +1,48 @@
-import type { ReactNode } from "react";
+import type { TerminalSession } from "@/shared/api";
 
-import type { Command, CommandOutput, Port } from "@/shared/api";
-import { cn } from "@/shared/ui";
-
-import { LoadingState } from "../components/loading-state";
-import type { WorkspacePanel } from "../workspace-panels";
+import { TerminalPanel } from "../panels/terminal-panel";
 
 export function WorkspaceBottomPanel({
-  activePanel,
-  gitRawStatus,
-  activeCommand,
-  commandOutput,
-  isGitLoading,
-  previewPorts,
-  selectedPath,
+  terminal,
+  workspaceId,
 }: {
-  activeCommand: Command | null;
-  activePanel: WorkspacePanel;
-  commandOutput: CommandOutput[];
-  gitRawStatus?: string;
-  isGitLoading: boolean;
-  previewPorts: Port[];
-  selectedPath: string;
+  terminal: {
+    activeSession: TerminalSession | null;
+    activeSessionId: string;
+    closeError?: string;
+    createError?: string;
+    isClosing: boolean;
+    isCreating: boolean;
+    isLoading: boolean;
+    isRenaming: boolean;
+    onClose: (sessionId: string) => void;
+    onCreate: () => void;
+    onRename: (sessionId: string, title: string) => void;
+    onSelect: (sessionId: string) => void;
+    renameError?: string;
+    sessions: TerminalSession[];
+  };
+  workspaceId: string;
 }) {
   return (
-    <section className="bg-panel border-line grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border-t shadow-sm">
-      <div className="bg-hover flex min-h-8 min-w-0 items-center gap-1 overflow-x-auto px-1.5">
-        <BottomTab active={activePanel === "files"}>File</BottomTab>
-        <BottomTab active={activePanel === "git"}>Git status</BottomTab>
-        <BottomTab active={activePanel === "commands"}>Command</BottomTab>
-        <BottomTab active={activePanel === "preview"}>Preview</BottomTab>
-      </div>
-
-      <div className="min-h-0 overflow-auto p-2">
-        {activePanel === "files" ? (
-          <p className="text-muted text-xs">
-            {selectedPath
-              ? `Selected path: ${selectedPath}`
-              : "Select a file to populate the workspace output area."}
-          </p>
-        ) : null}
-
-        {activePanel === "git" ? (
-          isGitLoading ? (
-            <LoadingState label="Loading raw Git status" />
-          ) : (
-            <pre className="text-ink text-xs leading-5 break-words whitespace-pre-wrap">
-              {gitStatusPreview(gitRawStatus)}
-            </pre>
-          )
-        ) : null}
-
-        {activePanel === "commands" ? (
-          activeCommand ? (
-            <pre className="text-ink text-xs leading-5 break-words whitespace-pre-wrap">
-              {`${activeCommand.status} ${activeCommand.id}\n${activeCommand.command}\n${latestOutput(commandOutput)}`}
-            </pre>
-          ) : (
-            <p className="text-muted text-xs">
-              Run a command to see its latest output here.
-            </p>
-          )
-        ) : null}
-
-        {activePanel === "preview" ? (
-          <p className="text-muted text-xs">
-            {previewPorts.length > 0
-              ? previewSummary(previewPorts)
-              : "Run a dev command to detect a local preview port."}
-          </p>
-        ) : null}
-      </div>
+    <section className="border-line/45 bg-panel min-h-0 overflow-hidden border-t">
+      <TerminalPanel
+        activeSession={terminal.activeSession}
+        activeSessionId={terminal.activeSessionId}
+        closeError={terminal.closeError}
+        createError={terminal.createError}
+        isClosing={terminal.isClosing}
+        isCreating={terminal.isCreating}
+        isLoading={terminal.isLoading}
+        isRenaming={terminal.isRenaming}
+        onClose={terminal.onClose}
+        onCreate={terminal.onCreate}
+        onRename={terminal.onRename}
+        onSelect={terminal.onSelect}
+        renameError={terminal.renameError}
+        sessions={terminal.sessions}
+        workspaceId={workspaceId}
+      />
     </section>
-  );
-}
-
-function previewSummary(ports: Port[]) {
-  const exposed = ports.filter((port) => port.status === "exposed").length;
-  const detected = ports.length - exposed;
-  if (exposed > 0 && detected > 0) {
-    return `${exposed} exposed, ${detected} waiting.`;
-  }
-  if (exposed > 0) {
-    return `${exposed} exposed preview ${exposed === 1 ? "port" : "ports"}.`;
-  }
-  return `${ports.length} detected ${ports.length === 1 ? "port" : "ports"} waiting to expose.`;
-}
-
-function latestOutput(output: CommandOutput[]) {
-  const text = output
-    .slice(-2)
-    .map((chunk) => chunk.chunk)
-    .join("");
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return "No output yet.";
-  }
-  return trimmed.length > 220 ? `${trimmed.slice(-220)}` : trimmed;
-}
-
-function gitStatusPreview(status?: string) {
-  if (!status) {
-    return "Working tree clean.";
-  }
-  const lines = status.trim().split("\n");
-  const preview = lines.slice(0, 5).join("\n");
-  const remainder = lines.length - 5;
-  return remainder > 0 ? `${preview}\n... ${remainder} more paths` : preview;
-}
-
-function BottomTab({
-  active,
-  children,
-}: {
-  active: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        "text-muted inline-flex min-h-6 shrink-0 items-center rounded-sm px-1.5 text-xs font-medium",
-        active ? "bg-panel text-ink shadow-sm" : undefined,
-      )}
-    >
-      {children}
-    </span>
   );
 }

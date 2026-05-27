@@ -13,31 +13,29 @@ import {
 } from "react";
 
 import {
-  apiErrorCode,
   apiErrorMessage,
-  type Command,
-  type CommandDetail,
-  type CommandListResponse,
+  closeTerminalSession,
   commitGitChanges,
+  createTerminalSession,
   createWorkspace,
   discardGitChanges,
   exposePort,
   getGitDiff,
   getGitStatus,
-  getProcess,
   getWorkspace,
   listFileIndex,
   listPorts,
-  listProcesses,
+  listTerminalSessions,
   listWorkspaces,
+  patchTerminalSession,
   type Port,
   type PortListResponse,
-  queueCommand,
   readFile,
   refreshFileIndex,
   searchFiles,
   stageGitFiles,
-  stopProcess,
+  type TerminalSession,
+  type TerminalSessionListResponse,
   unstageGitFiles,
   type WorkspaceEvent,
   writeFile,
@@ -74,14 +72,8 @@ export function useWorkspaceController({
   const setStarterRootPath = useWorkspaceUiStore(
     (state) => state.setStarterRootPath,
   );
-  const commandText = useWorkspaceUiStore((state) => state.commandText);
-  const setCommandText = useWorkspaceUiStore((state) => state.setCommandText);
-  const [selectedCommand, setSelectedCommand] = useState({
-    commandId: "",
-    workspaceId: "",
-  });
-  const [commandConfirmation, setCommandConfirmation] = useState({
-    command: "",
+  const [selectedTerminal, setSelectedTerminal] = useState({
+    sessionId: "",
     workspaceId: "",
   });
   const [fileSearchState, setFileSearchState] = useState({
@@ -172,10 +164,10 @@ export function useWorkspaceController({
     queryKey: ["workspace-git-diff", workspaceId, selectedPath],
   });
 
-  const processesQuery = useQuery({
-    enabled: workspaceId.length > 0 && panel === "commands",
-    queryFn: () => listProcesses(workspaceId),
-    queryKey: ["workspace-processes", workspaceId],
+  const terminalSessionsQuery = useQuery({
+    enabled: workspaceId.length > 0,
+    queryFn: () => listTerminalSessions(workspaceId),
+    queryKey: ["workspace-terminal-sessions", workspaceId],
   });
 
   const portsQuery = useQuery({
@@ -184,56 +176,51 @@ export function useWorkspaceController({
     queryKey: ["workspace-ports", workspaceId],
   });
 
-  const selectedCommandId =
-    selectedCommand.workspaceId === workspaceId
-      ? selectedCommand.commandId
+  const selectedTerminalId =
+    selectedTerminal.workspaceId === workspaceId
+      ? selectedTerminal.sessionId
       : "";
-  const confirmationCommand =
-    commandConfirmation.workspaceId === workspaceId
-      ? commandConfirmation.command
-      : "";
-  const activeCommandId =
-    selectedCommandId || processesQuery.data?.processes[0]?.id || "";
+  const visibleTerminalSessions = useMemo(
+    () =>
+      (terminalSessionsQuery.data?.sessions ?? []).filter(
+        (session) => session.status !== "closed",
+      ),
+    [terminalSessionsQuery.data?.sessions],
+  );
+  const activeTerminalId = visibleTerminalSessions.some(
+    (session) => session.id === selectedTerminalId,
+  )
+    ? selectedTerminalId
+    : (visibleTerminalSessions[0]?.id ?? "");
+  const activeTerminal =
+    visibleTerminalSessions.find(
+      (session) => session.id === activeTerminalId,
+    ) ?? null;
 
-  const processQuery = useQuery({
-    enabled:
-      workspaceId.length > 0 &&
-      panel === "commands" &&
-      activeCommandId.length > 0,
-    queryFn: () => getProcess(workspaceId, activeCommandId),
-    queryKey: ["workspace-process", workspaceId, activeCommandId],
+  const createTerminalMutation = useMutation({
+    mutationFn: () => createTerminalSession(workspaceId),
+    onSuccess: (session) => {
+      setSelectedTerminal({ sessionId: session.id, workspaceId });
+      updateTerminalSessionCache(queryClient, workspaceId, session);
+    },
   });
 
-  const commandMutation = useMutation({
-    mutationFn: ({
-      command,
-      confirmed,
-    }: {
-      command: string;
-      confirmed: boolean;
-    }) => queueCommand(workspaceId, command, confirmed),
-    onError: (error, variables) => {
-      if (apiErrorCode(error) === "confirmation_required") {
-        setCommandConfirmation({ command: variables.command, workspaceId });
+  const renameTerminalMutation = useMutation({
+    mutationFn: ({ sessionId, title }: { sessionId: string; title: string }) =>
+      patchTerminalSession(workspaceId, sessionId, { title }),
+    onSuccess: (session) => {
+      updateTerminalSessionCache(queryClient, workspaceId, session);
+    },
+  });
+
+  const closeTerminalMutation = useMutation({
+    mutationFn: (sessionId: string) =>
+      closeTerminalSession(workspaceId, sessionId),
+    onSuccess: (session) => {
+      updateTerminalSessionCache(queryClient, workspaceId, session);
+      if (selectedTerminalId === session.id) {
+        setSelectedTerminal({ sessionId: "", workspaceId });
       }
-    },
-    onSuccess: (command) => {
-      setCommandConfirmation({ command: "", workspaceId });
-      setSelectedCommand({ commandId: command.id, workspaceId });
-      setCommandText("");
-      queryClient.setQueryData<CommandListResponse>(
-        ["workspace-processes", workspaceId],
-        (current) => ({
-          processes: [command, ...(current?.processes ?? [])],
-        }),
-      );
-    },
-  });
-
-  const stopCommandMutation = useMutation({
-    mutationFn: (processId: string) => stopProcess(workspaceId, processId),
-    onSuccess: (command) => {
-      updateCommandCache(queryClient, workspaceId, command);
     },
   });
 
@@ -315,17 +302,14 @@ export function useWorkspaceController({
     },
   });
 
-  const resetCommandMutation = commandMutation.reset;
   const resetCommitMutation = commitMutation.reset;
   const resetWriteFileMutation = writeFileMutation.reset;
 
   useEffect(() => {
     resetWorkspaceScopedState();
-    resetCommandMutation();
     resetCommitMutation();
     resetWriteFileMutation();
   }, [
-    resetCommandMutation,
     resetCommitMutation,
     resetWorkspaceScopedState,
     resetWriteFileMutation,
@@ -353,19 +337,18 @@ export function useWorkspaceController({
         );
         return;
       }
-      if (event.type === "command.output") {
-        const output = event.payload as CommandDetail["output"][number];
-        queryClient.setQueryData<CommandDetail>(
-          ["workspace-process", workspaceId, output.commandId],
-          (current) =>
-            current
-              ? { ...current, output: [...current.output, output] }
-              : current,
+      if (
+        event.type === "terminal.session.created" ||
+        event.type === "terminal.session.updated" ||
+        event.type === "terminal.session.closed"
+      ) {
+        updateTerminalSessionCache(
+          queryClient,
+          workspaceId,
+          event.payload as TerminalSession,
         );
         return;
       }
-      const command = event.payload as Command;
-      updateCommandCache(queryClient, workspaceId, command);
     },
     [queryClient, workspaceId],
   );
@@ -432,68 +415,53 @@ export function useWorkspaceController({
     commitMutation.mutate(stagedGitPaths);
   }
 
-  function handleCommandSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const command = commandText.trim();
-    if (command.length === 0 || commandMutation.isPending) {
+  function handleTerminalCreate() {
+    if (createTerminalMutation.isPending) {
       return;
     }
-    commandMutation.mutate({ command, confirmed: false });
+    createTerminalMutation.mutate();
   }
 
-  function handleCommandConfirm() {
-    if (confirmationCommand.length === 0 || commandMutation.isPending) {
+  function handleTerminalSelect(sessionId: string) {
+    setSelectedTerminal({ sessionId, workspaceId });
+  }
+
+  function handleTerminalRename(sessionId: string, title: string) {
+    if (title.trim().length === 0 || renameTerminalMutation.isPending) {
       return;
     }
-    commandMutation.mutate({ command: confirmationCommand, confirmed: true });
+    renameTerminalMutation.mutate({ sessionId, title });
   }
 
-  function handleCommandStop() {
-    if (activeCommandId.length === 0 || stopCommandMutation.isPending) {
+  function handleTerminalClose(sessionId: string) {
+    if (closeTerminalMutation.isPending) {
       return;
     }
-    stopCommandMutation.mutate(activeCommandId);
-  }
-
-  function handleCommandShortcut(command: string) {
-    setCommandText(command);
-  }
-
-  function handleCommandSelection(commandId: string) {
-    setSelectedCommand({ commandId, workspaceId });
-  }
-
-  function handleCommandConfirmationCancel() {
-    setCommandConfirmation({ command: "", workspaceId });
+    closeTerminalMutation.mutate(sessionId);
   }
 
   return {
-    command: {
-      activeCommand: processQuery.data?.command ?? null,
-      activeCommandId,
-      confirmationCommand,
-      error:
-        commandMutation.error &&
-        apiErrorCode(commandMutation.error) !== "confirmation_required"
-          ? apiErrorMessage(commandMutation.error)
-          : undefined,
-      isLoadingProcesses: processesQuery.isPending || processQuery.isPending,
-      isPending: commandMutation.isPending,
-      isStopping: stopCommandMutation.isPending,
-      onCancelConfirmation: handleCommandConfirmationCancel,
-      onCommandChange: setCommandText,
-      onCommandConfirm: handleCommandConfirm,
-      onCommandSelect: handleCommandSelection,
-      onCommandShortcut: handleCommandShortcut,
-      onCommandStop: handleCommandStop,
-      onSubmit: handleCommandSubmit,
-      output: processQuery.data?.output ?? [],
-      processes: processesQuery.data?.processes ?? [],
-      queuedCommand: commandMutation.data ?? null,
-      stopError: stopCommandMutation.error
-        ? apiErrorMessage(stopCommandMutation.error)
+    terminal: {
+      activeSession: activeTerminal,
+      activeSessionId: activeTerminalId,
+      closeError: closeTerminalMutation.error
+        ? apiErrorMessage(closeTerminalMutation.error)
         : undefined,
-      text: commandText,
+      createError: createTerminalMutation.error
+        ? apiErrorMessage(createTerminalMutation.error)
+        : undefined,
+      isClosing: closeTerminalMutation.isPending,
+      isCreating: createTerminalMutation.isPending,
+      isLoading: terminalSessionsQuery.isPending,
+      isRenaming: renameTerminalMutation.isPending,
+      onClose: handleTerminalClose,
+      onCreate: handleTerminalCreate,
+      onRename: handleTerminalRename,
+      onSelect: handleTerminalSelect,
+      renameError: renameTerminalMutation.error
+        ? apiErrorMessage(renameTerminalMutation.error)
+        : undefined,
+      sessions: visibleTerminalSessions,
     },
     files: {
       entries: filesQuery.data?.entries ?? [],
@@ -587,29 +555,19 @@ export function useWorkspaceController({
   };
 }
 
-function updateCommandCache(
+function updateTerminalSessionCache(
   queryClient: QueryClient,
   workspaceId: string,
-  command: Command,
+  session: TerminalSession,
 ) {
-  queryClient.setQueryData<CommandListResponse>(
-    ["workspace-processes", workspaceId],
+  queryClient.setQueryData<TerminalSessionListResponse>(
+    ["workspace-terminal-sessions", workspaceId],
     (current) => ({
-      processes: [
-        command,
-        ...(current?.processes.filter((item) => item.id !== command.id) ?? []),
+      sessions: [
+        session,
+        ...(current?.sessions.filter((item) => item.id !== session.id) ?? []),
       ],
     }),
-  );
-  queryClient.setQueryData<CommandDetail>(
-    ["workspace-process", workspaceId, command.id],
-    (current) =>
-      current
-        ? {
-            ...current,
-            command,
-          }
-        : current,
   );
 }
 

@@ -77,6 +77,8 @@ func run(cfg config.Config, logger *zap.Logger) error {
 	server := api.NewServerWithAuth(workspaces, fileService, gitClient, run, store, hub, agentManager, authService, store)
 	server.SetBackendAddr(cfg.Addr)
 	server.SetLightModel(cfg.LightModel)
+	server.SetSettingsHome(cfg.HomeDir)
+	server.SetRuntimeConfigStatus(cfg.OpenAIAPIKey != "", cfg.OpenAIBaseURL, len(cfg.AllowedRoots), cfg.LogFormat, cfg.StaticDir != "")
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           server.RoutesWithStatic(cfg.StaticDir),

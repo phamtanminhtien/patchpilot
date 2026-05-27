@@ -8,10 +8,10 @@ describe("Button", () => {
     render(<Button>Open repo</Button>);
 
     expect(screen.getByRole("button", { name: "Open repo" })).toHaveClass(
-      "min-h-11",
-      "px-4",
+      "min-h-10",
+      "px-3.5",
       "py-2",
-      "text-base",
+      "text-sm",
     );
   });
 
@@ -24,14 +24,14 @@ describe("Button", () => {
     );
 
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass(
-      "min-h-9",
+      "min-h-8",
       "px-2.5",
-      "py-1.5",
+      "py-1",
       "text-xs",
       "[&_[data-slot=button-icon]>svg]:size-3.5",
     );
     expect(screen.getByRole("button", { name: "Run command" })).toHaveClass(
-      "min-h-10",
+      "min-h-9",
       "text-sm",
       "[&_[data-slot=button-icon]>svg]:size-4",
     );
@@ -51,7 +51,7 @@ describe("Button", () => {
       "[&>svg]:shrink-0",
     );
     expect(screen.getByRole("button", { name: "Open repo" })).toHaveClass(
-      "[&_[data-slot=button-icon]>svg]:size-5",
+      "[&_[data-slot=button-icon]>svg]:size-4",
     );
   });
 
@@ -74,25 +74,24 @@ describe("Button", () => {
     );
   });
 
-  it("keeps secondary buttons borderless and elevated", () => {
+  it("keeps secondary buttons on a glass panel surface", () => {
     render(<Button variant="secondary">Open workspace</Button>);
 
     expect(screen.getByRole("button", { name: "Open workspace" })).toHaveClass(
       "bg-panel",
-      "shadow-sm",
     );
     expect(
       screen.getByRole("button", { name: "Open workspace" }),
-    ).not.toHaveClass("border");
+    ).not.toHaveClass("border-line/60");
   });
 
   it("supports contrast-safe surface buttons for modals", () => {
     render(<Button variant="surface">Refresh</Button>);
 
     expect(screen.getByRole("button", { name: "Refresh" })).toHaveClass(
-      "bg-hover",
+      "bg-surface",
       "text-ink",
-      "hover:bg-accent-soft",
+      "hover:bg-hover",
     );
   });
 });

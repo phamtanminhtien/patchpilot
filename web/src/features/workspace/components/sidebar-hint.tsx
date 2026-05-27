@@ -10,7 +10,7 @@ export function SidebarHint({
   title: string;
 }) {
   return (
-    <div className="grid gap-1.5 rounded-md p-1.5">
+    <div className="grid gap-1.5 rounded-xl p-1.5">
       <div className="text-ink flex min-w-0 items-center gap-1.5 text-xs font-semibold">
         <span className="text-accent grid size-6 shrink-0 place-items-center">
           {icon}

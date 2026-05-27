@@ -51,19 +51,13 @@ export function WorkspacePage() {
         }
         bottomPanel={
           <WorkspaceBottomPanel
-            activeCommand={controller.command.activeCommand}
-            activePanel={panel}
-            commandOutput={controller.command.output}
-            gitRawStatus={controller.git.rawStatus}
-            isGitLoading={controller.git.isLoading}
-            previewPorts={controller.preview.ports}
-            selectedPath={selectedPath}
+            terminal={controller.terminal}
+            workspaceId={workspaceId}
           />
         }
         mainPanels={
           <WorkspaceMainPanels
             activePanel={panel}
-            command={controller.command}
             files={controller.files}
             git={controller.git}
             preview={controller.preview}

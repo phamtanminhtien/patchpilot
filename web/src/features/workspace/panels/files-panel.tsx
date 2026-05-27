@@ -48,7 +48,7 @@ export function FilesPanel({
 
   return (
     <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-      <div className="bg-hover flex min-h-9 min-w-0 items-center justify-between gap-2 px-3">
+      <div className="border-line/35 bg-surface flex min-h-9 min-w-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-ink min-w-0 truncate text-xs font-semibold">
           {selectedPath}
         </span>
@@ -135,7 +135,7 @@ export function FilesPanel({
           ) : null}
         </div>
       ) : (
-        <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 text-xs leading-5 break-words whitespace-pre-wrap">
+        <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 font-mono text-xs leading-5 break-words whitespace-pre-wrap">
           {file ?? "File content will appear here."}
         </pre>
       )}
