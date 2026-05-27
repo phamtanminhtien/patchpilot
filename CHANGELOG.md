@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.3.0...patchpilot-v0.4.0) (2026-05-27)
+
+
+### Features
+
+* add automatic background conversation title generation using a light model ([fa4bfc9](https://github.com/phamtanminhtien/patchpilot/commit/fa4bfc9aa562516b9e9446e52f33050d063d91ca))
+* add settings page and corresponding API handlers for server configuration management ([5451ec6](https://github.com/phamtanminhtien/patchpilot/commit/5451ec6593a245668e66f74816755c6e22121992))
+* implement code editor component using CodeMirror and add required language dependencies ([636d1f8](https://github.com/phamtanminhtien/patchpilot/commit/636d1f824d25cda1d099c80f6fb3708e59031af1))
+* implement persistent terminal session management with database support and workspace integration ([3a7de4a](https://github.com/phamtanminhtien/patchpilot/commit/3a7de4a47d1279a1912aa56841286d2de46388f5))
+* **vibe:** add tiptap composer suggestions ([#36](https://github.com/phamtanminhtien/patchpilot/issues/36)) ([57debba](https://github.com/phamtanminhtien/patchpilot/commit/57debbadfa8e570e20fe9d1cbd46c9f49222c0c2))
+
 ## [0.3.0](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.2.2...patchpilot-v0.3.0) (2026-05-25)
 
 
