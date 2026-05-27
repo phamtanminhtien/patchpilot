@@ -3,6 +3,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { Loader2, Plus, Square, Terminal, X } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
+import { useAppearance } from "@/app/appearance";
 import { type TerminalSession, terminalSocketUrl } from "@/shared/api";
 import { Button, cn, StatusPill, TextField } from "@/shared/ui";
 
@@ -243,6 +244,7 @@ function TerminalSurface({
   workspaceId: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const { terminalFontFamily } = useAppearance();
 
   useEffect(() => {
     const container = containerRef.current;
@@ -252,8 +254,7 @@ function TerminalSurface({
     const styles = getComputedStyle(document.documentElement);
     const terminal = new XTerm({
       cursorBlink: true,
-      fontFamily:
-        "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontFamily: terminalFontFamily,
       fontSize: 12,
       scrollback: 1000,
       theme: {
@@ -314,7 +315,7 @@ function TerminalSurface({
       socket.close();
       terminal.dispose();
     };
-  }, [session.id, session.status, workspaceId]);
+  }, [session.id, session.status, terminalFontFamily, workspaceId]);
 
   if (session.status !== "open") {
     return (

@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 
 import { DefaultRoute } from "@/app/default-route";
+import { SettingsPage } from "@/features/settings/settings-page";
 import { VibePage } from "@/features/vibe/vibe-page";
 import { WorkspacePage } from "@/features/workspace/workspace-page";
 
@@ -16,5 +17,9 @@ export const router = createBrowserRouter([
   {
     element: <WorkspacePage />,
     path: "/workspace",
+  },
+  {
+    element: <SettingsPage />,
+    path: "/settings",
   },
 ]);

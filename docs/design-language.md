@@ -74,6 +74,8 @@ App shell:
 
 - Workflow screens use a compact top bar with mode switch, workspace signal, and
   theme control.
+- App-wide settings are reached from the compact top bar as a utility route; they
+  do not become a third workflow mode.
 - Theme control exposes `System`, `Light`, `Dark`; `System` leaves root theme to
   CSS media queries.
 - No workspace selected: show centered starter launcher instead of workflow
@@ -86,6 +88,12 @@ App shell:
 Typography and copy:
 
 - Use global sans theme font. Do not scale font size with viewport width.
+- Appearance settings may change app, code, and terminal font roles. Font values
+  may be built-in stacks, installed local font files, or custom OS-resolved
+  font-family fallback stacks. They must flow through CSS variables/Tailwind
+  theme roles or xterm options, not one-off component font-family strings.
+  Installed fonts are local same-origin files only; no CSS CDN or remote font
+  loading in workflow UI.
 - Letter spacing stays normal unless matching an existing uppercase-label
   pattern.
 - Panel headings should be compact; `text-lg` or `text-xl` is usually enough.
@@ -177,6 +185,23 @@ clone.
   port, loading, and error states must be visually explicit.
 - Terminal output and Git status are operational data: use monospace terminal
   surfaces, compact summaries, and internal scrolling.
+
+## Settings
+
+Settings is a compact app-wide utility screen for local/server configuration.
+
+- Keep the screen dense and operational: category navigation, status rows,
+  compact controls, and explicit save/loading/error states.
+- Desktop uses a narrow category rail plus one scrollable content region. Mobile
+  uses horizontally scrollable category tabs or segmented controls with 44px
+  targets.
+- Appearance includes theme, app font, code font, terminal font, custom
+  font-family entry, installed font management, and live previews. Previews must
+  be compact and must not shift the surrounding layout while fonts load.
+- Server config shows safe status only. Never render tokens, raw env values,
+  secret placeholders, or host paths outside safe workspace/config summaries.
+- Settings may reuse Skills/MCP components from Vibe, but copy should stay about
+  configuration state rather than agent task progress.
 
 ## UI Change Checklist
 

@@ -29,7 +29,8 @@
   --shadow-md: var(--pp-shadow-md);
   --outline-offset-focus: var(--pp-focus-offset);
   --outline-width-focus: var(--pp-focus-width);
-  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--pp-font-app);
+  --font-mono: var(--pp-font-code);
 }
 
 :root,
@@ -65,6 +66,11 @@
     0 6px 18px -12px rgb(21 25 35 / 0.22);
   --pp-focus-offset: 2px;
   --pp-focus-width: 2px;
+  --pp-font-app: Inter, ui-sans-serif, system-ui, sans-serif;
+  --pp-font-code:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --pp-font-terminal:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 [data-theme="dark"] {

@@ -22,21 +22,27 @@ import (
 )
 
 type Server struct {
-	workspaces      *workspace.Manager
-	files           *filestore.Service
-	git             *gitrepo.Client
-	runner          *runner.Runner
-	terminal        *terminalsvc.Manager
-	store           *database.Store
-	events          *events.Hub
-	agent           *agent.Manager
-	auth            *auth.Service
-	health          HealthChecker
-	ports           ports.ListenerScanner
-	backendAddr     string
-	lightModel      string
-	terminalScansMu sync.Mutex
-	terminalScans   map[string]context.CancelFunc
+	workspaces       *workspace.Manager
+	files            *filestore.Service
+	git              *gitrepo.Client
+	runner           *runner.Runner
+	terminal         *terminalsvc.Manager
+	store            *database.Store
+	events           *events.Hub
+	agent            *agent.Manager
+	auth             *auth.Service
+	health           HealthChecker
+	ports            ports.ListenerScanner
+	backendAddr      string
+	lightModel       string
+	settingsHome     string
+	providerReady    bool
+	openAIBaseURL    string
+	allowedRootCount int
+	logFormat        string
+	staticDirReady   bool
+	terminalScansMu  sync.Mutex
+	terminalScans    map[string]context.CancelFunc
 }
 
 const (
@@ -68,6 +74,18 @@ func (s *Server) SetBackendAddr(addr string) {
 
 func (s *Server) SetLightModel(model string) {
 	s.lightModel = strings.TrimSpace(model)
+}
+
+func (s *Server) SetSettingsHome(home string) {
+	s.settingsHome = strings.TrimSpace(home)
+}
+
+func (s *Server) SetRuntimeConfigStatus(providerReady bool, openAIBaseURL string, allowedRootCount int, logFormat string, staticDirReady bool) {
+	s.providerReady = providerReady
+	s.openAIBaseURL = strings.TrimSpace(openAIBaseURL)
+	s.allowedRootCount = allowedRootCount
+	s.logFormat = strings.TrimSpace(logFormat)
+	s.staticDirReady = staticDirReady
 }
 
 func (s *Server) Shutdown(ctx context.Context, reason string) error {
@@ -103,6 +121,12 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.login)
 	mux.Handle("GET /api/auth/session", s.requireAuth(http.HandlerFunc(s.getSession)))
 	mux.Handle("POST /api/auth/logout", s.requireAuth(http.HandlerFunc(s.logout)))
+	mux.HandleFunc("GET /api/settings", s.getSettings)
+	mux.HandleFunc("PATCH /api/settings/preferences", s.patchSettingsPreferences)
+	mux.HandleFunc("GET /api/settings/fonts", s.listSettingsFonts)
+	mux.HandleFunc("POST /api/settings/fonts", s.createSettingsFont)
+	mux.HandleFunc("GET /api/settings/fonts/{fontId}/file", s.getSettingsFontFile)
+	mux.HandleFunc("DELETE /api/settings/fonts/{fontId}", s.deleteSettingsFont)
 	mux.HandleFunc("POST /api/workspaces", s.createWorkspace)
 	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}", s.getWorkspace)

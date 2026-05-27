@@ -48,9 +48,11 @@ export function useVibeController() {
   );
   const [rootPath, setRootPath] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState<AgentModel>("gpt-5.5");
-  const [reasoningEffort, setReasoningEffort] =
-    useState<AgentReasoningEffort>("medium");
+  const defaults = readAgentDefaults();
+  const [model, setModel] = useState<AgentModel>(defaults.model);
+  const [reasoningEffort, setReasoningEffort] = useState<AgentReasoningEffort>(
+    defaults.reasoningEffort,
+  );
   const [transientRunText, setTransientRunText] = useState<{
     conversationId: string;
     textByRunId: Record<string, string>;
@@ -538,5 +540,22 @@ function upsertToolCallCache(
 ) {
   if (conversationId.length > 0) {
     updateToolCallCache(queryClient, workspaceId, conversationId, toolCall);
+  }
+}
+
+function readAgentDefaults(): {
+  model: AgentModel;
+  reasoningEffort: AgentReasoningEffort;
+} {
+  try {
+    const parsed = JSON.parse(
+      globalThis.localStorage?.getItem("patchpilot.agentDefaults") ?? "{}",
+    ) as Partial<{ model: AgentModel; reasoningEffort: AgentReasoningEffort }>;
+    return {
+      model: parsed.model ?? "gpt-5.5",
+      reasoningEffort: parsed.reasoningEffort ?? "medium",
+    };
+  } catch {
+    return { model: "gpt-5.5", reasoningEffort: "medium" };
   }
 }

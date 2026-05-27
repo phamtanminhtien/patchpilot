@@ -9,6 +9,7 @@ import { NuqsAdapter } from "nuqs/adapters/react-router/v7";
 import { type FormEvent, useState } from "react";
 import { RouterProvider } from "react-router";
 
+import { AppearanceProvider } from "@/app/appearance";
 import { router } from "@/app/routes";
 import { ThemeProvider } from "@/app/theme";
 import { apiErrorMessage, getSession, login } from "@/shared/api";
@@ -31,7 +32,9 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AuthGate />
+        <AppearanceProvider>
+          <AuthGate />
+        </AppearanceProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

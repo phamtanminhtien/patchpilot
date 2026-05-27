@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bot, PanelLeft } from "lucide-react";
+import { Bot, PanelLeft, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -9,7 +9,7 @@ import { cn, StatusPill, ThemeSwitcher } from "@/shared/ui";
 
 interface AppShellProps {
   children: ReactNode;
-  mode: "vibe" | "workspace";
+  mode: "vibe" | "workspace" | "settings";
   workspace?: Workspace;
   workspaceId: string;
 }
@@ -78,6 +78,20 @@ export function AppShell({
               </ModeLink>
             </nav>
             <ThemeSwitcher onChange={setPreference} value={preference} />
+            <Link
+              aria-current={mode === "settings" ? "page" : undefined}
+              aria-label="Open settings"
+              className={cn(
+                "text-muted hover:bg-hover hover:text-ink grid min-h-7 min-w-7 place-items-center rounded-sm transition",
+                mode === "settings"
+                  ? "bg-accent-soft text-accent shadow-sm"
+                  : undefined,
+              )}
+              title="Settings"
+              to={`/settings${query}`}
+            >
+              <Settings aria-hidden="true" className="size-4" />
+            </Link>
           </div>
         </div>
       </header>

@@ -25,6 +25,7 @@ Core decisions:
 - Skills are local PatchPilot-managed directories; remote install/marketplaces are outside v0.3.
 - MCP supports explicit per-workspace stdio/HTTP server configs; tools execute only through the backend bridge.
 - Workspace Mode supports files, search, diffs, small edits, interactive terminal sessions, preview, and Git status.
+- Settings is a compact app-wide local/server configuration screen for appearance, agent defaults, local skills, MCP status/config, and safe runtime status.
 - Manual edits are limited to small text files under workspace root.
 - Agent commands auto-run only when exactly allowlisted below.
 - Agent command replay keeps latest 1 MiB per command. Terminal sessions keep a bounded in-memory 1 MiB replay buffer per active session and do not persist transcripts.
@@ -151,6 +152,13 @@ POST /api/auth/login
 GET  /api/auth/session
 POST /api/auth/logout
 
+GET    /api/settings
+PATCH  /api/settings/preferences
+GET    /api/settings/fonts
+POST   /api/settings/fonts
+GET    /api/settings/fonts/:fontId/file
+DELETE /api/settings/fonts/:fontId
+
 POST   /api/workspaces
 GET    /api/workspaces
 GET    /api/workspaces/:workspaceId
@@ -237,6 +245,8 @@ Response contracts:
 - Agent context returns effective instruction sources, skill summaries and bodies for UI detail, MCP server/tool summaries, context-budget warnings, and refresh time. Refresh rereads instructions, enabled skills, and MCP discovery state where possible; failures use standard errors without leaking host paths.
 - Skill create accepts a local directory path. Patch accepts `{"enabled":true|false}` plus optional display metadata. Refresh reparses enabled/disabled directories. Invalid skill directories stay visible with warnings.
 - MCP server create accepts `{"name":"...","transport":"stdio|http",...}` with transport-specific config. Patch can enable/disable, update policy, or replace config. Refresh updates health/tools/resources. Tool list returns cached metadata, source server, read-only hints, and effective approval policy.
+- Settings returns safe local/server configuration status and user preferences from PatchPilot-owned config. It never returns secrets, raw env values, secret placeholders, or host paths outside safe workspace/config summaries. Preferences may update only non-secret app-owned values: theme, app/code/terminal font selections, custom OS-resolved font-family stacks, and default model/reasoning effort.
+- Font install stores uploaded `.woff2`, `.woff`, `.ttf`, or `.otf` files under PatchPilot-owned data, with metadata in `~/.patchpilot/config.json`. Font file responses are same-origin and scoped by generated `font_` ids. Upload rejects invalid names, extensions, MIME/content shape, oversized files, traversal, and duplicate unsafe filenames. Deleting a font selected by any font role returns `409 font_in_use` unless the role is reassigned first.
 - Run event stream replays durable run events after `Last-Event-ID`; without it, replays durable run events from the beginning, then continues live.
 - Git status returns `{"porcelain":"..."}` with expanded untracked files. Optional params: `ignored` boolean default `false`; `untracked` `"all"|"normal"|"no"` default `"all"`; `ignore_submodules` `"none"|"untracked"|"dirty"|"all"` default `""`; `paths` workspace-relative array.
 - Git diff returns `{"path":"...","diff":"..."}` for workspace/path; untracked diffs show without staging.
@@ -360,6 +370,7 @@ Active tables:
 - `agent_tool_calls`: `id`, `workspace_id`, `run_id`, `batch_id`, `sequence`, `name`, `source`, `source_ref?`, `input_json`, `output_json`, `status`, `requires_approval`, `decision?`, timestamps.
 - Optional skill/MCP cache tables may store metadata, health, and discovery results for efficiency; `~/.patchpilot/config.json` plus filesystem skill discovery remain source of truth.
 - `terminal_sessions`: `id`, `workspace_id`, `title`, `cwd`, `status`, `pid?`, `rows`, `cols`, `exit_code?`, timestamps.
+- PatchPilot-owned user config (`~/.patchpilot/config.json`): local skill enablement, MCP server config, settings preferences, and installed font metadata. Installed font binaries live under `~/.patchpilot/fonts`; source files are not copied into repositories.
 - Legacy `commands` and `command_output` tables may remain on upgraded installs for old workspace command history, but v0.3 Workspace APIs no longer create or expose them.
 - `ports`: `id`, `workspace_id`, `process_id?`, `port`, `status(detected|exposed|closed)`, `exposed_path?`, timestamps.
 - `git_snapshots`: `id`, `workspace_id`, `commit_sha?`, `status_json`, `created_at`.
@@ -374,7 +385,7 @@ terminal: open -> closed|failed
 
 ## Frontend Structure
 
-Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestration, `layout` for shell regions, `components` for Vibe-only UI, and `lib` for pure helpers. Vibe owns context, instructions, skills, MCP, approvals, and run details. Workspace Mode stays a compact support console for files, Git, terminal sessions, and preview.
+Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestration, `layout` for shell regions, `components` for Vibe-only UI, and `lib` for pure helpers. Vibe owns context, instructions, skills, MCP, approvals, and run details. Workspace Mode stays a compact support console for files, Git, terminal sessions, and preview. Settings UI lives under `web/src/features/settings`. Appearance preferences are applied through app-level providers and CSS variables: app font maps to the global sans role, code font maps to code/diff/file monospace surfaces, and terminal font is read by xterm session creation.
 
 ## Acceptance
 
@@ -392,6 +403,7 @@ Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestrat
 - Users approve/reject approval-required tools; server executes only approved mutating tools.
 - MCP tools execute only through the backend bridge and share durable tool-call/event/approval flow with built-ins.
 - Users create, switch, resize, rename, and close Workspace terminal sessions from the persistent bottom terminal panel, view Git status/diff, commit explicit non-empty selected paths, and preview through same-host proxy.
+- Users open Settings from the shared top bar, update theme and app/code/terminal font preferences, enter custom OS-resolved font-family fallback stacks, install local font files, and see live font previews without network font loading. Verification: settings API tests, frontend settings tests, and browser smoke at mobile/desktop widths.
 - Mobile/iPad users complete a Vibe Mode chat-driven AI coding loop and inspect the agent cockpit through tabs/sheets without losing primary flow.
 - Auth/session expiry: expired/missing/invalid cookies return `401 unauthorized`; valid logout clears cookie. Verification: backend auth/API handler tests.
 - Indexing failure: workspace create/get/index refresh return standard error envelope without host-path leakage and do not send stale successful index responses. Verification: backend API handler tests.

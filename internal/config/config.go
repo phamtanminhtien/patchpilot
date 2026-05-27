@@ -24,6 +24,7 @@ type Config struct {
 	AllowedRoots  []string
 	DataDir       string
 	DBPath        string
+	HomeDir       string
 	LogFormat     string
 	LightModel    string
 	OpenAIAPIKey  string
@@ -32,8 +33,28 @@ type Config struct {
 }
 
 type UserConfig struct {
-	Skills     map[string]SkillConfig     `json:"skills,omitempty"`
-	MCPServers map[string]MCPServerConfig `json:"mcpServers,omitempty"`
+	Preferences SettingsPreferences        `json:"preferences,omitempty"`
+	Fonts       []InstalledFont            `json:"fonts,omitempty"`
+	Skills      map[string]SkillConfig     `json:"skills,omitempty"`
+	MCPServers  map[string]MCPServerConfig `json:"mcpServers,omitempty"`
+}
+
+type SettingsPreferences struct {
+	Theme                  string `json:"theme,omitempty"`
+	AppFontFamily          string `json:"appFontFamily,omitempty"`
+	CodeFontFamily         string `json:"codeFontFamily,omitempty"`
+	TerminalFontFamily     string `json:"terminalFontFamily,omitempty"`
+	DefaultModel           string `json:"defaultModel,omitempty"`
+	DefaultReasoningEffort string `json:"defaultReasoningEffort,omitempty"`
+}
+
+type InstalledFont struct {
+	ID        string `json:"id"`
+	Family    string `json:"family"`
+	Filename  string `json:"filename"`
+	MimeType  string `json:"mimeType,omitempty"`
+	Size      int64  `json:"size"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type SkillConfig struct {
@@ -113,6 +134,7 @@ func LoadFromEnv(cwd string, home string, getenv func(string) string) (Config, e
 		AllowedRoots:  allowedRoots,
 		DataDir:       dataDir,
 		DBPath:        dbPath,
+		HomeDir:       home,
 		LightModel:    lightModel(getenv("PATCHPILOT_LIGHT_MODEL")),
 		LogFormat:     logFormat,
 		OpenAIAPIKey:  strings.TrimSpace(getenv("PATCHPILOT_OPENAI_API_KEY")),

@@ -168,6 +168,52 @@ export type AgentModel = "gpt-5.5" | "gpt-5.4" | "gpt-5.4-mini";
 
 export type AgentReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
+export type ThemePreference = "system" | "light" | "dark";
+
+export interface SettingsPreferences {
+  theme: ThemePreference;
+  appFontFamily: string;
+  codeFontFamily: string;
+  terminalFontFamily: string;
+  defaultModel: AgentModel;
+  defaultReasoningEffort: AgentReasoningEffort;
+}
+
+export interface SettingsFont {
+  id: string;
+  family: string;
+  filename: string;
+  mimeType?: string;
+  size: number;
+  createdAt: string;
+  url: string;
+}
+
+export interface SettingsServerStatus {
+  providerConfigured: boolean;
+  openAIBaseUrlHost?: string;
+  lightModel: string;
+  allowedRootsCount: number;
+  logFormat?: string;
+  staticDirConfigured: boolean;
+}
+
+export interface SettingsResponse {
+  preferences: SettingsPreferences;
+  fonts: SettingsFont[];
+  serverStatus: SettingsServerStatus;
+}
+
+export type PatchSettingsPreferencesRequest = Partial<SettingsPreferences>;
+
+export interface SettingsFontResponse {
+  font: SettingsFont;
+}
+
+export interface SettingsFontListResponse {
+  fonts: SettingsFont[];
+}
+
 export interface Conversation {
   createdAt: string;
   hasRunningRun: boolean;

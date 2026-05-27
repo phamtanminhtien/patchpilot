@@ -6,6 +6,7 @@ export * from "./files";
 export * from "./git";
 export * from "./health";
 export * from "./ports";
+export * from "./settings";
 export * from "./terminal";
 export * from "./types";
 export * from "./workspaces";
