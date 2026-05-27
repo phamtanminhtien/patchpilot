@@ -120,43 +120,40 @@ export interface GitCommitResponse {
   hash: string;
 }
 
-export interface Command {
-  command: string;
+export interface TerminalSession {
+  closedAt?: string | null;
+  cols: number;
+  createdAt: string;
   cwd: string;
-  createdAt: string;
-  durationMs?: number | null;
   exitCode?: number | null;
-  finishedAt?: string | null;
   id: string;
-  startedAt?: string | null;
-  status: "queued" | "running" | "exited" | "stopped" | "failed";
+  pid?: number | null;
+  rows: number;
+  status: "open" | "closed" | "failed";
+  title: string;
+  updatedAt: string;
   workspaceId: string;
 }
 
-export interface CommandOutput {
-  chunk: string;
-  commandId: string;
-  createdAt: string;
-  id: string;
-  stream: "stdout" | "stderr";
-}
-
-export interface CommandDetail {
-  command: Command;
-  output: CommandOutput[];
-}
-
-export interface CommandListResponse {
+export interface TerminalSessionListResponse {
   nextCursor?: string | null;
-  processes: Command[];
+  sessions: TerminalSession[];
 }
 
-export interface CommandEvent {
-  createdAt: string;
-  id: string;
-  payload: Command | CommandOutput;
-  type: "process.started" | "command.output" | "process.exited";
-  workspaceId: string;
+export interface TerminalSessionResponse {
+  session: TerminalSession;
+}
+
+export interface CreateTerminalSessionRequest {
+  cols?: number;
+  rows?: number;
+  title?: string;
+}
+
+export interface PatchTerminalSessionRequest {
+  cols?: number;
+  rows?: number;
+  title?: string;
 }
 
 export type AgentRunStatus =
@@ -367,13 +364,15 @@ export interface WorkspaceEvent {
   id: string;
   payload: unknown;
   type:
-    | CommandEvent["type"]
     | AgentRunEvent["type"]
     | "workspace.indexing"
     | "workspace.ready"
     | "conversation.updated"
     | "conversation.message.created"
     | "git.changed"
+    | "terminal.session.created"
+    | "terminal.session.updated"
+    | "terminal.session.closed"
     | "port.opened"
     | "port.exposed"
     | "port.closed";

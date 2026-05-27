@@ -9,7 +9,7 @@ rules; scope still comes from `docs/project-rules.md` and
 PatchPilot has two related surfaces:
 
 - Vibe Mode: guided AI coding centered on prompt, task progress, and approvals.
-- Workspace Mode: compact repository control centered on files, Git, commands,
+- Workspace Mode: compact repository control centered on files, Git, terminal,
   preview, and output.
 
 Both are work-focused. Vibe may feel conversational and centered; Workspace must
@@ -20,7 +20,7 @@ Interface qualities:
 - Calm: restrained color, quiet surfaces, no visual noise.
 - Dense but readable: useful information close together without crowding.
 - Touch-first: primary mobile/iPad actions are easy to hit.
-- Patch-first: summaries, approvals, command results, and Git state beat editor
+- Patch-first: summaries, approvals, terminal state, and Git state beat editor
   chrome.
 - Operational: copy names concrete actions and states, not marketing claims.
 
@@ -90,7 +90,7 @@ Typography and copy:
   pattern.
 - Panel headings should be compact; `text-lg` or `text-xl` is usually enough.
 - Copy describes what happened, what is needed, or what action is available.
-- Prefer concrete verbs: `Open repo`, `Run command`, `Apply patch`,
+- Prefer concrete verbs: `Open repo`, `New terminal`, `Apply patch`,
   `Reject patch`, `Stage`, `Unstage`, `Discard`, `Stop`, `Expose`,
   `Open preview`, `Commit`.
 - Avoid vague labels like `Continue`, `Submit`, or `Next` when the action is
@@ -108,7 +108,7 @@ Components and interaction:
 - Icon-only controls need accessible labels and, when not obvious, tooltips.
 - Buttons use the shared `Button` primitive unless there is a clear reason to
   extend it.
-- Loading, empty, error, pending approval, running command, applied/rejected, and
+- Loading, empty, error, pending approval, open terminal, applied/rejected, and
   disabled states must be explicit.
 - Dangerous or irreversible actions need confirmation or disabled states based on
   available data.
@@ -148,32 +148,35 @@ Workspace Mode is a compact operations console, not a conversation page or IDE
 clone.
 
 - Stable layout: activity navigation, contextual sidebar, primary work panel,
-  compact bottom output panel.
-- Allowed tools: Files, Git, Commands, Preview.
+  and a persistent bottom terminal panel.
+- Allowed primary panels: Files, Git, Preview. Terminal is always available in
+  the bottom panel and does not replace the primary work panel.
 - Activity navigation is stable and readable on mobile; desktop can use a narrow
   icon rail.
 - Sidebar holds navigation, selections, commit controls, detected ports, and
   small contextual actions; keep it narrow and utilitarian.
-- Main panel shows selected tool content: file readout, diff, command
-  runner/output, or preview state.
-- Bottom panel is for secondary output, status, and summaries.
-- Do not add multi-tab editors, LSP surfaces, terminal emulator behavior, branch
-  management, marketplace panels, or other IDE parity features.
+- Main panel shows selected tool content: file readout, diff, or preview state.
+- Bottom panel hosts the Workspace terminal emulator. Terminal session tabs live
+  on the right side of that panel so the shell surface stays stable while users
+  switch primary panels.
+- Do not add multi-tab editors, LSP surfaces, branch management, marketplace
+  panels, or other IDE parity features. Terminal emulator behavior is allowed
+  only inside the Workspace bottom terminal panel.
 - Prefer `text-xs`/`text-sm`, tight rows, fixed rails, compact buttons, and
   stable grids.
 - Avoid large centered headings, wide composer controls, decorative starter
   language, or spacious chat rhythm inside an active workspace.
 - Use `line` more readily than Vibe only for dense scanability: file rows, Git
   groups, bottom tabs, diff/output regions, and panel boundaries.
-- Paths, branch-like labels, command text, filenames, and status output truncate
+- Paths, branch-like labels, terminal titles, filenames, and status output truncate
   or wrap without resizing rails or controls.
 - Workspace prioritizes direct control: inspect files, search/list, view diffs,
-  stage/unstage/discard selected changes, run/stop commands, expose/open
-  previews, and commit selected work.
-- Active panel, selected file/change, staged status, running command, exposed
+  stage/unstage/discard selected changes, open/close terminal sessions in the
+  persistent bottom panel, expose/open previews, and commit selected work.
+- Active panel, selected file/change, staged status, open terminal, exposed
   port, loading, and error states must be visually explicit.
-- Command output and Git status are operational data: use monospace blocks,
-  compact summaries, and internal scrolling.
+- Terminal output and Git status are operational data: use monospace terminal
+  surfaces, compact summaries, and internal scrolling.
 
 ## UI Change Checklist
 

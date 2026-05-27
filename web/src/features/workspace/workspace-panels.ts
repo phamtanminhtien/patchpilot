@@ -1,10 +1,4 @@
-import {
-  Files,
-  GitBranch,
-  type LucideIcon,
-  MonitorUp,
-  Play,
-} from "lucide-react";
+import { Files, GitBranch, type LucideIcon, MonitorUp } from "lucide-react";
 
 export interface WorkspacePanelDefinition {
   description: string;
@@ -13,12 +7,7 @@ export interface WorkspacePanelDefinition {
   value: WorkspacePanel;
 }
 
-export const workspacePanelValues = [
-  "files",
-  "git",
-  "commands",
-  "preview",
-] as const;
+export const workspacePanelValues = ["files", "git", "preview"] as const;
 
 export type WorkspacePanel = (typeof workspacePanelValues)[number];
 
@@ -36,12 +25,6 @@ export const workspacePanels = [
     value: "git",
   },
   {
-    description: "Queue a direct command from the workspace root.",
-    icon: Play,
-    label: "Commands",
-    value: "commands",
-  },
-  {
     description: "Prepare same-host preview controls for detected ports.",
     icon: MonitorUp,
     label: "Preview",
@@ -55,8 +38,6 @@ export function panelShortDescription(panel: WorkspacePanel) {
       return "File tree";
     case "git":
       return "Working tree";
-    case "commands":
-      return "Queue status";
     case "preview":
       return "Port preview";
   }

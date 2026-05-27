@@ -1,9 +1,11 @@
 @import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
 
 @theme {
   --color-canvas: var(--pp-bg-canvas);
   --color-panel: var(--pp-bg-panel);
   --color-hover: var(--pp-bg-hover);
+  --color-terminal: var(--pp-bg-terminal);
   --color-composer: var(--pp-bg-composer);
   --color-composer-bar: var(--pp-bg-composer-bar);
   --color-accent-soft: var(--pp-bg-accent-soft);
@@ -36,6 +38,7 @@
   --pp-bg-canvas: #f5f7fb;
   --pp-bg-panel: #ffffff;
   --pp-bg-hover: #e9eef6;
+  --pp-bg-terminal: #edf2f8;
   --pp-bg-composer: var(--pp-bg-panel);
   --pp-bg-composer-bar: var(--pp-bg-hover);
   --pp-bg-accent-soft: #e8efff;
@@ -69,6 +72,7 @@
   --pp-bg-canvas: #181818;
   --pp-bg-panel: #242424;
   --pp-bg-hover: #353535;
+  --pp-bg-terminal: #101010;
   --pp-bg-composer: var(--pp-bg-hover);
   --pp-bg-composer-bar: var(--pp-bg-panel);
   --pp-bg-accent-soft: #294136;
@@ -94,6 +98,7 @@
     --pp-bg-canvas: #181818;
     --pp-bg-panel: #242424;
     --pp-bg-hover: #353535;
+    --pp-bg-terminal: #101010;
     --pp-bg-composer: var(--pp-bg-hover);
     --pp-bg-composer-bar: var(--pp-bg-panel);
     --pp-bg-accent-soft: #294136;

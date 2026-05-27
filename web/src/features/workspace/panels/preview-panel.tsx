@@ -33,7 +33,8 @@ export function PreviewPanel({
       <MainEmptyState
         icon={<MonitorUp aria-hidden="true" className="size-6" />}
         message={
-          error ?? "Run a dev command to detect a local preview port here."
+          error ??
+          "Run a dev server in Terminal to detect a local preview port here."
         }
         title="No preview port detected"
       />

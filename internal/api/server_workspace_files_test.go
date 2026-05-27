@@ -132,7 +132,7 @@ func TestWorkspacesPersistAcrossServers(t *testing.T) {
 	}
 }
 
-func TestFileAndCommandHandlers(t *testing.T) {
+func TestFileHandlerReadsWorkspaceFile(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
@@ -147,15 +147,6 @@ func TestFileAndCommandHandlers(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", fileResponse.Code, fileResponse.Body.String())
 	}
 
-	commandRecorder := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/commands", `{"command":"go test ./..."}`)
-	if commandRecorder.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", commandRecorder.Code, commandRecorder.Body.String())
-	}
-	var command commandResponse
-	mustDecode(t, commandRecorder, &command)
-	if command.Status != "queued" || !strings.HasPrefix(command.ID, "cmd_") || command.WorkspaceID != ws.ID {
-		t.Fatalf("unexpected command: %+v", command)
-	}
 }
 
 func TestWriteFileHandlerUpdatesFileIndexAndGitStatus(t *testing.T) {

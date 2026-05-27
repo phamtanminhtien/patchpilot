@@ -3,7 +3,6 @@ import {
   GitCommit,
   Loader2,
   MonitorUp,
-  Play,
   RefreshCw,
   RotateCw,
 } from "lucide-react";
@@ -185,14 +184,6 @@ export function WorkspaceSidebar({
               selectedPath={selectedPath}
             />
           </div>
-        ) : null}
-
-        {activePanel === "commands" ? (
-          <SidebarHint
-            icon={<Play aria-hidden="true" className="size-4" />}
-            message="Run tests or builds from the workspace root and watch stdout and stderr in realtime."
-            title="Command runner"
-          />
         ) : null}
 
         {activePanel === "preview" ? (
@@ -572,7 +563,10 @@ function PreviewServerList({
       {!isLoading && ports.length === 0 ? (
         <SidebarHint
           icon={<MonitorUp aria-hidden="true" className="size-4" />}
-          message={error ?? "Run a dev command to detect a local preview port."}
+          message={
+            error ??
+            "Run a dev server in Terminal to detect a local preview port."
+          }
           title="Preview"
         />
       ) : null}

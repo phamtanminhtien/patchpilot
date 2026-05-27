@@ -79,7 +79,7 @@ test("signs in and opens a recent workspace to a new Vibe chat", async ({
   ).toBeVisible();
 });
 
-test("covers workspace files, Git, commands, and preview smoke flows", async ({
+test("covers workspace files, Git, terminal, and preview smoke flows", async ({
   page,
 }) => {
   await mockPatchPilotApi(page, { authenticated: true });
@@ -95,15 +95,20 @@ test("covers workspace files, Git, commands, and preview smoke flows", async ({
     page.getByRole("button", { name: "Stage all changes" }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Commands" }).click();
-  await page
-    .getByRole("textbox", { name: "Command" })
-    .fill("pnpm --dir web test");
-  await page.getByRole("button", { name: "Run" }).click();
-  await expect(page.getByText("tests passed", { exact: true })).toBeVisible();
-  await expect(page.getByText(/exit 0/i)).toBeVisible();
+  await expect(
+    page.getByLabel("Terminal Dev shell", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Session title")).toHaveValue("Dev shell");
+  await expect(
+    page
+      .getByRole("navigation", { name: "Workspace tools" })
+      .getByRole("button", { name: "Terminal" }),
+  ).toHaveCount(0);
 
   await page.getByRole("button", { name: "Preview" }).click();
+  await expect(
+    page.getByLabel("Terminal Dev shell", { exact: true }),
+  ).toBeVisible();
   const previewPorts = page.getByRole("region", { name: "Preview ports" });
   await expect(previewPorts.getByText("localhost:5173")).toBeVisible();
   await previewPorts.getByRole("button", { name: "Expose port" }).click();
@@ -141,6 +146,45 @@ async function mockPatchPilotApi(
     }
 
     window.EventSource = MockEventSource as unknown as typeof EventSource;
+
+    class MockWebSocket extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+
+      binaryType: BinaryType = "blob";
+      bufferedAmount = 0;
+      extensions = "";
+      onclose: ((event: CloseEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+      protocol = "";
+      readyState = MockWebSocket.OPEN;
+      url: string;
+
+      constructor(url: string | URL) {
+        super();
+        this.url = String(url);
+        queueMicrotask(() => {
+          const openEvent = new Event("open");
+          this.dispatchEvent(openEvent);
+          this.onopen?.(openEvent);
+        });
+      }
+
+      close() {
+        this.readyState = MockWebSocket.CLOSED;
+        const closeEvent = new CloseEvent("close");
+        this.dispatchEvent(closeEvent);
+        this.onclose?.(closeEvent);
+      }
+
+      send() {}
+    }
+
+    window.WebSocket = MockWebSocket as unknown as typeof WebSocket;
   });
 
   await page.route("**/*", async (route) => {
@@ -249,44 +293,9 @@ async function mockPatchPilotApi(
       return;
     }
 
-    if (path === "/api/workspaces/ws_1/commands" && method === "POST") {
-      await json(route, commandRecord("cmd_2", "queued"));
-      return;
-    }
-
-    if (path === "/api/workspaces/ws_1/processes" && method === "GET") {
-      await json(route, { processes: [commandRecord("cmd_1", "exited")] });
-      return;
-    }
-
-    if (path === "/api/workspaces/ws_1/processes/cmd_1" && method === "GET") {
+    if (path === "/api/workspaces/ws_1/terminal/sessions" && method === "GET") {
       await json(route, {
-        command: commandRecord("cmd_1", "exited"),
-        output: [
-          {
-            chunk: "tests passed\n",
-            commandId: "cmd_1",
-            createdAt: "2026-05-20T00:00:01Z",
-            id: "out_1",
-            stream: "stdout",
-          },
-        ],
-      });
-      return;
-    }
-
-    if (path === "/api/workspaces/ws_1/processes/cmd_2" && method === "GET") {
-      await json(route, {
-        command: commandRecord("cmd_2", "exited"),
-        output: [
-          {
-            chunk: "tests passed\n",
-            commandId: "cmd_2",
-            createdAt: "2026-05-20T00:00:01Z",
-            id: "out_2",
-            stream: "stdout",
-          },
-        ],
+        sessions: [terminalSession("term_1", "Dev shell", "open")],
       });
       return;
     }
@@ -351,17 +360,23 @@ async function json(route: Route, body: unknown, status = 200) {
   });
 }
 
-function commandRecord(id: string, status: "queued" | "exited") {
+function terminalSession(
+  id: string,
+  title: string,
+  status: "open" | "closed" | "failed",
+) {
   return {
-    command: "pnpm --dir web test",
+    closedAt: status === "open" ? null : "2026-05-20T00:00:02Z",
+    cols: 80,
     createdAt: "2026-05-20T00:00:00Z",
     cwd: "/workspace/patchpilot",
-    durationMs: status === "exited" ? 1200 : null,
-    exitCode: status === "exited" ? 0 : null,
-    finishedAt: status === "exited" ? "2026-05-20T00:00:02Z" : null,
+    exitCode: status === "open" ? null : 0,
     id,
-    startedAt: "2026-05-20T00:00:00Z",
+    pid: status === "open" ? 123 : null,
+    rows: 24,
     status,
+    title,
+    updatedAt: "2026-05-20T00:00:00Z",
     workspaceId: "ws_1",
   };
 }
@@ -376,7 +391,7 @@ function previewPort(status: "detected" | "exposed") {
       status === "exposed" ? "/workspaces/ws_1/ports/5173/proxy/" : null,
     id: "port_5173",
     port: 5173,
-    processId: "cmd_1",
+    processId: "term_1",
     status,
     updatedAt: "2026-05-20T00:00:00Z",
     workspaceId: "ws_1",

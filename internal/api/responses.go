@@ -71,6 +71,21 @@ type portResponse struct {
 	ClosedAt    *time.Time `json:"closedAt"`
 }
 
+type terminalSessionResponse struct {
+	ID          string     `json:"id"`
+	WorkspaceID string     `json:"workspaceId"`
+	Title       string     `json:"title"`
+	Cwd         string     `json:"cwd"`
+	Status      string     `json:"status"`
+	PID         *int       `json:"pid"`
+	Rows        int        `json:"rows"`
+	Cols        int        `json:"cols"`
+	ExitCode    *int       `json:"exitCode"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	ClosedAt    *time.Time `json:"closedAt"`
+}
+
 func conversationResponseFromRecord(record database.ConversationRecord) conversationResponse {
 	return conversationResponse{
 		ID:            record.ID,
@@ -131,6 +146,31 @@ func outputResponsesFromRecords(records []database.CommandOutputRecord) []comman
 		output = append(output, outputResponseFromRecord(record))
 	}
 	return output
+}
+
+func terminalSessionResponseFromRecord(record database.TerminalSessionRecord) terminalSessionResponse {
+	return terminalSessionResponse{
+		ID:          record.ID,
+		WorkspaceID: record.WorkspaceID,
+		Title:       record.Title,
+		Cwd:         record.Cwd,
+		Status:      record.Status,
+		PID:         record.PID,
+		Rows:        record.Rows,
+		Cols:        record.Cols,
+		ExitCode:    record.ExitCode,
+		CreatedAt:   record.CreatedAt,
+		UpdatedAt:   record.UpdatedAt,
+		ClosedAt:    record.ClosedAt,
+	}
+}
+
+func terminalSessionResponsesFromRecords(records []database.TerminalSessionRecord) []terminalSessionResponse {
+	sessions := make([]terminalSessionResponse, 0, len(records))
+	for _, record := range records {
+		sessions = append(sessions, terminalSessionResponseFromRecord(record))
+	}
+	return sessions
 }
 
 func (s *Server) portResponseFromRecord(r *http.Request, record database.PortRecord) portResponse {

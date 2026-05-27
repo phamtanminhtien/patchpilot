@@ -16,12 +16,13 @@ flowchart TB
   User --> FE
   FE -->|"REST JSON"| BE
   FE -->|"SSE events"| BE
+  FE -->|"Terminal WebSocket"| BE
   BE --> DB
   BE --> Repo
   DB --> AppData
 ```
 
-PatchPilot is a single-user, self-hosted app. Browser UI talks to the Go backend through REST and SSE. SQLite stores PatchPilot metadata. Workspace files remain in their Git repo.
+PatchPilot is a single-user, self-hosted app. Browser UI talks to the Go backend through REST, SSE, and a terminal-only WebSocket bridge. SQLite stores PatchPilot metadata. Workspace files remain in their Git repo.
 
 ## Backend
 
@@ -33,7 +34,8 @@ flowchart TB
   Agent["Agent runs"]
   Skills["Skills"]
   MCP["MCP bridge"]
-  Runner["Command runner"]
+  Runner["Agent command runner"]
+  Terminal["Workspace terminal"]
   Git["Git adapter"]
   Files["File service"]
   Ports["Port proxy"]
@@ -47,6 +49,7 @@ flowchart TB
   API --> Skills
   API --> MCP
   API --> Runner
+  API --> Terminal
   API --> Git
   API --> Files
   API --> Ports
@@ -56,6 +59,7 @@ flowchart TB
   Workspace --> DB
   Agent --> DB
   Runner --> DB
+  Terminal --> DB
   Ports --> DB
   Events --> DB
 
@@ -66,9 +70,11 @@ flowchart TB
   Agent --> Skills
   Agent --> MCP
   Runner --> Repo
+  Terminal --> Repo
   Git --> Repo
   Files --> Repo
   Ports --> Runner
+  Ports --> Terminal
 ```
 
 Modules:
@@ -80,13 +86,14 @@ Modules:
 - `internal/workspace`: allowed workspace validation and metadata.
 - `internal/filestore`: safe workspace file access.
 - `internal/gitrepo`: Git status, diff, commit operations.
-- `internal/runner`: workspace-root command execution.
+- `internal/runner`: agent-owned workspace-root command execution.
+- `internal/terminal`: Workspace PTY terminal sessions and WebSocket bridge.
 - `internal/skills`: local skill registry, `SKILL.md` indexing, bounded skill context.
 - `internal/mcp`: local MCP server config discovery and backend-only tool metadata.
 - `internal/ports`: same-host listener scanning and preview proxy support.
-- `internal/events`: SSE fan-out for command lifecycle/output.
+- `internal/events`: SSE fan-out for workspace, terminal metadata, Git, port, and agent events.
 
-Command runner flow: create durable record before process start, run without shell at workspace root, append stdout/stderr chunks to SQLite, publish `process.started`, `command.output`, `process.exited`, and replay latest retained output to SSE clients.
+Workspace terminal flow: create session metadata, start a PTY shell at workspace root, bridge input/output/resize over the terminal WebSocket, keep only a bounded in-memory replay buffer, publish terminal session metadata events over SSE, and close sessions on user action or backend shutdown. Agent `run_command` remains separate in `internal/runner` and executes without a shell.
 
 ## Frontend
 
@@ -118,7 +125,7 @@ Modules:
 
 - `web/src/app`: shell, routes, theme, default routing.
 - `web/src/features/vibe`: conversation chat, agent cockpit, run activity, tool approval.
-- `web/src/features/workspace`: files, Git, commands, preview tools.
+- `web/src/features/workspace`: files, Git, terminal, preview tools.
 - `web/src/shared/api`: typed API functions over shared Axios client.
 - `web/src/shared/ui`: reusable UI primitives.
 - `web/src/shared/styles`: global Tailwind theme/CSS.
@@ -139,8 +146,9 @@ flowchart LR
   Repo --> Git
 ```
 
-SQLite stores conversations, messages, agent runs/events/tool calls, command
-records/output, ports, and Git snapshots. `AGENTS.md` is read directly from
+SQLite stores conversations, messages, agent runs/events/tool calls, terminal
+session metadata, ports, and Git snapshots. Legacy command tables may remain on
+upgraded installs but are not exposed through Workspace APIs. `AGENTS.md` is read directly from
 workspace filesystem on context refresh/run creation. `~/.patchpilot/config.json`
 plus filesystem skill discovery remain source of truth for Skills/MCP lists; v0.3
 derives those lists at runtime instead of persisting them. Conversations persist
