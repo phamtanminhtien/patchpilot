@@ -80,6 +80,22 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --pp-font-terminal:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --pp-code-atom: #7c3aed;
+  --pp-code-bool: #b45309;
+  --pp-code-comment: #64748b;
+  --pp-code-def: #0369a1;
+  --pp-code-keyword: #b91c1c;
+  --pp-code-link: #047857;
+  --pp-code-literal: #b45309;
+  --pp-code-meta: #475569;
+  --pp-code-number: #a16207;
+  --pp-code-operator: #64748b;
+  --pp-code-property: #0f766e;
+  --pp-code-punctuation: #64748b;
+  --pp-code-string: #047857;
+  --pp-code-tag: #be123c;
+  --pp-code-type: #6d28d9;
+  --pp-code-variable: #1d4ed8;
 }
 
 [data-theme="dark"] {
@@ -106,6 +122,22 @@
   --pp-color-success: #34d399;
   --pp-color-warning: #fbbf24;
   --pp-color-danger: #f87171;
+  --pp-code-atom: #c084fc;
+  --pp-code-bool: #fbbf24;
+  --pp-code-comment: #94a3b8;
+  --pp-code-def: #7dd3fc;
+  --pp-code-keyword: #fda4af;
+  --pp-code-link: #86efac;
+  --pp-code-literal: #fcd34d;
+  --pp-code-meta: #cbd5e1;
+  --pp-code-number: #fde68a;
+  --pp-code-operator: #cbd5e1;
+  --pp-code-property: #5eead4;
+  --pp-code-punctuation: #cbd5e1;
+  --pp-code-string: #86efac;
+  --pp-code-tag: #fb7185;
+  --pp-code-type: #d8b4fe;
+  --pp-code-variable: #93c5fd;
   --pp-shadow-sm:
     0 1px 2px 0 rgb(0 0 0 / 0.24), 0 1px 0 0 rgb(255 255 255 / 0.04) inset;
   --pp-shadow-md:
@@ -137,6 +169,22 @@
     --pp-color-success: #34d399;
     --pp-color-warning: #fbbf24;
     --pp-color-danger: #f87171;
+    --pp-code-atom: #c084fc;
+    --pp-code-bool: #fbbf24;
+    --pp-code-comment: #94a3b8;
+    --pp-code-def: #7dd3fc;
+    --pp-code-keyword: #fda4af;
+    --pp-code-link: #86efac;
+    --pp-code-literal: #fcd34d;
+    --pp-code-meta: #cbd5e1;
+    --pp-code-number: #fde68a;
+    --pp-code-operator: #cbd5e1;
+    --pp-code-property: #5eead4;
+    --pp-code-punctuation: #cbd5e1;
+    --pp-code-string: #86efac;
+    --pp-code-tag: #fb7185;
+    --pp-code-type: #d8b4fe;
+    --pp-code-variable: #93c5fd;
     --pp-shadow-sm:
       0 1px 2px 0 rgb(0 0 0 / 0.24), 0 1px 0 0 rgb(255 255 255 / 0.04) inset;
     --pp-shadow-md:

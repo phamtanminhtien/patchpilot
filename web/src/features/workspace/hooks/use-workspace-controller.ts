@@ -81,9 +81,17 @@ export function useWorkspaceController({
     workspaceId: "",
   });
   const commitMessage = useWorkspaceUiStore((state) => state.commitMessage);
+  const closeEditorTab = useWorkspaceUiStore((state) => state.closeEditorTab);
+  const editorSessions = useWorkspaceUiStore((state) => state.editorSessions);
+  const markEditorFileSaved = useWorkspaceUiStore(
+    (state) => state.markEditorFileSaved,
+  );
+  const openEditorTab = useWorkspaceUiStore((state) => state.openEditorTab);
+  const setEditorDraft = useWorkspaceUiStore((state) => state.setEditorDraft);
   const setCommitMessage = useWorkspaceUiStore(
     (state) => state.setCommitMessage,
   );
+  const syncEditorFile = useWorkspaceUiStore((state) => state.syncEditorFile);
   const resetStarterState = useWorkspaceUiStore(
     (state) => state.resetStarterState,
   );
@@ -286,13 +294,14 @@ export function useWorkspaceController({
   });
 
   const writeFileMutation = useMutation({
-    mutationFn: (content: string) =>
-      writeFile(workspaceId, { content, path: selectedPath }),
+    mutationFn: ({ content, path }: { content: string; path: string }) =>
+      writeFile(workspaceId, { content, path }),
     onSuccess: (file) => {
       queryClient.setQueryData(
         ["workspace-file", workspaceId, file.path],
         file,
       );
+      markEditorFileSaved(workspaceId, file.path, file.content);
       void queryClient.invalidateQueries({
         queryKey: ["workspace-file-index", workspaceId],
       });
@@ -319,6 +328,17 @@ export function useWorkspaceController({
   useEffect(() => {
     resetWriteFileMutation();
   }, [resetWriteFileMutation, selectedPath]);
+
+  useEffect(() => {
+    if (
+      workspaceId.length === 0 ||
+      selectedPath.length === 0 ||
+      fileQuery.data === undefined
+    ) {
+      return;
+    }
+    syncEditorFile(workspaceId, fileQuery.data.path, fileQuery.data.content);
+  }, [fileQuery.data, selectedPath, syncEditorFile, workspaceId]);
 
   const handleWorkspaceEvent = useCallback(
     (event: WorkspaceEvent) => {
@@ -360,7 +380,22 @@ export function useWorkspaceController({
   }
 
   function handlePathSelect(path: string) {
+    openEditorTab(workspaceId, path);
     void setSelectedPath(path);
+  }
+
+  function handleEditorTabClose(path: string) {
+    const session = editorSessions[workspaceId];
+    const openTabs = session?.openTabs ?? [];
+    const closingIndex = openTabs.indexOf(path);
+    const remainingTabs = openTabs.filter((tabPath) => tabPath !== path);
+    closeEditorTab(workspaceId, path);
+
+    if (path === selectedPath) {
+      const nextPath =
+        remainingTabs[Math.min(closingIndex, remainingTabs.length - 1)] ?? "";
+      void setSelectedPath(nextPath);
+    }
   }
 
   function handleFileSearchQueryChange(query: string) {
@@ -415,6 +450,30 @@ export function useWorkspaceController({
     commitMutation.mutate(stagedGitPaths);
   }
 
+  function handleFileSave(path: string, content: string) {
+    if (path.length === 0 || writeFileMutation.isPending) {
+      return;
+    }
+    writeFileMutation.mutate({ content, path });
+  }
+
+  function handleFileSaveAll() {
+    if (writeFileMutation.isPending) {
+      return;
+    }
+    const session = editorSessions[workspaceId];
+    if (!session) {
+      return;
+    }
+    for (const path of session.openTabs) {
+      const draft = session.drafts[path];
+      const source = session.sources[path];
+      if (draft !== undefined && source !== undefined && draft !== source) {
+        writeFileMutation.mutate({ content: draft, path });
+      }
+    }
+  }
+
   function handleTerminalCreate() {
     if (createTerminalMutation.isPending) {
       return;
@@ -439,6 +498,23 @@ export function useWorkspaceController({
     }
     closeTerminalMutation.mutate(sessionId);
   }
+
+  const editorSession = editorSessions[workspaceId] ?? {
+    drafts: {},
+    openTabs: [],
+    sources: {},
+  };
+  const dirtyPaths = editorSession.openTabs.filter((path) => {
+    const draft = editorSession.drafts[path];
+    const source = editorSession.sources[path];
+    return draft !== undefined && source !== undefined && draft !== source;
+  });
+  const activeDraft = selectedPath
+    ? (editorSession.drafts[selectedPath] ?? fileQuery.data?.content ?? "")
+    : "";
+  const activeSource = selectedPath
+    ? (editorSession.sources[selectedPath] ?? fileQuery.data?.content ?? "")
+    : "";
 
   return {
     terminal: {
@@ -468,13 +544,22 @@ export function useWorkspaceController({
       error: filesQuery.error ? apiErrorMessage(filesQuery.error) : undefined,
       file: fileQuery.data?.content,
       fileError: fileQuery.error ? apiErrorMessage(fileQuery.error) : undefined,
+      activeDraft,
+      activeSource,
+      dirtyPaths,
       isFileLoading: fileQuery.isPending,
       isLoading: filesQuery.isPending,
       isRefreshing: refreshFilesMutation.isPending,
       isSaving: writeFileMutation.isPending,
+      openTabs: editorSession.openTabs,
+      onCloseTab: handleEditorTabClose,
+      onDraftChange: (path: string, content: string) =>
+        setEditorDraft(workspaceId, path, content),
       onRefresh: () => refreshFilesMutation.mutate(),
-      onSave: (content: string) => writeFileMutation.mutate(content),
+      onSave: handleFileSave,
+      onSaveAll: handleFileSaveAll,
       onSearchQueryChange: handleFileSearchQueryChange,
+      onSelectTab: handlePathSelect,
       saveError: writeFileMutation.error
         ? apiErrorMessage(writeFileMutation.error)
         : undefined,

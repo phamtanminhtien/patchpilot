@@ -1,42 +1,64 @@
-import { Edit3, Files, Loader2, Save, X } from "lucide-react";
-import { useState } from "react";
+import { Circle, Files, Loader2, Save, SaveAll, X } from "lucide-react";
+import { useRef, useState } from "react";
 
-import { Button } from "@/shared/ui";
+import {
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogRoot,
+  AlertDialogTitle,
+  Button,
+  cn,
+} from "@/shared/ui";
 
 import { ErrorState } from "../components/error-state";
 import { LoadingState } from "../components/loading-state";
 import { MainEmptyState } from "../components/main-empty-state";
+import { CodeEditor } from "./code-editor";
 
 export function FilesPanel({
+  activeDraft,
+  dirtyPaths,
   file,
   fileError,
   isLoading,
   isSaving,
+  onCloseTab,
+  onDraftChange,
   onSave,
+  onSaveAll,
+  onSelectTab,
+  openTabs,
   saveError,
   selectedPath,
 }: {
+  activeDraft: string;
+  dirtyPaths: string[];
   file?: string;
   fileError?: string;
   isLoading: boolean;
   isSaving: boolean;
-  onSave: (content: string) => void;
+  onCloseTab: (path: string) => void;
+  onDraftChange: (path: string, content: string) => void;
+  onSave: (path: string, content: string) => void;
+  onSaveAll: () => void;
+  onSelectTab: (path: string) => void;
+  openTabs: string[];
   saveError?: string;
   selectedPath: string;
 }) {
-  const fileSource = file ?? "";
-  const [editState, setEditState] = useState({
-    draft: "",
-    isEditing: false,
-    path: "",
-    source: "",
-  });
-  const isEditStateCurrent =
-    editState.path === selectedPath && editState.source === fileSource;
-  const draft = isEditStateCurrent ? editState.draft : fileSource;
-  const isEditing = isEditStateCurrent ? editState.isEditing : false;
+  const closeCandidateRef = useRef("");
+  const [closeCandidate, setCloseCandidate] = useState("");
+  const dirtyPathSet = new Set(dirtyPaths);
+  const isActiveDirty =
+    selectedPath.length > 0 && dirtyPathSet.has(selectedPath);
+  const hasDirtyTabs = dirtyPaths.length > 0;
+  const lineSummary = file ? `${lineCount(file)} lines` : "Text file";
 
-  if (selectedPath.length === 0) {
+  if (selectedPath.length === 0 && openTabs.length === 0) {
     return (
       <MainEmptyState
         icon={<Files aria-hidden="true" className="size-6" />}
@@ -46,101 +68,145 @@ export function FilesPanel({
     );
   }
 
+  function requestTabClose(path: string) {
+    if (dirtyPathSet.has(path)) {
+      closeCandidateRef.current = path;
+      setCloseCandidate(path);
+      return;
+    }
+    onCloseTab(path);
+  }
+
   return (
-    <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+    <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)]">
       <div className="border-line/35 bg-surface flex min-h-9 min-w-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-ink min-w-0 truncate text-xs font-semibold">
-          {selectedPath}
+          {selectedPath || "Workspace editor"}
         </span>
         <div className="flex shrink-0 items-center gap-1">
-          <span className="text-muted text-xs">
-            {file ? `${lineCount(file)} lines` : "Text file"}
-          </span>
-          {fileError || isLoading || file === undefined ? null : isEditing ? (
-            <>
-              <Button
-                aria-label="Cancel file edit"
-                icon={<X />}
-                onClick={() => {
-                  setEditState({
-                    draft: fileSource,
-                    isEditing: false,
-                    path: selectedPath,
-                    source: fileSource,
-                  });
-                }}
-                size="icon"
-                type="button"
-                variant="action"
-              />
-              <Button
-                aria-label="Save file"
-                disabled={
-                  draft === file || isSaving || selectedPath.length === 0
-                }
-                icon={
-                  isSaving ? <Loader2 className="animate-spin" /> : <Save />
-                }
-                onClick={() => onSave(draft)}
-                size="icon"
-                type="button"
-                variant="action"
-              />
-            </>
-          ) : (
-            <Button
-              aria-label="Edit file"
-              icon={<Edit3 />}
-              onClick={() =>
-                setEditState({
-                  draft: fileSource,
-                  isEditing: true,
-                  path: selectedPath,
-                  source: fileSource,
-                })
-              }
-              size="icon"
-              type="button"
-              variant="action"
-            />
-          )}
+          <span className="text-muted text-xs">{lineSummary}</span>
+          <Button
+            aria-label="Save file"
+            disabled={!isActiveDirty || isSaving || selectedPath.length === 0}
+            icon={isSaving ? <Loader2 className="animate-spin" /> : <Save />}
+            onClick={() => onSave(selectedPath, activeDraft)}
+            size="icon"
+            type="button"
+            variant="action"
+          />
+          <Button
+            aria-label="Save all files"
+            disabled={!hasDirtyTabs || isSaving}
+            icon={isSaving ? <Loader2 className="animate-spin" /> : <SaveAll />}
+            onClick={onSaveAll}
+            size="icon"
+            type="button"
+            variant="action"
+          />
         </div>
+      </div>
+
+      <div className="border-line/35 bg-panel flex min-h-7 min-w-0 items-end gap-1 overflow-x-auto border-b px-1 pt-1">
+        {openTabs.map((path) => {
+          const isActive = path === selectedPath;
+          const isDirty = dirtyPathSet.has(path);
+
+          return (
+            <div
+              className={cn(
+                "border-line/45 flex h-7 max-w-64 min-w-0 items-center gap-1 rounded-t-md border border-b-0 px-2",
+                isActive ? "bg-raised text-ink" : "bg-surface/70 text-muted",
+              )}
+              key={path}
+            >
+              <button
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-xs"
+                onClick={() => onSelectTab(path)}
+                type="button"
+              >
+                {isDirty ? (
+                  <Circle
+                    aria-hidden="true"
+                    className="size-2 shrink-0 fill-current"
+                  />
+                ) : null}
+                <span className="min-w-0 truncate">{fileName(path)}</span>
+              </button>
+              <Button
+                aria-label={`Close ${path}`}
+                icon={<X />}
+                onClick={() => requestTabClose(path)}
+                size="icon"
+                type="button"
+                variant="action"
+              />
+            </div>
+          );
+        })}
       </div>
 
       {fileError ? (
         <ErrorState className="p-3" message={fileError} />
       ) : isLoading ? (
         <LoadingState className="p-3" label="Loading file" />
-      ) : isEditing ? (
+      ) : selectedPath.length === 0 ? (
+        <MainEmptyState
+          icon={<Files aria-hidden="true" className="size-6" />}
+          message="Open a file tab to begin editing."
+          title="No active tab"
+        />
+      ) : (
         <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]">
-          <label className="sr-only" htmlFor="workspace-file-editor">
-            File content
-          </label>
-          <textarea
-            className="workspace-main-scroll bg-panel text-ink h-full min-h-0 resize-none overflow-auto p-3 font-mono text-xs leading-5 whitespace-pre focus-visible:!outline-none"
-            id="workspace-file-editor"
-            onChange={(event) =>
-              setEditState({
-                draft: event.target.value,
-                isEditing: true,
-                path: selectedPath,
-                source: fileSource,
-              })
-            }
-            spellCheck={false}
-            value={draft}
+          <CodeEditor
+            ariaLabel="File content"
+            className="h-full"
+            onChange={(content) => onDraftChange(selectedPath, content)}
+            onSave={() => onSave(selectedPath, activeDraft)}
+            path={selectedPath}
+            value={activeDraft}
           />
           {saveError ? (
             <ErrorState className="p-3" message={saveError} />
           ) : null}
         </div>
-      ) : (
-        <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-3 font-mono text-xs leading-5 break-words whitespace-pre-wrap">
-          {file ?? "File content will appear here."}
-        </pre>
       )}
+
+      <AlertDialogRoot
+        onOpenChange={(open) => {
+          if (!open) {
+            setCloseCandidate("");
+          }
+        }}
+        open={closeCandidate.length > 0}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close unsaved file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {closeCandidate} has unsaved edits. Closing the tab will discard
+              the draft.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onCloseTab(closeCandidateRef.current || closeCandidate);
+                closeCandidateRef.current = "";
+                setCloseCandidate("");
+              }}
+            >
+              Close tab
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialogRoot>
     </div>
   );
+}
+
+function fileName(path: string) {
+  return path.split("/").pop() ?? path;
 }
 
 function lineCount(content: string) {

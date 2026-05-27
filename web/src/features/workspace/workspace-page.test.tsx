@@ -38,6 +38,7 @@ import {
   writeFile,
 } from "@/shared/api";
 
+import { useWorkspaceUiStore } from "./hooks/use-workspace-ui-store";
 import { WorkspacePage } from "./workspace-page";
 
 const queryState = vi.hoisted(() => new Map<string, string>());
@@ -71,6 +72,39 @@ vi.mock("@/shared/api", () => ({
   unstageGitFiles: vi.fn(),
   writeFile: vi.fn(),
 }));
+
+vi.mock("./panels/code-editor", async () => {
+  const React = await vi.importActual<typeof ReactModule>("react");
+
+  return {
+    CodeEditor: ({
+      ariaLabel,
+      onChange,
+      onSave,
+      value,
+    }: {
+      ariaLabel: string;
+      onChange: (value: string) => void;
+      onSave: () => void;
+      value: string;
+    }) =>
+      React.createElement("textarea", {
+        "aria-label": ariaLabel,
+        onChange: (event: ReactModule.ChangeEvent<HTMLTextAreaElement>) =>
+          onChange(event.target.value),
+        onKeyDown: (event: ReactModule.KeyboardEvent<HTMLTextAreaElement>) => {
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            event.key.toLowerCase() === "s"
+          ) {
+            event.preventDefault();
+            onSave();
+          }
+        },
+        value,
+      }),
+  };
+});
 
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
@@ -201,10 +235,15 @@ describe("WorkspacePage", () => {
         },
       ],
     });
-    vi.mocked(readFile).mockResolvedValue({
-      content: "export function App() {\n  return null;\n}",
-      path: "web/src/app.tsx",
-    });
+    vi.mocked(readFile).mockImplementation((_workspaceId, path) =>
+      Promise.resolve({
+        content:
+          path === "web/src/features/workspace-page.tsx"
+            ? "export function WorkspacePage() {\n  return null;\n}"
+            : "export function App() {\n  return null;\n}",
+        path,
+      }),
+    );
     vi.mocked(searchFiles).mockResolvedValue({
       results: [
         {
@@ -220,10 +259,12 @@ describe("WorkspacePage", () => {
         },
       ],
     });
-    vi.mocked(writeFile).mockResolvedValue({
-      content: "export function App() {\n  return true;\n}",
-      path: "web/src/app.tsx",
-    });
+    vi.mocked(writeFile).mockImplementation((_workspaceId, request) =>
+      Promise.resolve({
+        content: request.content,
+        path: request.path,
+      }),
+    );
     vi.mocked(getGitStatus).mockResolvedValue({
       porcelain: " M web/src/app.tsx\n?? scratch.md\n!! dist/",
     });
@@ -310,12 +351,10 @@ describe("WorkspacePage", () => {
     );
 
     expect(readFile).toHaveBeenCalledWith("ws_1", "web/src/app.tsx");
-    expect(
-      await screen.findByText(/export function App\(\)/),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/export function App\(\)/).closest("pre"),
-    ).toHaveClass("h-full", "min-h-0", "overflow-auto");
+    expect(await screen.findByLabelText("File content")).toHaveValue(
+      "export function App() {\n  return null;\n}",
+    );
+    expect(screen.getAllByText("app.tsx").length).toBeGreaterThan(0);
   });
 
   it("refreshes the recursive file index manually", async () => {
@@ -387,21 +426,16 @@ describe("WorkspacePage", () => {
   });
 
   it("edits and saves a selected text file", async () => {
-    const user = userEvent.setup();
     renderWorkspace(
       "/workspace?workspaceId=ws_1&panel=files&path=web/src/app.tsx",
     );
 
-    expect(
-      await screen.findByText(/export function App\(\)/),
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Edit file" }));
-
-    const editor = screen.getByLabelText("File content");
+    const editor = await screen.findByLabelText("File content");
+    expect(editor).toHaveValue("export function App() {\n  return null;\n}");
     fireEvent.change(editor, {
       target: { value: "export function App() {\n  return true;\n}" },
     });
-    await user.click(screen.getByRole("button", { name: "Save file" }));
+    fireEvent.keyDown(editor, { ctrlKey: true, key: "s" });
 
     await waitFor(() => {
       expect(writeFile).toHaveBeenCalledWith("ws_1", {
@@ -409,28 +443,89 @@ describe("WorkspacePage", () => {
         path: "web/src/app.tsx",
       });
     });
-    expect(await screen.findByText(/return true/)).toBeInTheDocument();
+    expect(await screen.findByLabelText("File content")).toHaveValue(
+      "export function App() {\n  return true;\n}",
+    );
   });
 
   it("shows save rejection and keeps edited content", async () => {
-    const user = userEvent.setup();
     vi.mocked(writeFile).mockRejectedValue(new Error("File is too large"));
     renderWorkspace(
       "/workspace?workspaceId=ws_1&panel=files&path=web/src/app.tsx",
     );
 
-    await screen.findByText(/export function App\(\)/);
-    await user.click(screen.getByRole("button", { name: "Edit file" }));
-    const editor = screen.getByLabelText("File content");
+    const editor = await screen.findByLabelText("File content");
     fireEvent.change(editor, {
       target: { value: "oversized content" },
     });
-    await user.click(screen.getByRole("button", { name: "Save file" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save file" }));
 
     expect(await screen.findByText("File is too large")).toBeInTheDocument();
     expect(screen.getByLabelText("File content")).toHaveValue(
       "oversized content",
     );
+  });
+
+  it("confirms before closing a dirty editor tab", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(
+      "/workspace?workspaceId=ws_1&panel=files&path=web/src/app.tsx",
+    );
+
+    const editor = await screen.findByLabelText("File content");
+    fireEvent.change(editor, {
+      target: { value: "export function App() {\n  return true;\n}" },
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Close web/src/app.tsx" }),
+    );
+
+    expect(await screen.findByText("Close unsaved file?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("File content")).toHaveValue(
+      "export function App() {\n  return true;\n}",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Close web/src/app.tsx" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Close tab" }));
+
+    expect(await screen.findByText("No file selected")).toBeInTheDocument();
+  });
+
+  it("saves all dirty editor tabs", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(
+      "/workspace?workspaceId=ws_1&panel=files&path=web/src/app.tsx",
+    );
+
+    fireEvent.change(await screen.findByLabelText("File content"), {
+      target: { value: "export function App() {\n  return true;\n}" },
+    });
+    await user.click(await screen.findByRole("treeitem", { name: "web" }));
+    await user.click(await screen.findByRole("treeitem", { name: "src" }));
+    await user.click(await screen.findByRole("treeitem", { name: "features" }));
+    await user.click(
+      await screen.findByRole("treeitem", { name: /workspace-page\.tsx/i }),
+    );
+    fireEvent.change(await screen.findByLabelText("File content"), {
+      target: {
+        value: "export function WorkspacePage() {\n  return true;\n}",
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Save all files" }));
+
+    await waitFor(() => {
+      expect(writeFile).toHaveBeenCalledWith("ws_1", {
+        content: "export function App() {\n  return true;\n}",
+        path: "web/src/app.tsx",
+      });
+      expect(writeFile).toHaveBeenCalledWith("ws_1", {
+        content: "export function WorkspacePage() {\n  return true;\n}",
+        path: "web/src/features/workspace-page.tsx",
+      });
+    });
   });
 
   it("shows interactive file details that can copy paths", async () => {
@@ -747,6 +842,11 @@ describe("WorkspacePage", () => {
 
 function renderWorkspace(initialEntry: string) {
   queryState.clear();
+  useWorkspaceUiStore.setState({
+    commitMessage: "",
+    editorSessions: {},
+    starterRootPath: "",
+  });
   const url = new URL(initialEntry, "http://localhost");
   for (const key of ["workspaceId", "panel", "path"]) {
     const value = url.searchParams.get(key);
