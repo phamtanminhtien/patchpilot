@@ -32,7 +32,7 @@ export function HoverCard({
           align="start"
           avoidCollisions
           className={cn(
-            "bg-panel border-line z-50 rounded-md border p-2 text-xs shadow-lg",
+            "bg-panel z-50 rounded-xl p-2 text-xs",
             contentClassName,
           )}
           collisionPadding={8}

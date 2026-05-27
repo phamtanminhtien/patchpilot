@@ -25,7 +25,7 @@ export function WorkspaceBottomPanel({
   workspaceId: string;
 }) {
   return (
-    <section className="bg-panel border-line min-h-0 overflow-hidden border-t shadow-sm">
+    <section className="border-line/45 bg-panel min-h-0 overflow-hidden border-t">
       <TerminalPanel
         activeSession={terminal.activeSession}
         activeSessionId={terminal.activeSessionId}

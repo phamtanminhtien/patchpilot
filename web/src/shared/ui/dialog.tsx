@@ -18,7 +18,7 @@ export const DialogOverlay = forwardRef<
   return (
     <RadixDialog.Overlay
       className={cn(
-        "bg-canvas/70 fixed inset-0 z-50 backdrop-blur-sm data-[state=closed]:hidden",
+        "bg-canvas/35 fixed inset-0 z-50 backdrop-blur-[2px] data-[state=closed]:hidden",
         className,
       )}
       ref={ref}
@@ -41,7 +41,7 @@ export const DialogContent = forwardRef<
       <DialogOverlay />
       <RadixDialog.Content
         className={cn(
-          "bg-panel text-ink fixed top-1/2 left-1/2 z-50 grid max-h-[min(36rem,calc(100vh-2rem))] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-auto rounded-md p-4 shadow-md data-[state=closed]:hidden",
+          "bg-panel text-ink fixed top-1/2 left-1/2 z-50 grid max-h-[min(36rem,calc(100vh-2rem))] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-auto rounded-xl p-4 data-[state=closed]:hidden",
           className,
         )}
         ref={ref}
@@ -56,7 +56,7 @@ export const DialogContent = forwardRef<
               icon={<X />}
               size="icon"
               type="button"
-              variant="surface"
+              variant="action"
             />
           </RadixDialog.Close>
         ) : null}

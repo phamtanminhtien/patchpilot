@@ -672,6 +672,17 @@ describe("WorkspacePage", () => {
 
   it("creates, renames, and closes terminal sessions", async () => {
     const user = userEvent.setup();
+    vi.mocked(patchTerminalSession).mockResolvedValueOnce(
+      terminalSession({ id: "term_2", title: "Renamed shell" }),
+    );
+    vi.mocked(closeTerminalSession).mockResolvedValueOnce(
+      terminalSession({
+        closedAt: "2026-05-20T00:00:01Z",
+        id: "term_2",
+        status: "closed",
+        title: "Renamed shell",
+      }),
+    );
     renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
 
     expect(await screen.findByText("Dev shell")).toBeInTheDocument();
@@ -679,12 +690,13 @@ describe("WorkspacePage", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.getByLabelText("Session title")).toHaveValue("Dev shell");
-
     await user.click(screen.getByRole("button", { name: "New terminal" }));
     await waitFor(() => {
       expect(createTerminalSession).toHaveBeenCalledWith("ws_1");
     });
+
+    await user.click(screen.getByRole("button", { name: "Rename terminal" }));
+    expect(screen.getByLabelText("Session title")).toHaveValue("Terminal");
 
     fireEvent.change(screen.getByLabelText("Session title"), {
       target: { value: "Renamed shell" },
@@ -696,10 +708,14 @@ describe("WorkspacePage", () => {
       });
     });
 
-    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Close terminal" }));
     await waitFor(() => {
       expect(closeTerminalSession).toHaveBeenCalledWith("ws_1", "term_2");
     });
+    await waitFor(() => {
+      expect(screen.queryByText("Renamed shell")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Dev shell")).toBeInTheDocument();
   });
 
   it("shows preview ports and exposes detected ports from the main panel", async () => {

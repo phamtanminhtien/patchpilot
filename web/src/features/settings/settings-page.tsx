@@ -115,13 +115,13 @@ export function SettingsPage() {
       workspaceId={workspaceId}
     >
       <main className="grid h-[calc(100vh-2.5rem)] min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[13rem_minmax(0,1fr)] lg:grid-rows-1">
-        <nav className="bg-panel flex gap-1 overflow-x-auto px-2 py-2 shadow-sm lg:grid lg:min-h-0 lg:content-start lg:overflow-auto">
+        <nav className="bg-panel flex gap-1 overflow-x-auto px-2 py-2 lg:grid lg:min-h-0 lg:content-start lg:overflow-auto">
           {categories.map((item) => (
             <button
               className={cn(
-                "text-muted hover:bg-hover hover:text-ink min-h-touch inline-flex min-w-28 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition lg:justify-start",
+                "text-muted hover:bg-hover hover:text-ink inline-flex min-h-9 min-w-28 items-center justify-center gap-2 rounded-xl px-3 text-sm font-medium transition lg:justify-start",
                 activeCategory === item.id
-                  ? "bg-accent-soft text-accent shadow-sm"
+                  ? "bg-accent-soft text-accent"
                   : undefined,
               )}
               key={item.id}
@@ -303,7 +303,7 @@ function FontSelect({
           value={value}
         />
         <input
-          className="bg-panel text-ink focus-visible:outline-focus focus-visible:outline-offset-focus focus-visible:outline-width-focus min-h-9 rounded-md px-2.5 text-xs shadow-sm"
+          className="bg-panel text-ink focus-visible:outline-focus focus-visible:outline-offset-focus focus-visible:outline-width-focus min-h-8 rounded-xl px-2.5 text-xs"
           defaultValue={value}
           key={value}
           onBlur={commitDraft}
@@ -322,7 +322,7 @@ function FontSelect({
 
 function FontPreview({ preferences }: { preferences: SettingsPreferences }) {
   return (
-    <div className="bg-hover grid gap-2 rounded-md p-3 text-sm">
+    <div className="bg-surface grid gap-2 rounded-xl p-3 text-sm">
       <p
         className="text-ink font-semibold"
         style={{ fontFamily: preferences.appFontFamily }}
@@ -367,14 +367,14 @@ function InstalledFonts({ fonts }: { fonts: SettingsFont[] }) {
     <div className="grid gap-3">
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
         <input
-          className="bg-panel text-ink min-h-touch rounded-md px-3 text-sm shadow-sm"
+          className="bg-panel text-ink min-h-9 rounded-xl px-3 text-sm"
           onChange={(event) => setFamily(event.target.value)}
           placeholder="Font family"
           value={family}
         />
         <input
           accept=".woff2,.woff,.ttf,.otf"
-          className="bg-panel text-ink min-h-touch rounded-md px-3 py-2 text-sm shadow-sm"
+          className="bg-panel text-ink min-h-9 rounded-xl px-3 py-1.5 text-sm"
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           type="file"
         />
@@ -400,7 +400,7 @@ function InstalledFonts({ fonts }: { fonts: SettingsFont[] }) {
         {fonts.length ? (
           fonts.map((font) => (
             <div
-              className="bg-hover grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-3"
+              className="hover:bg-hover grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-1"
               key={font.id}
             >
               <div className="min-w-0">
@@ -509,7 +509,7 @@ function SkillsSettings({ workspaceId }: { workspaceId: string }) {
       <div className="grid gap-1">
         {skills.map((skill) => (
           <div
-            className="bg-hover grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-3 py-2"
+            className="hover:bg-hover grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-1 py-2"
             key={skill.key}
           >
             <div className="min-w-0">
@@ -556,7 +556,10 @@ function McpSettings({ workspaceId }: { workspaceId: string }) {
       <div className="grid gap-2">
         {servers.length ? (
           servers.map((server) => (
-            <div className="bg-hover grid gap-2 rounded-md p-3" key={server.id}>
+            <div
+              className="hover:bg-hover grid gap-2 rounded-xl p-2"
+              key={server.id}
+            >
               <div className="flex min-w-0 items-center justify-between gap-2">
                 <p className="text-ink truncate text-sm font-medium">
                   {server.name}
@@ -602,7 +605,7 @@ function ServerSettings({
       <div className="grid gap-1">
         {rows.map(([label, value]) => (
           <div
-            className="bg-hover grid min-h-11 grid-cols-[9rem_minmax(0,1fr)] items-center gap-2 rounded-md px-3"
+            className="hover:bg-hover grid min-h-10 grid-cols-[9rem_minmax(0,1fr)] items-center gap-2 rounded-xl px-1"
             key={label}
           >
             <p className="text-muted text-xs font-semibold uppercase">
@@ -626,7 +629,7 @@ function SettingRow({
   label: string;
 }) {
   return (
-    <label className="bg-hover grid min-w-0 gap-2 rounded-md p-3">
+    <label className="hover:bg-hover grid min-w-0 gap-2 rounded-xl p-3">
       <span className="text-muted text-xs font-semibold uppercase">
         {label}
       </span>

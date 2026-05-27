@@ -40,14 +40,14 @@ export function ContextCockpit({
       <CockpitSection title="Instructions">
         {instructionSources.length ? (
           instructionSources.map((source) => (
-            <div className="grid min-w-0 gap-1" key={source.path}>
+            <div className="grid min-w-0 gap-2 pb-3" key={source.path}>
               <div className="text-ink flex min-w-0 items-center gap-2 text-xs font-medium">
-                <span className="bg-accent-soft text-accent rounded-sm px-1.5 py-0.5">
+                <span className="bg-accent-soft text-accent rounded-xl px-1.5 py-0.5">
                   {source.precedence + 1}
                 </span>
                 <span className="truncate">{source.path}</span>
               </div>
-              <pre className="bg-hover text-muted max-h-28 overflow-auto rounded-sm p-2 text-xs whitespace-pre-wrap">
+              <pre className="bg-surface text-muted max-h-28 overflow-auto rounded-xl p-2 text-xs whitespace-pre-wrap">
                 {source.content}
               </pre>
             </div>
@@ -64,7 +64,7 @@ export function ContextCockpit({
 
             return (
               <div
-                className="flex min-w-0 items-start justify-between gap-3"
+                className="flex min-w-0 items-start justify-between gap-3 rounded-xl px-1 py-2"
                 key={skill.key}
               >
                 <div className="grid min-w-0 gap-1">
@@ -104,7 +104,10 @@ export function ContextCockpit({
       <CockpitSection title="MCP">
         {mcpServers.length ? (
           mcpServers.map((server) => (
-            <div className="grid min-w-0 gap-1" key={server.id}>
+            <div
+              className="grid min-w-0 gap-1 rounded-xl px-1 py-2"
+              key={server.id}
+            >
               <div className="flex min-w-0 items-center gap-2">
                 <span className="text-ink truncate text-sm font-medium">
                   {server.name}
@@ -148,7 +151,9 @@ function CockpitSection({
 }) {
   return (
     <section className="grid min-w-0 gap-2">
-      <h3 className="text-muted text-xs font-semibold uppercase">{title}</h3>
+      <h3 className="text-muted text-xs font-semibold tracking-wide uppercase">
+        {title}
+      </h3>
       <div className="grid min-w-0 gap-3">{children}</div>
     </section>
   );

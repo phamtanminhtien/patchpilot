@@ -22,7 +22,7 @@ export const PopoverContent = forwardRef<
       <RadixPopover.Content
         align={align}
         className={cn(
-          "bg-panel text-ink z-50 grid min-w-48 gap-1 rounded-md p-1 shadow-md data-[state=closed]:hidden",
+          "bg-panel text-ink z-50 grid min-w-48 gap-1 rounded-xl p-1 data-[state=closed]:hidden",
           className,
         )}
         collisionPadding={collisionPadding}

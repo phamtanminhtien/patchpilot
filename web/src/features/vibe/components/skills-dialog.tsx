@@ -45,7 +45,7 @@ export function SkillsDialog({
   return (
     <DialogRoot onOpenChange={onOpenChange} open={isOpen}>
       <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-h-[min(52rem,calc(100vh-2rem))] sm:max-w-6xl">
-        <DialogHeader className="border-line/30 border-b px-5 py-4">
+        <DialogHeader className="px-5 py-4">
           <DialogTitle>Skills</DialogTitle>
           <DialogDescription>
             {context
@@ -89,7 +89,7 @@ export function SkillsDialog({
           </div>
         </div>
 
-        <DialogFooter className="border-line/30 border-t px-5 py-3">
+        <DialogFooter className="px-5 py-3">
           <Button
             disabled={isRefreshing}
             icon={<RefreshCw className={isRefreshing ? "animate-spin" : ""} />}
@@ -123,7 +123,7 @@ function SkillRow({
 
   return (
     <div
-      className="hover:bg-hover data-[selected=true]:bg-hover flex min-h-16 min-w-0 items-center gap-3 rounded-md px-2 py-2 transition"
+      className="hover:bg-hover data-[selected=true]:bg-surface flex min-h-16 min-w-0 items-center gap-3 rounded-xl px-2 py-2 transition"
       data-selected={isSelected}
     >
       <button
@@ -132,7 +132,7 @@ function SkillRow({
         onClick={onSelect}
         type="button"
       >
-        <span className="bg-accent-soft text-accent grid size-9 shrink-0 place-items-center rounded-md">
+        <span className="bg-panel text-accent grid size-8 shrink-0 place-items-center rounded-xl">
           <Puzzle aria-hidden="true" className="size-4" />
         </span>
         <div className="grid min-w-0 flex-1 gap-1">
@@ -166,9 +166,9 @@ function SkillDetail({ skill }: { skill: AgentSkill }) {
   const displayName = skillDisplayName(skill);
 
   return (
-    <section className="bg-hover grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-md p-3">
+    <section className="bg-surface grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-xl p-3">
       <div className="flex min-w-0 items-start gap-3">
-        <span className="bg-accent-soft text-accent grid size-9 shrink-0 place-items-center rounded-md">
+        <span className="bg-panel text-accent grid size-8 shrink-0 place-items-center rounded-xl">
           <BookOpen aria-hidden="true" className="size-4" />
         </span>
         <div className="grid min-w-0 gap-1">
@@ -187,7 +187,7 @@ function SkillDetail({ skill }: { skill: AgentSkill }) {
           ) : null}
         </div>
       </div>
-      <div className="bg-panel min-h-0 overflow-auto rounded-sm p-3">
+      <div className="bg-panel min-h-0 overflow-auto rounded-xl p-3">
         <Markdown className="text-xs">
           {skill.instruction?.trim() || "No skill body available."}
         </Markdown>

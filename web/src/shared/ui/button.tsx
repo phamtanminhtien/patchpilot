@@ -5,7 +5,7 @@ import { cn } from "./class-name";
 import { createVariant, type VariantPropsOf } from "./variant";
 
 const buttonVariant = createVariant({
-  base: "inline-flex cursor-pointer items-center justify-center gap-2 rounded-md font-medium transition disabled:cursor-not-allowed disabled:opacity-55",
+  base: "inline-flex max-w-full cursor-pointer items-center justify-center gap-2 rounded-xl font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-55",
   compoundVariants: [
     {
       size: "icon",
@@ -15,20 +15,21 @@ const buttonVariant = createVariant({
   ],
   variants: {
     size: {
-      icon: "size-6 p-0 text-xs [&_[data-slot=button-icon]>svg]:size-4",
+      icon: "size-6 p-0 text-xs [&_[data-slot=button-icon]>svg]:size-3.5",
       small:
-        "min-h-9 px-2.5 py-1.5 text-xs [&_[data-slot=button-icon]>svg]:size-3.5",
+        "min-h-8 px-2.5 py-1 text-xs [&_[data-slot=button-icon]>svg]:size-3.5",
       compact:
-        "min-h-10 px-3 py-2 text-sm [&_[data-slot=button-icon]>svg]:size-4",
+        "min-h-9 px-3 py-1.5 text-sm [&_[data-slot=button-icon]>svg]:size-4",
       default:
-        "min-h-11 px-4 py-2 text-base [&_[data-slot=button-icon]>svg]:size-5",
+        "min-h-10 px-3.5 py-2 text-sm [&_[data-slot=button-icon]>svg]:size-4",
     },
     variant: {
       action: "bg-transparent text-muted hover:bg-hover hover:text-ink",
       ghost: "bg-transparent text-ink hover:bg-hover",
-      primary: "bg-accent text-accent-ink shadow-sm hover:bg-accent-hover",
-      secondary: "bg-panel text-ink shadow-sm hover:bg-hover",
-      surface: "bg-hover text-ink shadow-sm hover:bg-accent-soft",
+      primary:
+        "bg-accent text-accent-ink hover:bg-accent-hover active:translate-y-px",
+      secondary: "bg-panel text-ink hover:bg-hover active:translate-y-px",
+      surface: "bg-surface text-ink hover:bg-hover active:translate-y-px",
     },
     width: {
       auto: "",
@@ -79,7 +80,7 @@ export function Button({
           {icon}
         </span>
       ) : null}
-      {children}
+      {children ? <span className="min-w-0 truncate">{children}</span> : null}
     </>
   );
 

@@ -11,13 +11,12 @@ export interface SelectOption {
 }
 
 const triggerVariant = createVariant({
-  base: "bg-panel text-ink hover:bg-hover data-[placeholder]:text-muted focus-visible:outline-focus focus-visible:outline-offset-focus focus-visible:outline-width-focus inline-flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md font-medium transition disabled:cursor-not-allowed disabled:opacity-55",
+  base: "bg-panel text-ink hover:bg-hover data-[placeholder]:text-muted focus-visible:outline-focus focus-visible:outline-offset-focus focus-visible:outline-width-focus inline-flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-xl font-medium transition disabled:cursor-not-allowed disabled:opacity-55",
   variants: {
     size: {
-      tiny: "min-h-8 px-2 text-xs [&_[data-slot=select-icon]>svg]:size-3",
-      small: "min-h-9 px-2.5 text-xs [&_[data-slot=select-icon]>svg]:size-3.5",
-      compact:
-        "min-h-touch px-3 text-sm [&_[data-slot=select-icon]>svg]:size-4",
+      tiny: "min-h-7 px-2 text-xs [&_[data-slot=select-icon]>svg]:size-3",
+      small: "min-h-8 px-2.5 text-xs [&_[data-slot=select-icon]>svg]:size-3.5",
+      compact: "min-h-9 px-3 text-sm [&_[data-slot=select-icon]>svg]:size-4",
     },
   },
   defaultVariants: {
@@ -26,12 +25,12 @@ const triggerVariant = createVariant({
 });
 
 const itemVariant = createVariant({
-  base: "text-ink data-[highlighted]:bg-hover data-[state=checked]:bg-accent-soft relative flex cursor-pointer items-center rounded-sm transition outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-55",
+  base: "text-ink data-[highlighted]:bg-hover data-[state=checked]:bg-accent-soft relative flex cursor-pointer items-center rounded-xl transition outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-55",
   variants: {
     size: {
-      tiny: "min-h-8 py-1 pr-2 pl-7 text-xs",
-      small: "min-h-9 py-1.5 pr-2.5 pl-7 text-xs",
-      compact: "min-h-10 py-2 pr-3 pl-8 text-sm",
+      tiny: "min-h-7 py-1 pr-2 pl-7 text-xs",
+      small: "min-h-8 py-1.5 pr-2.5 pl-7 text-xs",
+      compact: "min-h-9 py-2 pr-3 pl-8 text-sm",
     },
   },
   defaultVariants: {
@@ -116,7 +115,7 @@ export function Select({
         <RadixSelect.Content
           align="start"
           className={cn(
-            "bg-panel text-ink z-50 min-w-(--radix-select-trigger-width) overflow-hidden rounded-md shadow-md data-[state=closed]:hidden!",
+            "border-line/45 bg-panel text-ink z-50 min-w-(--radix-select-trigger-width) overflow-hidden rounded-xl border data-[state=closed]:hidden!",
             contentClassName,
           )}
           collisionPadding={8}
@@ -134,7 +133,9 @@ export function Select({
                   <Check aria-hidden="true" className="size-3.5" />
                 </RadixSelect.ItemIndicator>
                 <RadixSelect.ItemText>
-                  {option.label ?? option.value}
+                  <span className="block truncate">
+                    {option.label ?? option.value}
+                  </span>
                 </RadixSelect.ItemText>
               </RadixSelect.Item>
             ))}

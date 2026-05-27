@@ -86,7 +86,7 @@ export function GitChangeList({
   }
 
   return (
-    <div className="grid gap-1">
+    <div className="grid gap-2 px-2">
       <GitChangeSection
         actionKind="staged"
         allSectionPathCount={stagedChanges.length}
@@ -184,13 +184,13 @@ function GitChangeSection({
     .map((change) => change.path);
 
   return (
-    <section className="grid">
-      <div className="text-ink grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1 px-1 text-xs font-semibold">
+    <section className="grid gap-1">
+      <div className="text-ink bg-surface grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1 rounded-xl px-2 text-xs font-semibold">
         <ChevronDown aria-hidden="true" className="text-muted size-4" />
         <span className="truncate">{label}</span>
         <span
           aria-label={`${allSectionPathCount} ${label.toLowerCase()} paths`}
-          className="bg-hover text-muted grid min-w-6 place-items-center rounded-full px-1.5 py-0.5 text-xs font-semibold"
+          className="bg-panel text-muted grid min-w-6 place-items-center rounded-xl px-1.5 py-0.5 text-xs font-semibold"
         >
           {allSectionPathCount}
         </span>

@@ -237,7 +237,7 @@ function CopyButton({ label, value }: { label: string; value: string }) {
 
   return (
     <button
-      className="bg-hover text-ink hover:bg-accent-soft hover:text-accent inline-flex min-h-7 min-w-0 items-center gap-1 rounded-sm px-2 text-xs transition"
+      className="bg-hover text-ink hover:bg-accent-soft hover:text-accent inline-flex min-h-7 min-w-0 items-center gap-1 rounded-xl px-2 text-xs transition"
       onClick={() => void handleCopy()}
       type="button"
     >

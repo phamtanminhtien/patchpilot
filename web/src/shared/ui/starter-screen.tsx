@@ -1,4 +1,4 @@
-import { ArrowRight, Bot, FolderOpen, History, Loader2 } from "lucide-react";
+import { ArrowRight, Braces, FolderOpen, History, Loader2 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 
 import { Button } from "./button";
@@ -46,24 +46,29 @@ export function StarterScreen({
 
   return (
     <main className="pp-pattern-bg min-h-screen px-4 py-6 sm:px-6">
-      <section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col justify-center">
+      <section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-3xl flex-col justify-center">
         {themeControl ? (
           <div className="mb-4 flex justify-end">{themeControl}</div>
         ) : null}
 
-        <Surface className="content-start gap-5 shadow-md" layout="grid">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="bg-accent-soft text-accent grid size-10 shrink-0 place-items-center rounded-md shadow-sm">
-              <Bot aria-hidden="true" className="size-5" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-muted text-xs font-semibold uppercase">
-                PatchPilot
-              </p>
-              <h1 className="text-ink truncate text-xl font-semibold">
-                Open a workspace
-              </h1>
+        <Surface className="content-start gap-4" layout="grid">
+          <div className="flex min-w-0 items-center justify-between gap-3 pb-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="bg-surface text-accent grid size-9 shrink-0 place-items-center rounded-xl">
+                <Braces aria-hidden="true" className="size-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-muted text-xs font-semibold tracking-wide uppercase">
+                  PatchPilot
+                </p>
+                <h1 className="text-ink truncate text-xl font-semibold">
+                  Open a workspace
+                </h1>
+              </div>
             </div>
+            <span className="text-muted hidden text-xs font-medium sm:block">
+              Local IDE cockpit
+            </span>
           </div>
 
           <form
@@ -89,7 +94,7 @@ export function StarterScreen({
             <p className="text-warning text-sm font-medium">{createError}</p>
           ) : null}
 
-          <div className="bg-hover grid gap-3 rounded-lg p-3">
+          <div className="bg-surface grid gap-3 rounded-xl p-3">
             <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <History
@@ -116,7 +121,7 @@ export function StarterScreen({
               {recentWorkspaces.map((workspace) => (
                 <button
                   className={cn(
-                    "bg-panel hover:bg-hover grid min-h-12 min-w-0 gap-1 rounded-md px-3 py-2 text-left shadow-sm transition",
+                    "bg-panel hover:bg-hover grid min-h-12 min-w-0 gap-1 rounded-xl px-3 py-2 text-left transition",
                   )}
                   key={workspace.id}
                   onClick={() => onSelectWorkspace(workspace.id)}
@@ -128,7 +133,7 @@ export function StarterScreen({
                     </span>
                     <StatusPill status={workspace.status} />
                   </span>
-                  <span className="text-muted flex min-w-0 items-center gap-2 text-xs">
+                  <span className="text-muted grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-xs">
                     <span className="truncate">{workspace.rootPath}</span>
                     <ArrowRight
                       aria-hidden="true"

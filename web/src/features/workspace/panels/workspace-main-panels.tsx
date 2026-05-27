@@ -47,7 +47,7 @@ export function WorkspaceMainPanels({
   selectedPath,
 }: WorkspaceMainPanelsProps) {
   return (
-    <section className="workspace-main-scroll bg-panel min-h-0 overflow-hidden shadow-md">
+    <section className="workspace-main-scroll bg-raised min-h-0 overflow-hidden">
       <WorkspaceMainPanelFrame activePanel={activePanel} panel="files">
         <FilesPanel
           file={files.file}

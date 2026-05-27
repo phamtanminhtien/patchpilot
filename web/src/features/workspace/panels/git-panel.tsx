@@ -43,7 +43,7 @@ export function GitPanel({
 
   return diff ? (
     <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-      <div className="bg-hover flex min-h-9 min-w-0 items-center justify-between gap-2 px-3">
+      <div className="border-line/35 bg-surface flex min-h-9 min-w-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-ink min-w-0 truncate text-xs font-semibold">
           {selectedPath || "Workspace diff"}
         </span>

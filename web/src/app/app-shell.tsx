@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bot, PanelLeft, Settings } from "lucide-react";
+import { Bot, Braces, PanelLeft, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -33,13 +33,13 @@ export function AppShell({
 
   return (
     <main className="bg-canvas min-h-screen">
-      <header className="bg-panel shadow-sm">
+      <header className="bg-panel">
         <div className="flex min-h-10 w-full items-center gap-2 px-2 py-1 sm:px-3">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="bg-accent-soft text-accent grid size-7 shrink-0 place-items-center rounded-sm shadow-sm">
-              <Bot aria-hidden="true" className="size-3.5" />
+            <span className="bg-surface text-accent grid size-7 shrink-0 place-items-center rounded-xl">
+              <Braces aria-hidden="true" className="size-3.5" />
             </span>
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <span className="sr-only">PatchPilot</span>
               <h1 className="text-ink truncate text-sm font-semibold">
                 {workspace?.name ?? "No workspace open"}
@@ -60,7 +60,7 @@ export function AppShell({
             />
             <nav
               aria-label="Mode"
-              className="bg-hover grid grid-cols-2 rounded-md p-0.5"
+              className="bg-surface grid grid-cols-2 rounded-xl p-0.5"
             >
               <ModeLink
                 active={mode === "vibe"}
@@ -82,10 +82,8 @@ export function AppShell({
               aria-current={mode === "settings" ? "page" : undefined}
               aria-label="Open settings"
               className={cn(
-                "text-muted hover:bg-hover hover:text-ink grid min-h-7 min-w-7 place-items-center rounded-sm transition",
-                mode === "settings"
-                  ? "bg-accent-soft text-accent shadow-sm"
-                  : undefined,
+                "text-muted hover:bg-hover hover:text-ink grid min-h-7 min-w-7 place-items-center rounded-xl transition",
+                mode === "settings" ? "bg-accent-soft text-accent" : undefined,
               )}
               title="Settings"
               to={`/settings${query}`}
@@ -115,8 +113,8 @@ function ModeLink({
     <Link
       aria-current={active ? "page" : undefined}
       className={cn(
-        "text-muted hover:bg-hover hover:text-ink inline-flex min-h-7 min-w-0 items-center justify-center gap-1 rounded-sm px-1.5 text-xs font-medium transition",
-        active ? "bg-panel text-accent shadow-sm" : undefined,
+        "text-muted hover:bg-hover hover:text-ink inline-flex min-h-7 min-w-0 items-center justify-center gap-1 rounded-xl px-2 text-xs font-medium transition",
+        active ? "bg-accent-soft text-accent" : undefined,
       )}
       to={to}
     >

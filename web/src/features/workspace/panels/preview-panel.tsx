@@ -43,7 +43,7 @@ export function PreviewPanel({
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-      <div className="border-line bg-panel grid gap-2 border-b p-3">
+      <div className="border-line/35 bg-surface grid gap-2 border-b p-3">
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-ink text-sm font-semibold">
@@ -88,7 +88,7 @@ function PreviewPortCard({
   const isOpenable = port.status === "exposed" && port.exposedUrl;
 
   return (
-    <section className="bg-canvas grid min-w-0 gap-3 rounded-md p-3 shadow-sm">
+    <section className="hover:bg-hover grid min-w-0 gap-3 rounded-xl p-3">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-ink truncate text-sm font-semibold">

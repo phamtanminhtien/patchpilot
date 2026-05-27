@@ -161,14 +161,17 @@ export function AgentRunThread({
               <div className="grid gap-3" key={run.id}>
                 {prompt ? (
                   <div className="flex justify-end">
-                    <p className="bg-hover text-message max-w-[75%] rounded-lg px-4 py-2 text-[0.9375rem] leading-6 whitespace-pre-wrap">
+                    <p className="bg-surface text-message max-w-[80%] rounded-xl px-3 py-2 text-sm leading-6 whitespace-pre-wrap">
                       {prompt}
                     </p>
                   </div>
                 ) : null}
                 {displayItems.map((item) =>
                   item.kind === "assistant" ? (
-                    <div className="grid w-full gap-2" key={item.id}>
+                    <div
+                      className="grid w-full gap-2 rounded-xl px-1 py-1"
+                      key={item.id}
+                    >
                       <Markdown className="text-message">
                         {item.item.content}
                       </Markdown>
@@ -191,14 +194,14 @@ export function AgentRunThread({
                   ),
                 )}
                 {fallbackAssistantText ? (
-                  <div className="grid w-full gap-2">
+                  <div className="grid w-full gap-2 rounded-xl px-1 py-1">
                     <Markdown className="text-message">
                       {fallbackAssistantText}
                     </Markdown>
                   </div>
                 ) : null}
                 {streamingAssistantText ? (
-                  <div className="grid w-full gap-2">
+                  <div className="grid w-full gap-2 rounded-xl px-1 py-1">
                     <Markdown className="text-message">
                       {streamingAssistantText}
                     </Markdown>

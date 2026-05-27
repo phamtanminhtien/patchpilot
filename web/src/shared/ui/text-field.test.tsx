@@ -9,9 +9,9 @@ describe("TextField", () => {
 
     const input = screen.getByLabelText("Workspace root");
 
-    expect(input).toHaveClass("min-h-11", "px-3", "py-2", "text-base");
-    expect(input).toHaveClass("shadow-sm");
+    expect(input).toHaveClass("min-h-10", "px-3", "py-2", "text-sm");
     expect(input).not.toHaveClass("border");
+    expect(input).not.toHaveClass("shadow-sm");
     expect(input.closest("label")).toHaveClass("gap-2", "text-sm");
   });
 
@@ -24,9 +24,9 @@ describe("TextField", () => {
     );
 
     expect(screen.getByLabelText("Patch")).toHaveClass(
-      "min-h-9",
+      "min-h-8",
       "px-2.5",
-      "py-1.5",
+      "py-1",
       "text-xs",
     );
     expect(screen.getByLabelText("Patch").closest("label")).toHaveClass(
@@ -34,9 +34,9 @@ describe("TextField", () => {
       "text-xs",
     );
     expect(screen.getByLabelText("Command")).toHaveClass(
-      "min-h-10",
+      "min-h-9",
       "px-3",
-      "py-2",
+      "py-1.5",
       "text-sm",
     );
   });

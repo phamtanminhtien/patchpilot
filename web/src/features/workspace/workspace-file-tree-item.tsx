@@ -43,8 +43,8 @@ export function WorkspaceFileTreeItem({
       aria-current={isSelected ? "true" : undefined}
       aria-expanded={ariaExpanded}
       className={cn(
-        "hover:bg-hover grid min-h-5.5 w-full min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-1 py-0.5 pr-1.5 text-left text-xs",
-        isSelected ? "bg-hover text-ink" : undefined,
+        "hover:bg-hover grid min-h-6 w-full min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-xl py-0.5 pr-1.5 text-left text-xs",
+        isSelected ? "bg-accent-soft text-accent" : undefined,
         isDimmed ? "opacity-55 hover:opacity-75" : undefined,
       )}
       onClick={onClick}
@@ -91,7 +91,7 @@ function WorkspaceFileTreeStatusBadge({
     <span
       aria-hidden="true"
       className={cn(
-        "min-w-4 shrink-0 rounded-sm px-1 text-center text-[10px] leading-4 font-semibold",
+        "min-w-4 shrink-0 rounded-xl px-1 text-center text-[10px] leading-4 font-semibold",
         gitStatusBadgeTone(status.label),
       )}
       title={status.label}

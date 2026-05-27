@@ -61,12 +61,12 @@ export function ToolCallReview({
   }, [defaultOpen]);
 
   const details = (
-    <div className={compact ? "grid gap-2 pt-1 pb-2" : "grid gap-3 pt-2 pb-3"}>
+    <div className={compact ? "grid gap-2 pt-1 pb-2" : "grid gap-3 pt-3 pb-3"}>
       {summary ? (
-        <p className="text-muted/70 text-sm whitespace-pre-wrap">{summary}</p>
+        <p className="text-muted text-sm whitespace-pre-wrap">{summary}</p>
       ) : null}
       {display.detail ? (
-        <pre className="text-muted/80 border-line max-h-64 overflow-auto border-l py-2 pl-3 text-xs whitespace-pre-wrap">
+        <pre className="bg-panel text-muted max-h-64 overflow-auto rounded-xl px-3 py-2 text-xs whitespace-pre-wrap">
           {display.detail}
         </pre>
       ) : null}
@@ -119,9 +119,7 @@ export function ToolCallReview({
 
   if (!display.expandable) {
     return (
-      <div
-        className={`text-muted/45 flex min-w-0 items-center ${rowSizeClass}`}
-      >
+      <div className={`text-muted flex min-w-0 items-center ${rowSizeClass}`}>
         <ToolCallSummaryRow
           display={display}
           expandable={false}
@@ -134,14 +132,18 @@ export function ToolCallReview({
 
   return (
     <div
-      className="grid min-w-0"
+      className={
+        compact
+          ? "grid min-w-0"
+          : "bg-surface grid min-w-0 rounded-xl px-3 py-2"
+      }
       data-state={isOpen ? "open" : "closed"}
       data-tool-call
     >
       <button
         aria-controls={contentId}
         aria-expanded={isOpen}
-        className={`text-muted/45 hover:text-message flex cursor-pointer items-center text-left transition-colors ${rowSizeClass}`}
+        className={`text-muted hover:text-message flex cursor-pointer items-center text-left transition-colors ${rowSizeClass}`}
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >

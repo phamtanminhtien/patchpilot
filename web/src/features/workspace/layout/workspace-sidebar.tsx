@@ -123,7 +123,7 @@ export function WorkspaceSidebar({
   workspaceError?: string;
 }) {
   return (
-    <aside className="bg-canvas grid min-h-0 gap-1 shadow-sm lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden">
+    <aside className="border-line/45 bg-panel grid min-h-0 gap-1 border-b lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden lg:border-r lg:border-b-0">
       <WorkspaceSidebarHeader
         activePanel={activePanel}
         isRefreshingFiles={isRefreshingFiles}
@@ -223,7 +223,7 @@ function WorkspaceFileSearch({
     <section className="grid gap-1 pb-1">
       <div className="px-2">
         <TextField
-          className="bg-hover"
+          className="bg-surface"
           id="workspace-file-search"
           label="Search files"
           labelHidden
@@ -289,7 +289,7 @@ function WorkspaceFileSearchResult({
   return (
     <button
       aria-label={group.path}
-      className="hover:bg-hover grid min-w-0 cursor-pointer gap-0.5 px-2 py-1 text-left text-xs"
+      className="hover:bg-hover grid min-w-0 cursor-pointer gap-0.5 rounded-xl px-2 py-1 text-left text-xs"
       onClick={() => onSelect(group.path)}
       title={group.path}
       type="button"
@@ -308,7 +308,7 @@ function WorkspaceFileSearchResult({
         </span>
         <span
           aria-hidden="true"
-          className="bg-accent-soft text-accent min-w-4 shrink-0 rounded-sm px-1 text-center text-[10px] leading-4 font-semibold"
+          className="bg-accent-soft text-accent min-w-4 shrink-0 rounded-xl px-1 text-center text-[10px] leading-4 font-semibold"
           title={`${group.results.length} ${
             group.results.length === 1 ? "result" : "results"
           }`}
@@ -418,10 +418,10 @@ function GitCommitBox({
   }
 
   return (
-    <form className="grid gap-2 px-2 pb-1" onSubmit={handleSubmit}>
+    <form className="grid gap-2 px-2 pb-3" onSubmit={handleSubmit}>
       <DialogRoot onOpenChange={setIsReviewOpen} open={isReviewOpen}>
         <TextField
-          className="bg-hover"
+          className="bg-surface"
           id="commit-message"
           label="Commit message"
           labelHidden
@@ -456,11 +456,11 @@ function GitCommitBox({
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
-            <div className="bg-hover grid gap-1 rounded-md p-2">
+            <div className="bg-surface grid gap-1 rounded-xl p-2">
               <p className="text-muted text-xs font-semibold">Message</p>
               <p className="text-ink text-sm break-words">{commitMessage}</p>
             </div>
-            <div className="bg-hover grid max-h-48 gap-1 overflow-auto rounded-md p-2">
+            <div className="bg-surface grid max-h-48 gap-1 overflow-auto rounded-xl p-2">
               <p className="text-muted text-xs font-semibold">Paths</p>
               {pathsForCommit.map((path) => (
                 <span
@@ -604,7 +604,7 @@ function PortRow({
         : "Detected and ready to expose.";
 
   return (
-    <div className="hover:bg-hover grid min-h-14 grid-cols-[minmax(0,1fr)_4.75rem] items-center gap-2 px-3 py-2">
+    <div className="hover:bg-hover grid min-h-14 grid-cols-[minmax(0,1fr)_4.75rem] items-center gap-2 rounded-xl px-3 py-2">
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <span
@@ -614,7 +614,7 @@ function PortRow({
                 ? "bg-accent"
                 : port.status === "closed"
                   ? "bg-warning"
-                  : "bg-hover",
+                  : "bg-line",
             )}
           />
           <span className="text-ink truncate text-xs font-semibold">
@@ -623,7 +623,7 @@ function PortRow({
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-2">
           <StatusPill
-            className="min-h-5 rounded-sm px-1.5 shadow-none"
+            className="min-h-5 rounded-xl px-1.5 shadow-none"
             status={port.status}
           />
           <span className="text-muted truncate text-xs">{description}</span>
@@ -684,7 +684,7 @@ function WorkspaceSidebarHeader({
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <div className="min-w-0">
-            <p className="text-muted truncate text-xs font-bold uppercase">
+            <p className="text-muted truncate text-xs font-bold tracking-wide uppercase">
               {workspace?.name ?? panelShortDescription(activePanel)}
             </p>
           </div>
@@ -707,7 +707,7 @@ function WorkspaceSidebarHeader({
             size="small"
             title="Refresh index"
             type="button"
-            variant="ghost"
+            variant="action"
           >
             <span className="sr-only">Refresh index</span>
           </Button>

@@ -180,10 +180,20 @@ export function useWorkspaceController({
     selectedTerminal.workspaceId === workspaceId
       ? selectedTerminal.sessionId
       : "";
-  const activeTerminalId =
-    selectedTerminalId || terminalSessionsQuery.data?.sessions[0]?.id || "";
+  const visibleTerminalSessions = useMemo(
+    () =>
+      (terminalSessionsQuery.data?.sessions ?? []).filter(
+        (session) => session.status !== "closed",
+      ),
+    [terminalSessionsQuery.data?.sessions],
+  );
+  const activeTerminalId = visibleTerminalSessions.some(
+    (session) => session.id === selectedTerminalId,
+  )
+    ? selectedTerminalId
+    : (visibleTerminalSessions[0]?.id ?? "");
   const activeTerminal =
-    terminalSessionsQuery.data?.sessions.find(
+    visibleTerminalSessions.find(
       (session) => session.id === activeTerminalId,
     ) ?? null;
 
@@ -451,7 +461,7 @@ export function useWorkspaceController({
       renameError: renameTerminalMutation.error
         ? apiErrorMessage(renameTerminalMutation.error)
         : undefined,
-      sessions: terminalSessionsQuery.data?.sessions ?? [],
+      sessions: visibleTerminalSessions,
     },
     files: {
       entries: filesQuery.data?.entries ?? [],
