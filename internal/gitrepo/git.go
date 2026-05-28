@@ -207,6 +207,22 @@ func (c *Client) Unstage(ctx context.Context, root string, relPaths []string) (S
 	return c.Status(ctx, root, StatusOptions{})
 }
 
+func (c *Client) StagePatch(ctx context.Context, root, diff string, direction ApplyDirection) (Status, error) {
+	if err := validateRepositoryRoot(ctx, root); err != nil {
+		return Status{}, err
+	}
+	if strings.TrimSpace(diff) == "" {
+		return Status{}, ErrInvalidPath
+	}
+	if _, err := runGitApplyCachedCheck(ctx, root, diff, direction); err != nil {
+		return Status{}, err
+	}
+	if _, err := runGitApplyCached(ctx, root, diff, direction); err != nil {
+		return Status{}, err
+	}
+	return c.Status(ctx, root, StatusOptions{})
+}
+
 func (c *Client) Discard(ctx context.Context, root string, relPaths []string) (Status, error) {
 	if err := validateRepositoryRoot(ctx, root); err != nil {
 		return Status{}, err
@@ -573,6 +589,32 @@ func runGitApply(ctx context.Context, root, diff string, direction ApplyDirectio
 	}
 	args := []string{"apply"}
 	cmd := exec.CommandContext(ctx, "git", "apply")
+	output, _, err := runPreparedGit(cmd, root, args, diff)
+	return output, err
+}
+
+func runGitApplyCachedCheck(ctx context.Context, root, diff string, direction ApplyDirection) (string, error) {
+	if direction == ApplyReverse {
+		args := []string{"apply", "--cached", "--check", "--reverse"}
+		cmd := exec.CommandContext(ctx, "git", "apply", "--cached", "--check", "--reverse")
+		output, _, err := runPreparedGit(cmd, root, args, diff)
+		return output, err
+	}
+	args := []string{"apply", "--cached", "--check"}
+	cmd := exec.CommandContext(ctx, "git", "apply", "--cached", "--check")
+	output, _, err := runPreparedGit(cmd, root, args, diff)
+	return output, err
+}
+
+func runGitApplyCached(ctx context.Context, root, diff string, direction ApplyDirection) (string, error) {
+	if direction == ApplyReverse {
+		args := []string{"apply", "--cached", "--reverse"}
+		cmd := exec.CommandContext(ctx, "git", "apply", "--cached", "--reverse")
+		output, _, err := runPreparedGit(cmd, root, args, diff)
+		return output, err
+	}
+	args := []string{"apply", "--cached"}
+	cmd := exec.CommandContext(ctx, "git", "apply", "--cached")
 	output, _, err := runPreparedGit(cmd, root, args, diff)
 	return output, err
 }

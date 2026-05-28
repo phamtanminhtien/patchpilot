@@ -4,6 +4,7 @@ import type {
   GitCommitResponse,
   GitDiff,
   GitDiscardRequest,
+  GitStagePatchRequest,
   GitStageRequest,
   GitStatus,
   GitUnstageRequest,
@@ -70,6 +71,17 @@ export async function stageGitFiles(
 ): Promise<GitStatus> {
   const response = await apiClient.post<GitStatus>(
     `/workspaces/${workspaceId}/git/stage`,
+    request,
+  );
+  return response.data;
+}
+
+export async function stageGitPatch(
+  workspaceId: string,
+  request: GitStagePatchRequest,
+): Promise<GitStatus> {
+  const response = await apiClient.post<GitStatus>(
+    `/workspaces/${workspaceId}/git/stage-patch`,
     request,
   );
   return response.data;

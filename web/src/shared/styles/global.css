@@ -444,6 +444,91 @@ textarea {
   @apply text-warning;
 }
 
+.pp-diff-viewer .token.comment,
+.pp-diff-viewer .token.prolog,
+.pp-diff-viewer .token.doctype,
+.pp-diff-viewer .token.cdata {
+  color: var(--pp-code-comment);
+  font-style: italic;
+}
+
+.pp-diff-viewer .token.punctuation {
+  color: var(--pp-code-punctuation);
+}
+
+.pp-diff-viewer .token.property,
+.pp-diff-viewer .token.attr-name,
+.pp-diff-viewer .token.attr-name.namespace {
+  color: var(--pp-code-property);
+}
+
+.pp-diff-viewer .token.tag {
+  color: var(--pp-code-tag);
+}
+
+.pp-diff-viewer .token.boolean {
+  color: var(--pp-code-bool);
+}
+
+.pp-diff-viewer .token.number {
+  color: var(--pp-code-number);
+}
+
+.pp-diff-viewer .token.constant,
+.pp-diff-viewer .token.symbol {
+  color: var(--pp-code-atom);
+}
+
+.pp-diff-viewer .token.selector,
+.pp-diff-viewer .token.string,
+.pp-diff-viewer .token.char,
+.pp-diff-viewer .token.builtin,
+.pp-diff-viewer .token.inserted,
+.pp-diff-viewer .token.attr-value {
+  color: var(--pp-code-string);
+}
+
+.pp-diff-viewer .token.deleted {
+  color: var(--pp-code-literal);
+}
+
+.pp-diff-viewer .token.operator {
+  color: var(--pp-code-operator);
+}
+
+.pp-diff-viewer .token.entity,
+.pp-diff-viewer .token.url {
+  color: var(--pp-code-link);
+}
+
+.pp-diff-viewer .token.variable {
+  color: var(--pp-code-variable);
+}
+
+.pp-diff-viewer .token.atrule,
+.pp-diff-viewer .token.function {
+  color: var(--pp-code-def);
+}
+
+.pp-diff-viewer .token.class-name {
+  color: var(--pp-code-type);
+}
+
+.pp-diff-viewer .token.keyword {
+  color: var(--pp-code-keyword);
+}
+
+.pp-diff-viewer .token.regex,
+.pp-diff-viewer .token.important {
+  color: var(--pp-code-literal);
+}
+
+.pp-diff-viewer .token.namespace,
+.pp-diff-viewer .token.prolog,
+.pp-diff-viewer .token.doctype {
+  color: var(--pp-code-meta);
+}
+
 .pp-markdown table {
   @apply border-line block max-w-full overflow-auto border text-left text-xs;
 }

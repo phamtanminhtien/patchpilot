@@ -103,6 +103,11 @@ export interface GitStageRequest {
   paths: string[];
 }
 
+export interface GitStagePatchRequest {
+  direction?: "forward" | "reverse";
+  patch: string;
+}
+
 export interface GitDiscardRequest {
   paths: string[];
 }

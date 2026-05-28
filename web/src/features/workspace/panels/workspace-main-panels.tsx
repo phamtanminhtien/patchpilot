@@ -33,6 +33,8 @@ interface WorkspaceMainPanelsProps {
     error?: string;
     isDiffLoading: boolean;
     isLoading: boolean;
+    isPatchStaging: boolean;
+    onStagePatch: (patch: string) => void;
   };
   preview: {
     error?: string;
@@ -81,6 +83,9 @@ export function WorkspaceMainPanels({
           gitError={git.error}
           hasChanges={git.changes.length > 0}
           isLoading={git.isDiffLoading || git.isLoading}
+          isPatchStaging={git.isPatchStaging}
+          onFilePatchStage={git.onStagePatch}
+          onHunkPatchStage={git.onStagePatch}
           selectedPath={selectedPath}
         />
       </WorkspaceMainPanelFrame>

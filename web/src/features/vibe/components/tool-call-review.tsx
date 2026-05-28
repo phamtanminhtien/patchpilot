@@ -1,7 +1,8 @@
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import type { AgentToolCall } from "@/shared/api";
+import { DiffViewer } from "@/shared/diff/diff-viewer";
 import { Button } from "@/shared/ui";
 
 import { humanizeSkillName } from "../lib/skills";
@@ -65,7 +66,11 @@ export function ToolCallReview({
       {summary ? (
         <p className="text-muted text-sm whitespace-pre-wrap">{summary}</p>
       ) : null}
-      {display.detail ? (
+      {display.detail && toolCall.name === "apply_patch" ? (
+        <div className="border-line/35 max-h-80 overflow-auto rounded-xl border">
+          <DiffViewer diff={display.detail} wrapLines />
+        </div>
+      ) : display.detail ? (
         <pre className="bg-panel text-muted max-h-64 overflow-auto rounded-xl px-3 py-2 text-xs whitespace-pre-wrap">
           {display.detail}
         </pre>
@@ -124,6 +129,7 @@ export function ToolCallReview({
           display={display}
           expandable={false}
           isRunning={toolCall.status === "running"}
+          needsApprovalAttention={toolCall.status === "waiting_approval"}
           showIcon={showIcon}
         />
       </div>
@@ -143,7 +149,7 @@ export function ToolCallReview({
       <button
         aria-controls={contentId}
         aria-expanded={isOpen}
-        className={`text-muted hover:text-message flex cursor-pointer items-center text-left transition-colors ${rowSizeClass}`}
+        className={`text-muted hover:text-message flex min-w-0 cursor-pointer items-center overflow-hidden text-left transition-colors ${rowSizeClass}`}
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >
@@ -152,6 +158,7 @@ export function ToolCallReview({
           expandable
           isOpen={isOpen}
           isRunning={toolCall.status === "running"}
+          needsApprovalAttention={toolCall.status === "waiting_approval"}
           showIcon={showIcon}
         />
       </button>
@@ -184,22 +191,31 @@ function ToolCallSummaryRow({
   expandable,
   isOpen = false,
   isRunning,
+  needsApprovalAttention,
   showIcon,
 }: {
   display: ReturnType<typeof toolCallDisplay>;
   expandable: boolean;
   isOpen?: boolean;
   isRunning: boolean;
+  needsApprovalAttention: boolean;
   showIcon: boolean;
 }) {
   const { Icon } = display;
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2 text-inherit">
+    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-inherit">
       {showIcon ? (
         <Icon aria-hidden="true" className="size-4 shrink-0 opacity-80" />
       ) : null}
-      <span className="min-w-0 truncate text-sm">
+      <span className="min-w-0 flex-1 truncate text-sm">
+        {needsApprovalAttention ? (
+          <CircleAlert
+            aria-hidden="true"
+            className="text-warning mr-1 inline size-3.5 align-[-0.15em]"
+            data-approval-attention-icon="true"
+          />
+        ) : null}
         <span
           className={isRunning ? "pp-shimmer-text font-medium" : "font-medium"}
         >

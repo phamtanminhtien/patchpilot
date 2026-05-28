@@ -13,6 +13,11 @@ type gitStageRequest struct {
 	Paths []string `json:"paths"`
 }
 
+type gitStagePatchRequest struct {
+	Direction gitrepo.ApplyDirection `json:"direction"`
+	Patch     string                 `json:"patch"`
+}
+
 type gitCommitRequest struct {
 	Message string   `json:"message"`
 	Paths   []string `json:"paths"`
@@ -103,6 +108,33 @@ func (s *Server) gitUnstage(w http.ResponseWriter, r *http.Request) {
 	status, err := s.git.Unstage(r.Context(), ws.RootPath, req.Paths)
 	if err != nil {
 		writeGitError(w, err, "git_unstage_failed", "Git unstage failed")
+		return
+	}
+	s.publishGitChanged(r.Context(), ws)
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) gitStagePatch(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req gitStagePatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	direction := req.Direction
+	if direction == "" {
+		direction = gitrepo.ApplyForward
+	}
+	if direction != gitrepo.ApplyForward && direction != gitrepo.ApplyReverse {
+		writeError(w, http.StatusBadRequest, "invalid_patch_direction", "Patch direction must be forward or reverse", nil)
+		return
+	}
+	status, err := s.git.StagePatch(r.Context(), ws.RootPath, req.Patch, direction)
+	if err != nil {
+		writeGitError(w, err, "git_stage_patch_failed", "Git patch staging failed")
 		return
 	}
 	s.publishGitChanged(r.Context(), ws)

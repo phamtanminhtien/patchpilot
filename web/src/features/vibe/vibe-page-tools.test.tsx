@@ -115,7 +115,7 @@ it("renders and approves an approval-required tool call", async () => {
   renderVibe("/vibe?workspaceId=ws_1");
   await openExistingConversation();
 
-  expect(await screen.findByText("example.txt")).toBeInTheDocument();
+  expect((await screen.findAllByText("example.txt")).length).toBeGreaterThan(0);
   expect(screen.getByText("Waiting approval")).toBeInTheDocument();
   expect(screen.queryByText("apply_patch")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Approve tool" }));
@@ -153,7 +153,7 @@ it("renders tool calls as collapsed details instead of raw event blocks", async 
   renderVibe("/vibe?workspaceId=ws_1");
   await openExistingConversation();
 
-  expect(await screen.findByText("example.txt")).toBeInTheDocument();
+  expect((await screen.findAllByText("example.txt")).length).toBeGreaterThan(0);
   expect(
     screen.queryByRole("group", { name: "agent.approval_required" }),
   ).not.toBeInTheDocument();

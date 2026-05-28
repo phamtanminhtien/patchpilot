@@ -1,5 +1,11 @@
 import { CheckCircle2, GitBranch } from "lucide-react";
 
+import { DiffViewer } from "@/shared/diff/diff-viewer";
+import type {
+  UnifiedDiffFile,
+  UnifiedDiffHunk,
+} from "@/shared/diff/unified-diff";
+
 import { ErrorState } from "../components/error-state";
 import { LoadingState } from "../components/loading-state";
 import { MainEmptyState } from "../components/main-empty-state";
@@ -10,6 +16,9 @@ export function GitPanel({
   gitError,
   hasChanges,
   isLoading,
+  isPatchStaging,
+  onFilePatchStage,
+  onHunkPatchStage,
   selectedPath,
 }: {
   diff?: string;
@@ -17,6 +26,9 @@ export function GitPanel({
   gitError?: string;
   hasChanges: boolean;
   isLoading: boolean;
+  isPatchStaging: boolean;
+  onFilePatchStage: (patch: string) => void;
+  onHunkPatchStage: (patch: string) => void;
   selectedPath: string;
 }) {
   if (gitError) {
@@ -51,9 +63,13 @@ export function GitPanel({
           {diffLineCount(diff)} lines
         </span>
       </div>
-      <pre className="workspace-main-scroll text-ink h-full min-h-0 overflow-auto p-4 font-mono text-xs leading-5 whitespace-pre">
-        {diff}
-      </pre>
+      <DiffViewer
+        actionLabel="Stage"
+        diff={diff}
+        isActionPending={isPatchStaging}
+        onFileAction={(file: UnifiedDiffFile) => onFilePatchStage(file.patch)}
+        onHunkAction={(hunk: UnifiedDiffHunk) => onHunkPatchStage(hunk.patch)}
+      />
     </div>
   ) : (
     <MainEmptyState

@@ -33,6 +33,7 @@ import {
   refreshFileIndex,
   searchFiles,
   stageGitFiles,
+  stageGitPatch,
   type TerminalSession,
   unstageGitFiles,
   writeFile,
@@ -68,6 +69,7 @@ vi.mock("@/shared/api", () => ({
   refreshFileIndex: vi.fn(),
   searchFiles: vi.fn(),
   stageGitFiles: vi.fn(),
+  stageGitPatch: vi.fn(),
   terminalSocketUrl: vi.fn(() => "ws://localhost/terminal"),
   unstageGitFiles: vi.fn(),
   writeFile: vi.fn(),
@@ -275,6 +277,9 @@ describe("WorkspacePage", () => {
       }),
     );
     vi.mocked(stageGitFiles).mockResolvedValue({
+      porcelain: "A  web/src/app.tsx\n?? scratch.md\n!! dist/",
+    });
+    vi.mocked(stageGitPatch).mockResolvedValue({
       porcelain: "A  web/src/app.tsx\n?? scratch.md\n!! dist/",
     });
     vi.mocked(unstageGitFiles).mockResolvedValue({

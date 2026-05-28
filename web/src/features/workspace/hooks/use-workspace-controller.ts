@@ -34,6 +34,7 @@ import {
   refreshFileIndex,
   searchFiles,
   stageGitFiles,
+  stageGitPatch,
   type TerminalSession,
   type TerminalSessionListResponse,
   unstageGitFiles,
@@ -275,6 +276,18 @@ export function useWorkspaceController({
     },
   });
 
+  const stagePatchMutation = useMutation({
+    mutationFn: (patch: string) =>
+      stageGitPatch(workspaceId, { direction: "forward", patch }),
+    onSuccess: (status) => {
+      queryClient.setQueryData(["workspace-git-status", workspaceId], status);
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-diff", workspaceId],
+      });
+      commitMutation.reset();
+    },
+  });
+
   const discardMutation = useMutation({
     mutationFn: (paths: string[]) => discardGitChanges(workspaceId, { paths }),
     onSuccess: (status) => {
@@ -429,6 +442,13 @@ export function useWorkspaceController({
       return;
     }
     unstageMutation.mutate(paths);
+  }
+
+  function handleStagePatch(patch: string) {
+    if (patch.trim().length === 0 || stagePatchMutation.isPending) {
+      return;
+    }
+    stagePatchMutation.mutate(patch);
   }
 
   function handleDiscardChanges(paths: string[]) {
@@ -586,6 +606,7 @@ export function useWorkspaceController({
       isDiscardingChanges: discardMutation.isPending,
       isDiffLoading: gitDiffQuery.isPending,
       isLoading: gitQuery.isPending,
+      isPatchStaging: stagePatchMutation.isPending,
       isStagingChanges: stageMutation.isPending,
       isUnstagingChanges: unstageMutation.isPending,
       lastCommitHash: commitMutation.data?.hash,
@@ -594,13 +615,15 @@ export function useWorkspaceController({
       onCommitMessageChange: setCommitMessage,
       onCommitSubmit: handleCommitSubmit,
       onStageChanges: handleStageChanges,
+      onStagePatch: handleStagePatch,
       onStagedChangesUnstage: handleUnstageChanges,
       rawStatus: gitQuery.data?.porcelain,
       stagedPathCount: stagedGitPaths.length,
       stagedPathsForCommit: stagedGitPaths,
-      stageError: stageMutation.error
-        ? apiErrorMessage(stageMutation.error)
-        : undefined,
+      stageError:
+        stageMutation.error || stagePatchMutation.error
+          ? apiErrorMessage(stageMutation.error ?? stagePatchMutation.error)
+          : undefined,
       unstagedPathCount: unstagedGitPaths.length,
     },
     preview: {

@@ -43,14 +43,14 @@ export function ToolCallGroup({
       <button
         aria-controls={contentId}
         aria-expanded={isOpen}
-        className="text-muted hover:text-message flex min-h-7 cursor-pointer items-center gap-2 text-left transition-colors"
+        className="text-muted hover:text-message flex min-h-7 min-w-0 cursor-pointer items-center gap-2 overflow-hidden text-left transition-colors"
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >
         {Icon ? (
           <Icon aria-hidden="true" className="size-4 shrink-0 opacity-80" />
         ) : null}
-        <div className="min-w-0 truncate text-sm">
+        <div className="min-w-0 flex-1 truncate text-sm">
           <span
             className={
               isRunning ? "pp-shimmer-text font-medium" : "font-medium"

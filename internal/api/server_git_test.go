@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -95,6 +97,41 @@ func TestGitUnstageAndDiscardHandlers(t *testing.T) {
 	mustDecode(t, discardResponse, &discardBody)
 	if strings.Contains(discardBody.Porcelain, "new.txt") || !strings.Contains(discardBody.Porcelain, "M  tracked.txt") {
 		t.Fatalf("unexpected discard status: %q", discardBody.Porcelain)
+	}
+}
+
+func TestGitStagePatchHandler(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	configureCommitter(t, root)
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("before\n"), 0o644); err != nil {
+		t.Fatalf("write tracked file: %v", err)
+	}
+	run(t, root, "git", "add", "tracked.txt")
+	run(t, root, "git", "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("after\n"), 0o644); err != nil {
+		t.Fatalf("modify tracked file: %v", err)
+	}
+	patch, err := gitrepo.NewClient().Diff(context.Background(), root, "tracked.txt")
+	if err != nil {
+		t.Fatalf("read git diff: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	body, err := json.Marshal(map[string]string{"patch": patch.Diff})
+	if err != nil {
+		t.Fatalf("marshal stage patch body: %v", err)
+	}
+	stageResponse := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/git/stage-patch", string(body))
+	if stageResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", stageResponse.Code, stageResponse.Body.String())
+	}
+	var stageBody gitrepo.Status
+	mustDecode(t, stageResponse, &stageBody)
+	if !strings.Contains(stageBody.Porcelain, "M  tracked.txt") {
+		t.Fatalf("expected patch to be staged, got %q", stageBody.Porcelain)
 	}
 }
 
