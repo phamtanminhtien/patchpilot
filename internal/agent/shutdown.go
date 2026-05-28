@@ -24,7 +24,7 @@ func (m *Manager) Cancel(ctx context.Context, workspaceID, conversationID, runID
 		runtime.cancel()
 		m.stopRuntimeCommands(runtime)
 	}
-	m.cancelActiveToolCalls(ctx, workspaceID, runID)
+	m.cancelActiveToolCalls(ctx, workspaceID, conversationID, runID)
 	now := time.Now().UTC()
 	run, err := m.store.UpdateAgentRun(ctx, workspaceID, conversationID, runID, map[string]any{
 		"status":      string(StatusCanceled),
@@ -62,17 +62,31 @@ func (m *Manager) Shutdown(ctx context.Context, reason string) error {
 	return nil
 }
 
-func (m *Manager) cancelActiveToolCalls(ctx context.Context, workspaceID, runID string) {
+func (m *Manager) cancelActiveToolCalls(ctx context.Context, workspaceID, conversationID, runID string) {
 	calls, err := m.store.ListAgentToolCalls(ctx, workspaceID, runID)
 	if err != nil {
 		return
 	}
 	finished := time.Now().UTC()
 	output := openToolJSON(map[string]string{"status": "canceled"})
+	run := Run{ID: runID, WorkspaceID: workspaceID, ConversationID: conversationID}
 	for _, call := range calls {
 		switch call.Status {
+		case ToolStatusWaitingApproval:
+			updated, err := m.store.UpdateAgentToolCall(ctx, workspaceID, runID, call.ID, map[string]any{
+				"status":      ToolStatusRejected,
+				"decision":    ToolStatusRejected,
+				"output_json": output,
+				"finished_at": finished,
+			})
+			if err == nil {
+				_ = m.publish(ctx, run, "agent.tool.finished", ToolCallFromRecord(updated))
+			}
 		case ToolStatusPending, ToolStatusApproved, ToolStatusRunning:
-			_, _ = m.store.FinishAgentToolCall(ctx, workspaceID, runID, call.ID, ToolStatusFailed, output, finished)
+			updated, err := m.store.FinishAgentToolCall(ctx, workspaceID, runID, call.ID, ToolStatusFailed, output, finished)
+			if err == nil {
+				_ = m.publish(ctx, run, "agent.tool.finished", ToolCallFromRecord(updated))
+			}
 		}
 	}
 }

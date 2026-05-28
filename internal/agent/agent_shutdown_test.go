@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,6 +41,52 @@ func TestManagerCancelClearsConversationActiveRunFlag(t *testing.T) {
 	}
 	if conversation.HasRunningRun {
 		t.Fatalf("expected canceled conversation to clear active flag, got %+v", conversation)
+	}
+}
+
+func TestManagerCancelRejectsWaitingApprovalToolCalls(t *testing.T) {
+	root := initAgentGitRepo(t)
+	provider := &testProvider{turns: []ProviderResult{{
+		Text:      "I will prepare the patch.",
+		ToolCalls: []ToolRequest{patchToolRequest("call_patch")},
+	}}}
+	manager, _ := newAgentTestManager(t, provider)
+
+	run, err := manager.Create(context.Background(), "ws_1", root, CreateRunInput{
+		Prompt:           "fix bug",
+		ConversationID:   "conv_1",
+		TriggerMessageID: "msg_1",
+		Model:            "gpt-5.5",
+		ReasoningEffort:  "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusWaitingToolApproval)
+
+	canceled, err := manager.Cancel(context.Background(), "ws_1", run.ConversationID, run.ID)
+	if err != nil {
+		t.Fatalf("Cancel returned error: %v", err)
+	}
+	if canceled.Status != string(StatusCanceled) {
+		t.Fatalf("expected canceled run, got %+v", canceled)
+	}
+	detail := waitForAgentRun(t, manager, "ws_1", run.ConversationID, run.ID, StatusCanceled)
+	if len(detail.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %+v", detail.ToolCalls)
+	}
+	toolCall := detail.ToolCalls[0]
+	if toolCall.Status != ToolStatusRejected {
+		t.Fatalf("expected waiting approval tool call to be rejected, got %+v", toolCall)
+	}
+	if toolCall.Decision == nil || *toolCall.Decision != ToolStatusRejected {
+		t.Fatalf("expected rejected decision, got %+v", toolCall)
+	}
+	if !strings.Contains(toolCall.Output, "canceled") {
+		t.Fatalf("expected canceled output, got %+v", toolCall)
+	}
+	if got := readAgentFile(t, filepath.Join(root, "a.txt")); got != "" {
+		t.Fatalf("canceled approval should not apply patch, got %q", got)
 	}
 }
 

@@ -161,6 +161,11 @@ func newTestServerWithAgentProvider(t *testing.T, allowedRoot string, dbPath str
 	run := runner.NewRunner()
 	hub := events.NewHub()
 	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, provider)
+	t.Cleanup(func() {
+		if err := agentManager.Shutdown(context.Background(), "test cleanup"); err != nil {
+			t.Fatalf("agent Shutdown returned error: %v", err)
+		}
+	})
 	return NewServer(manager, fileService, gitClient, run, store, hub, agentManager, health).Routes()
 }
 
@@ -184,6 +189,11 @@ func newServerFixture(t *testing.T, allowedRoot string, provider agent.Provider)
 	run := runner.NewRunner()
 	hub := events.NewHub()
 	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, provider)
+	t.Cleanup(func() {
+		if err := agentManager.Shutdown(context.Background(), "test cleanup"); err != nil {
+			t.Fatalf("agent Shutdown returned error: %v", err)
+		}
+	})
 	return serverFixture{
 		server: NewServer(manager, fileService, gitClient, run, store, hub, agentManager, store),
 		store:  store,
@@ -213,6 +223,11 @@ func newAuthenticatedTestServer(t *testing.T, allowedRoot, adminToken string) ht
 	run := runner.NewRunner()
 	hub := events.NewHub()
 	agentManager := agent.NewManager(store, fileService, gitClient, run, hub, fakeAgentProvider{})
+	t.Cleanup(func() {
+		if err := agentManager.Shutdown(context.Background(), "test cleanup"); err != nil {
+			t.Fatalf("agent Shutdown returned error: %v", err)
+		}
+	})
 	authService, err := auth.NewService(adminToken, store)
 	if err != nil {
 		t.Fatalf("NewService returned error: %v", err)
