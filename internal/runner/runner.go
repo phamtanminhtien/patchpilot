@@ -202,8 +202,8 @@ func (r *Runner) run(ctx context.Context, commandID, cwd string, invocation comm
 	readers.Add(2)
 	go streamOutput(&readers, stdout, "stdout", hooks.OnOutput)
 	go streamOutput(&readers, stderr, "stderr", hooks.OnOutput)
-	waitErr := cmd.Wait()
 	readers.Wait()
+	waitErr := cmd.Wait()
 
 	result := FinishResult{Status: "exited"}
 	if waitErr != nil {
