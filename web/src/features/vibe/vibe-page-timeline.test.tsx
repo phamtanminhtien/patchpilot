@@ -441,6 +441,69 @@ it("opens grouped tool calls by default when a child needs attention", async () 
   expect(runningItem).toHaveAttribute("data-state", "open");
 });
 
+it("scopes approval ordering to each run", async () => {
+  const secondRun = {
+    ...run,
+    createdAt: "2026-05-20T00:00:10Z",
+    id: "run_2",
+    triggerMessageId: "msg_2",
+  };
+  const secondMessage = {
+    ...message,
+    content: "Then update docs",
+    createdAt: "2026-05-20T00:00:10Z",
+    id: "msg_2",
+    runId: "run_2",
+  };
+  const waitingPatch = {
+    ...toolCall,
+    createdAt: "2026-05-20T00:00:01Z",
+    id: "evt_run_1_a",
+    runId: "run_1",
+    sequence: 0,
+    status: "waiting_approval" as const,
+  };
+  const laterWaitingPatch = {
+    ...toolCall,
+    createdAt: "2026-05-20T00:00:02Z",
+    id: "evt_run_1_b",
+    input: '{"diff":"diff --git a/next.txt b/next.txt\n+++ b/next.txt"}',
+    runId: "run_1",
+    sequence: 1,
+    status: "waiting_approval" as const,
+  };
+  const secondRunWaitingPatch = {
+    ...toolCall,
+    batchId: "batch_2",
+    createdAt: "2026-05-20T00:00:11Z",
+    id: "evt_run_2_a",
+    input: '{"diff":"diff --git a/docs.txt b/docs.txt\n+++ b/docs.txt"}',
+    runId: "run_2",
+    sequence: 0,
+    status: "waiting_approval" as const,
+  };
+  vi.mocked(listConversations).mockResolvedValue({
+    conversations: [conversation],
+  });
+  vi.mocked(getConversation).mockResolvedValue({
+    conversation,
+    events: [],
+    messages: [message, secondMessage],
+    runs: [{ ...run, status: "waiting_tool_approval" }, secondRun],
+    toolCalls: [waitingPatch, laterWaitingPatch, secondRunWaitingPatch],
+  });
+
+  renderVibe("/vibe?workspaceId=ws_1");
+  await openExistingConversation();
+
+  expect(
+    await screen.findAllByRole("button", { name: "Approve tool" }),
+  ).toHaveLength(2);
+  expect(
+    screen.getAllByText("Waiting for the previous tool decision."),
+  ).toHaveLength(1);
+});
+
 it("renders assistant markdown code blocks with language labels and copy", async () => {
   const user = userEvent.setup();
   const writeText = vi.fn().mockResolvedValue(undefined);

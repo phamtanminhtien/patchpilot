@@ -125,7 +125,7 @@ func TestManagerReadsFilesThroughCommandAndSearchScope(t *testing.T) {
 	}
 	provider := &testProvider{turns: []ProviderResult{
 		{ToolCalls: []ToolRequest{
-			{CallID: "call_read", Name: "run_command", Arguments: `{"command":"sed -n '2,2p' src/note.txt"}`},
+			{CallID: "call_read", Name: "run_command", Arguments: `{"command":"cat src/note.txt"}`},
 			{CallID: "call_search", Name: "search_files", Arguments: `{"query":"two","path":"src"}`},
 		}},
 		{Text: "done", Done: true},
@@ -146,7 +146,7 @@ func TestManagerReadsFilesThroughCommandAndSearchScope(t *testing.T) {
 	if len(detail.ToolCalls) != 2 {
 		t.Fatalf("expected two tool calls, got %+v", detail.ToolCalls)
 	}
-	if !strings.Contains(detail.ToolCalls[0].Output, `"output":"two\n"`) {
+	if !strings.Contains(detail.ToolCalls[0].Output, `"output":"one\ntwo\nthree\n"`) {
 		t.Fatalf("expected command read output, got %s", detail.ToolCalls[0].Output)
 	}
 	if !strings.Contains(detail.ToolCalls[1].Output, `"path":"src/note.txt"`) || strings.Contains(detail.ToolCalls[1].Output, `"path":"docs/note.txt"`) {
