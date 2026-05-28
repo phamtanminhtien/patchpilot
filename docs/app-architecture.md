@@ -148,12 +148,12 @@ flowchart LR
 
 SQLite stores conversations, messages, agent runs/events/tool calls, terminal
 session metadata, ports, and Git snapshots. Legacy command tables may remain on
-upgraded installs but are not exposed through Workspace APIs. `AGENTS.md` is read directly from
-workspace filesystem on context refresh/run creation. `~/.patchpilot/config.json`
-plus filesystem skill discovery remain source of truth for Skills/MCP lists; v0.3
-derives those lists at runtime instead of persisting them. Conversations persist
-`hasRunningRun` so Vibe can show in-flight state without listing every run.
-Source files stay in the workspace repo.
+upgraded installs but are not exposed through Workspace APIs. `AGENTS.md` is read
+directly from workspace filesystem on context refresh/run creation.
+`~/.patchpilot/config.json` plus filesystem skill discovery remain source of
+truth for Skills/MCP lists; v0.5 derives those lists at runtime instead of
+persisting them. Conversations persist `hasRunningRun` so Vibe can show in-flight
+state without listing every run. Source files stay in the workspace repo.
 
 ## Agent Context
 

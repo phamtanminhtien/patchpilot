@@ -1,10 +1,10 @@
 # PatchPilot Product Spec
 
-`docs/project-rules.md` owns locked rules. This file owns active v0.4 scope, flows, API, data, and acceptance.
+`docs/project-rules.md` owns locked rules. This file owns active v0.5 scope, flows, API, data, and acceptance.
 
 ## Objective
 
-PatchPilot v0.4 is a self-hosted, single-user AI coding workspace centered on workspace conversations with managed agent context/runtime:
+PatchPilot v0.5 is a self-hosted, single-user AI coding workspace centered on workspace conversations with managed agent context/runtime:
 
 ```txt
 open repo -> index instructions/skills/MCP -> open/create conversation
@@ -22,7 +22,7 @@ Core decisions:
 - Agent commands run as the server OS user at workspace root, without a shell. Workspace terminal sessions run a real shell through PTY at workspace root.
 - Agent changes happen through tool calls; mutating tools require approval.
 - Agent context may include repo `AGENTS.md`, enabled local skills, MCP tool metadata, bounded conversation context, and active-run tool history.
-- Skills are local PatchPilot-managed directories; remote install/marketplaces are outside v0.4.
+- Skills are local PatchPilot-managed directories; remote install/marketplaces are outside v0.5.
 - MCP supports explicit per-workspace stdio/HTTP server configs; tools execute only through the backend bridge.
 - Workspace Mode supports files, search, diffs, small edits, interactive terminal sessions, preview, and Git status.
 - Settings is a compact app-wide local/server configuration screen for appearance, agent defaults, local skills, MCP status/config, and safe runtime status.
@@ -61,9 +61,9 @@ open/create conversation -> load messages/activity
 - Provider control instructions are sent as explicit developer-role messages whose `content` array contains XML-tagged system prompt blocks. Agent generation keeps PatchPilot rules and skill instructions in developer content blocks; repo `AGENTS.md` instructions, structured environment context (`cwd`, `shell`, `current_date`, `timezone`), and context warnings are sent separately as a user-role context message before conversation history. Summarization uses developer content blocks for the summary task and rules.
 - Older history over budget is summarized onto the conversation; newest messages stay verbatim. Developer instructions are separate from conversation messages so history cannot displace the control prompt.
 
-Composer assist (v0.4):
+Composer assist (v0.5):
 
-- `/` opens a grouped command list. The first v0.4 group is local skills from
+- `/` opens a grouped command list. The first v0.5 group is local skills from
   the agent context snapshot.
 - `@` opens a grouped mention list. Skills appear immediately; derived folders
   and indexed files appear only after the user types a mention query.
@@ -80,6 +80,8 @@ Composer assist (v0.4):
 - Suggestions support keyboard navigation with arrow keys, Enter/Tab to insert,
   and Escape to close. Group headings and disabled rows are skipped by keyboard
   selection.
+- Permission controls in the composer let users review and adjust workspace tool
+  permissions before starting an agent run.
 
 Agent instructions:
 
@@ -88,7 +90,7 @@ workspace opened/context refreshed -> discover applicable AGENTS.md
 -> validate path/size/secret rules -> include effective instructions in future runs
 ```
 
-PatchPilot reads root and task-relevant descendant `AGENTS.md` files. Effective instructions preserve source order, precedence, and skipped-file warnings. Files outside root, symlink escapes, secret-like paths, binaries, and oversized files are rejected. Discovery reads filesystem during context refresh/run creation; v0.4 has no DB registry/cache table for instruction sources.
+PatchPilot reads root and task-relevant descendant `AGENTS.md` files. Effective instructions preserve source order, precedence, and skipped-file warnings. Files outside root, symlink escapes, secret-like paths, binaries, and oversized files are rejected. Discovery reads filesystem during context refresh/run creation; v0.5 has no DB registry/cache table for instruction sources.
 
 Skills:
 
@@ -141,7 +143,7 @@ create/open terminal session -> start PTY shell at workspace root
 -> bridge input/output/resize over WebSocket -> close session deliberately
 ```
 
-Users may create multiple terminal sessions per workspace. The Workspace UI keeps the terminal in a persistent bottom panel while users switch the primary Files, Git, and Preview panels; terminal session tabs live on the right side of the bottom panel. Each session starts in the workspace root using the server OS user and shell fallback `$SHELL`, `/bin/zsh`, `/bin/bash`, then `/bin/sh`. Terminal transcripts are not persisted; active sessions keep only the latest 1 MiB in memory for reconnect. Terminal WebSocket messages are the only bidirectional realtime channel in v0.3.
+Users may create multiple terminal sessions per workspace. The Workspace UI keeps the terminal in a persistent bottom panel while users switch the primary Files, Git, and Preview panels; terminal session tabs live on the right side of the bottom panel. Each session starts in the workspace root using the server OS user and shell fallback `$SHELL`, `/bin/zsh`, `/bin/bash`, then `/bin/sh`. Terminal transcripts are not persisted; active sessions keep only the latest 1 MiB in memory for reconnect. Terminal WebSocket messages are the only bidirectional realtime channel in v0.5.
 
 Preview:
 
@@ -159,7 +161,7 @@ review status/diff -> stage explicit paths -> enter message
 -> commit selected paths -> return hash
 ```
 
-Stage/commit requests send explicit paths from visible Git sections. Discard requires confirmation naming affected path count. Commit dialog shows exact message and staged paths. Push/pull/branch management are outside scope.
+Stage/commit requests send explicit paths from visible Git sections and Git status-bar controls. Discard requires confirmation naming affected path count. Commit dialog shows exact message and staged paths. Push/pull/branch management are outside scope.
 
 ## API
 
@@ -391,7 +393,7 @@ Active tables:
 - Optional skill/MCP cache tables may store metadata, health, and discovery results for efficiency; `~/.patchpilot/config.json` plus filesystem skill discovery remain source of truth.
 - `terminal_sessions`: `id`, `workspace_id`, `title`, `cwd`, `status`, `pid?`, `rows`, `cols`, `exit_code?`, timestamps.
 - PatchPilot-owned user config (`~/.patchpilot/config.json`): local skill enablement, MCP server config, settings preferences, and installed font metadata. Installed font binaries live under `~/.patchpilot/fonts`; source files are not copied into repositories.
-- Legacy `commands` and `command_output` tables may remain on upgraded installs for old workspace command history, but v0.3 Workspace APIs no longer create or expose them.
+- Legacy `commands` and `command_output` tables may remain on upgraded installs for old workspace command history, but v0.5 Workspace APIs no longer create or expose them.
 - `ports`: `id`, `workspace_id`, `process_id?`, `port`, `status(detected|exposed|closed)`, `exposed_path?`, timestamps.
 - `git_snapshots`: `id`, `workspace_id`, `commit_sha?`, `status_json`, `created_at`.
 
@@ -422,7 +424,8 @@ Route entry files stay thin. `web/src/features/vibe` uses `hooks` for orchestrat
 - Agent starts non-trivial work with a short plan, reads/searches approved files before changes, returns messages/tool calls rather than direct mutations, produces small reviewable patches, reports changed files, and runs/recommends narrow verification.
 - Users approve/reject approval-required tools; server executes only approved mutating tools.
 - MCP tools execute only through the backend bridge and share durable tool-call/event/approval flow with built-ins.
-- Users create, switch, resize, rename, and close Workspace terminal sessions from the persistent bottom terminal panel, view Git status/diff, commit explicit non-empty selected paths, and preview through same-host proxy.
+- Users create, switch, resize, rename, and close Workspace terminal sessions from the persistent bottom terminal panel, search indexed files, use the Workspace command palette, view Git status/diff with collapsible syntax-highlighted diffs, commit explicit non-empty selected paths, and preview through same-host proxy.
+- Canceling an agent run rejects pending approvals so stale approval-required tools cannot run later.
 - Users open Settings from the shared top bar, update theme and app/code/terminal font preferences, enter custom OS-resolved font-family fallback stacks, install local font files, and see live font previews without network font loading. Verification: settings API tests, frontend settings tests, and browser smoke at mobile/desktop widths.
 - Mobile/iPad users complete a Vibe Mode chat-driven AI coding loop and inspect the agent cockpit through tabs/sheets without losing primary flow.
 - Auth/session expiry: expired/missing/invalid cookies return `401 unauthorized`; valid logout clears cookie. Verification: backend auth/API handler tests.

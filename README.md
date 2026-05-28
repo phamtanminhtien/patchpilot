@@ -1,13 +1,19 @@
-# PatchPilot 🚀
+# PatchPilot
 
-PatchPilot is a self-hosted, single-user coding assistant for running chat-driven AI coding loops against local Git repositories. It lets you open an allowed workspace, continue multiple conversations, review approval-required tool calls, run project commands, inspect Git status, and commit selected paths from a mobile-friendly web UI.
+PatchPilot is a self-hosted, single-user AI coding workspace for running
+conversation-driven agent loops against local Git repositories. It lets you open
+an allowed workspace, continue multiple conversations, review approval-required
+tool calls, use a workspace terminal, preview local apps, inspect Git status, and
+commit selected paths from a mobile-friendly web UI.
 
-## v0.3 Product Baseline ✅
+## v0.5 Product Baseline
 
 - Open and index local Git workspaces under configured allowed roots.
 - Use Vibe Mode to create and continue multiple workspace conversations.
 - Send chat messages that trigger agent runs with model and reasoning-effort choices.
-- Stream conversation, agent run, tool, command, and workspace activity through SSE.
+- Adjust workspace permission controls from the composer before starting work.
+- Stream workspace and agent activity through SSE, with terminal I/O over the
+  Workspace terminal WebSocket only.
 - Inspect effective repo instructions, enabled local skills, MCP server/tool
   metadata, context warnings, approvals, and run details in the Vibe cockpit.
 - Use local skill discovery; enabled skill names, descriptions, and paths enter
@@ -15,21 +21,29 @@ PatchPilot is a self-hosted, single-user coding assistant for running chat-drive
   command flow when needed.
 - Configure MCP servers locally and execute MCP tools only through the backend
   bridge and approval policy.
+- Configure app appearance, default agent settings, local skills, MCP status, and
+  safe runtime status from Settings.
 - Approve or reject mutating agent tools before they touch the workspace.
-- Browse files, read small text files, search workspace contents, and inspect diffs.
-- Run classified workspace commands without a shell and replay the latest command output.
-- Stage, unstage, discard, and commit explicit selected paths.
+- Browse files, read small text files, search indexed workspace contents, open
+  commands from the Workspace command palette, and inspect syntax-highlighted
+  collapsible diffs.
+- Use persistent Workspace terminal sessions backed by a bounded in-memory replay
+  buffer. Agent commands remain separate and run without a shell through the
+  backend runner.
+- Stage, unstage, discard, and commit explicit selected paths from Git panels and
+  status-bar controls.
 - Serve the frontend through Vite in development or through the Go server in a built deployment.
 
-The v0.3 focus is managed agent context/runtime: repo instructions, local
+The v0.5 focus is managed agent context/runtime: repo instructions, local
 skills, MCP metadata, approval-gated tools, visible agent plans, reviewable
-patches, and narrow verification after changes.
+patches, workspace permission controls, richer Workspace search/Git/diff tools,
+workspace terminal support, Settings, and narrow verification after changes.
 
 ## Tech Stack 🧱
 
 - Backend: Go, `net/http`, SQLite through GORM, Zap logging.
 - Frontend: React, React Router, Vite, TanStack Query, Zustand, nuqs, Tailwind CSS, Radix primitives, CodeMirror, lucide-react.
-- Realtime: Server-Sent Events.
+- Realtime: Server-Sent Events plus a terminal-only WebSocket bridge.
 - Package manager: pnpm for `web/`.
 
 ## Requirements 🛠️
@@ -159,7 +173,7 @@ docker run --rm \
   ghcr.io/phamtanminhtien/patchpilot:latest
 ```
 
-Use a version tag such as `0.3.0` instead of `latest` for reproducible runs.
+Use a version tag such as `0.5.0` instead of `latest` for reproducible runs.
 
 ## Releases 🚢
 
@@ -192,7 +206,7 @@ make build          # build backend and frontend
 
 ```txt
 cmd/patchpilot       Go application entrypoint
-internal/api         HTTP routes, handlers, SSE, and static serving
+internal/api         HTTP routes, handlers, SSE, terminal WebSocket, and static serving
 internal/agent       Conversation agent run orchestration and OpenAI-compatible provider
 internal/config      Runtime configuration
 internal/database    SQLite connection and manual migrations
@@ -201,11 +215,12 @@ internal/filestore   Safe workspace file access
 internal/gitrepo     Git status, diff, staging, discard, and commit helpers
 internal/mcp         Local MCP config discovery and backend-only tool metadata
 internal/ports       Same-host port scanning and preview proxy support
-internal/runner      Workspace command classification and execution
+internal/runner      Agent command classification and execution
+internal/terminal    Workspace PTY terminal sessions and WebSocket bridge
 internal/skills      Local skill discovery and enablement
 internal/workspace   Workspace validation, metadata, and file indexing
 web/src/app          Frontend shell, routing, theme, and mode defaults
-web/src/features     Vibe and Workspace feature UI
+web/src/features     Vibe, Workspace, and Settings feature UI
 web/src/shared       API client, UI primitives, URL helpers, and styles
 docs                 Product rules, product spec, architecture, and design language
 ```
@@ -214,12 +229,16 @@ docs                 Product rules, product spec, architecture, and design langu
 
 PatchPilot keeps workspace source files in their original repositories. App metadata lives in SQLite. Agent changes run through the tool loop: the agent can inspect approved workspace context and request tools, but mutating tools run only after user approval.
 
-Commands run from the workspace root without a shell. Shell control operators, workspace escape attempts, and destructive patterns are blocked or require confirmation according to the command classifier.
+Agent commands run from the workspace root without a shell. Shell control
+operators, workspace escape attempts, and destructive patterns are blocked or
+require confirmation according to the command classifier. Workspace terminal
+sessions are separate PTY shells started at the workspace root and keep only a
+bounded in-memory replay buffer.
 
 ## Documentation 📚
 
 - `docs/project-rules.md`: locked implementation rules.
-- `docs/product-spec.md`: v0.3 scope, flows, API, and data contracts.
+- `docs/product-spec.md`: v0.5 scope, flows, API, and data contracts.
 - `docs/app-architecture.md`: architecture overview.
 - `docs/design-language.md`: frontend design system and UI rules.
 - `docs/release.md`: release checklist and post-release verification.

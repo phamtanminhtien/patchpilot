@@ -11,8 +11,10 @@ coding-agent loop against local Git repositories from mobile, iPad, or browser.
 It is not a VS Code clone. The product is optimized for:
 
 - Chat-driven agent work.
+- Composer controls for choosing workspace permissions before work starts.
 - Clear review of approval-required tools.
-- Running commands and reading output.
+- Running agent-command verification and using a workspace terminal.
+- Fast indexed file search, command palette navigation, and readable diffs.
 - Previewing local apps through a same-host proxy.
 - Inspecting Git status/diffs and committing selected paths.
 
@@ -25,13 +27,14 @@ Main loop:
 
 ```txt
 open repo -> create/open conversation -> chat with agent
--> stream text and tool activity -> approve/reject mutating tools
--> run or review verification -> commit selected paths
+-> set permissions -> stream text and tool activity -> approve/reject mutating tools
+-> run or review verification -> use terminal/preview when needed
+-> commit selected paths
 ```
 
-The server owns source access, Git, the agent runtime, process execution, app
-metadata, command output, and preview proxying. The browser client owns the
-interaction surface and never bypasses backend safety checks.
+The server owns source access, Git, the agent runtime, process execution,
+workspace terminal sessions, app metadata, and preview proxying. The browser
+client owns the interaction surface and never bypasses backend safety checks.
 
 ## UX Modes
 
@@ -41,11 +44,12 @@ approval decisions, verification results, and quick commits. Users should not
 need to constantly manage files.
 
 Workspace Mode is a lightweight repository control surface. It supports files,
-search, small edits, diffs, command output, preview, and Git status. It provides
-more control without growing into full IDE parity.
+search, small edits, diffs, interactive terminal sessions, preview, and Git
+status. It provides more control without growing into full IDE parity.
 
 Users can switch modes inside the same workspace. Both modes share backend
-state, conversations, commands, Git state, and preview state.
+state, conversations, agent runs, terminal metadata, Git state, and preview
+state.
 
 ## Target Users
 
@@ -72,33 +76,43 @@ In scope for the active product:
 - Open and index a local Git repository under configured allowed roots.
 - Create, list, open, rename, and continue conversations per workspace.
 - Send user messages that start agent runs with model and reasoning choices.
-- Stream agent activity, tool calls, command output, and workspace events.
+- Review and adjust workspace permission controls from the composer before a run.
+- Stream agent activity, tool calls, agent command output, terminal metadata, and
+  workspace events.
 - Let agents inspect approved workspace context and propose reviewable patches.
 - Require user approval before mutating tools run.
 - Apply or reject patch tool calls through backend-controlled approval flow.
-- Run classified workspace commands without a shell.
-- Replay latest command output.
+- Run classified agent commands without a shell.
+- Create, switch, resize, rename, and close workspace terminal sessions.
+- Keep active terminal replay bounded in memory without persisting transcripts.
+- Search indexed files and open Workspace actions from the command palette.
 - Detect and expose same-host preview ports.
-- Show Git status/diff and commit explicit selected paths.
+- Show Git status, syntax-highlighted collapsible diffs, status-bar controls,
+  and commit explicit selected paths.
+- Cancel pending approvals when an agent run is canceled.
+- Configure appearance, default agent settings, local skills, MCP status/config,
+  and safe runtime status from Settings.
 - Keep the mobile/iPad Vibe Mode loop complete and usable.
 
 Out of scope for the active product:
 
-- Full IDE behavior, multi-tab editor, LSP, inline diagnostics, terminal
-  emulator parity.
+- Full IDE behavior, multi-tab editor, LSP, inline diagnostics, terminal emulator
+  parity outside the Workspace bottom terminal panel.
 - Push/pull/branch/merge/rebase management.
-- WebSocket, public tunnels, Docker-required runtime, remote skill marketplace
-  or MCP public discovery.
+- Non-terminal WebSocket, public tunnels, Docker-required runtime, remote skill
+  marketplace or MCP public discovery.
 - Multi-user/team/RBAC, hosted SaaS, billing, enterprise administration.
 
 ## Architecture Shape
 
 Backend:
 
-- Go single binary serving REST, SSE, preview proxy, and embedded frontend.
+- Go single binary serving REST, SSE, terminal WebSocket, preview proxy, and
+  embedded frontend.
 - SQLite stores PatchPilot metadata; Git remains the source history.
 - Source files stay in their original workspace repositories.
-- Commands run as the server OS user from the workspace root, without a shell.
+- Agent commands run as the server OS user from the workspace root, without a
+  shell; Workspace terminal sessions run PTY shells at the workspace root.
 - File access, Git, process execution, and port proxying are backend-controlled.
 
 Frontend:
@@ -123,8 +137,9 @@ Agent model:
 - Admin token and secrets never enter logs, events, or agent context.
 - Workspace paths are validated, workspace-relative, and blocked from traversal.
 - Secret-like files are blocked from agent reads by default.
-- Commands are classified, run without shell expansion, and block destructive
-  patterns.
+- Agent commands are classified, run without shell expansion, and block
+  destructive patterns. Workspace terminal input stays inside user-created PTY
+  sessions and is not persisted.
 - Preview proxy is same-host only; agents do not expose ports.
 
 ## Roadmap
@@ -132,8 +147,8 @@ Agent model:
 1. Core server, auth, workspace validation, SQLite migrations, REST/SSE.
 2. Vibe Mode conversations, agent runs, tool approval, patch flow.
 3. Mobile-first polish for the full chat-driven AI coding loop.
-4. Commands, durable output replay, port detection, same-host preview.
-5. Workspace Mode files/search/diff/Git controls.
+4. Workspace terminal sessions, port detection, same-host preview.
+5. Workspace Mode files/search/diff/Git controls and Settings.
 6. Optional future expansion only after the active scope is stable; do not pull
    post-scope ideas into the product without updating locked rules/specs first.
 
