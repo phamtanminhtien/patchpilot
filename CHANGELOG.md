@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.4.0...patchpilot-v0.5.0) (2026-05-28)
+
+
+### Features
+
+* **composer:** add workspace permission controls ([126b144](https://github.com/phamtanminhtien/patchpilot/commit/126b14496c214ddf62b6fda5663d37af326fdfd4))
+* implement unified diff parsing and a dedicated UI component for rendering diffs with syntax highlighting and file-level collapsing ([852c64c](https://github.com/phamtanminhtien/patchpilot/commit/852c64ca576be1feadf105a3828d0a15c677233e))
+* **workspace:** add git status bar controls ([784ba4a](https://github.com/phamtanminhtien/patchpilot/commit/784ba4a12b193091600d7545bc5e96e205ed2082))
+* **workspace:** add indexed file search and command palette ([dc01054](https://github.com/phamtanminhtien/patchpilot/commit/dc01054eb151ed3b1256fab38da7edae0b9e2954))
+
+
+### Bug Fixes
+
+* **agent:** reject pending approvals on cancel ([1821d76](https://github.com/phamtanminhtien/patchpilot/commit/1821d76ad1ba08cf439665d8767e2d00c8933272))
+
 ## [0.4.0](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.3.0...patchpilot-v0.4.0) (2026-05-27)
 
 
