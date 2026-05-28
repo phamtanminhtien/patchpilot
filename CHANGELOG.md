@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.5.0...patchpilot-v0.5.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* wait for output streams to finish before calling cmd.Wait to ensure complete capture ([17993f1](https://github.com/phamtanminhtien/patchpilot/commit/17993f163da616f2d2fd9077c65df305eee2a5b3))
+
 ## [0.5.0](https://github.com/phamtanminhtien/patchpilot/compare/patchpilot-v0.4.0...patchpilot-v0.5.0) (2026-05-28)
 
 
