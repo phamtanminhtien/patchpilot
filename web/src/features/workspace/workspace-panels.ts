@@ -1,4 +1,10 @@
-import { Files, GitBranch, type LucideIcon, MonitorUp } from "lucide-react";
+import {
+  Files,
+  GitBranch,
+  type LucideIcon,
+  MonitorUp,
+  Search,
+} from "lucide-react";
 
 export interface WorkspacePanelDefinition {
   description: string;
@@ -7,7 +13,12 @@ export interface WorkspacePanelDefinition {
   value: WorkspacePanel;
 }
 
-export const workspacePanelValues = ["files", "git", "preview"] as const;
+export const workspacePanelValues = [
+  "files",
+  "search",
+  "git",
+  "preview",
+] as const;
 
 export type WorkspacePanel = (typeof workspacePanelValues)[number];
 
@@ -17,6 +28,12 @@ export const workspacePanels = [
     icon: Files,
     label: "Files",
     value: "files",
+  },
+  {
+    description: "Search inside workspace file contents.",
+    icon: Search,
+    label: "Search",
+    value: "search",
   },
   {
     description: "Review working tree status and selected diffs.",
@@ -36,6 +53,8 @@ export function panelShortDescription(panel: WorkspacePanel) {
   switch (panel) {
     case "files":
       return "File tree";
+    case "search":
+      return "Content search";
     case "git":
       return "Working tree";
     case "preview":

@@ -20,10 +20,11 @@ import {
   createWorkspace,
   discardGitChanges,
   exposePort,
+  type FileIndexEntry,
   getGitDiff,
   getGitStatus,
   getWorkspace,
-  listFileIndex,
+  listFileIndexDirectory,
   listPorts,
   listTerminalSessions,
   listWorkspaces,
@@ -50,6 +51,9 @@ import {
 } from "../git/workspace-git";
 import type { WorkspacePanel } from "../workspace-panels";
 import { useWorkspaceUiStore } from "./use-workspace-ui-store";
+
+const defaultContentSearchExclude =
+  ".git/**, **/.git/**, node_modules/**, **/node_modules/**, .pnpm/**, **/.pnpm/**, .yarn/**, **/.yarn/**, .next/**, **/.next/**, .nuxt/**, **/.nuxt/**, dist/**, **/dist/**, build/**, **/build/**, coverage/**, **/coverage/**, .cache/**, **/.cache/**, .turbo/**, **/.turbo/**, .vite/**, **/.vite/**";
 
 interface UseWorkspaceControllerInput {
   panel: WorkspacePanel;
@@ -78,6 +82,8 @@ export function useWorkspaceController({
     workspaceId: "",
   });
   const [fileSearchState, setFileSearchState] = useState({
+    exclude: defaultContentSearchExclude,
+    include: "",
     query: "",
     workspaceId: "",
   });
@@ -122,32 +128,52 @@ export function useWorkspaceController({
 
   const filesQuery = useQuery({
     enabled: workspaceId.length > 0 && panel === "files",
-    queryFn: () => listFileIndex(workspaceId),
+    queryFn: () =>
+      listFileIndexDirectory(workspaceId, "", { includeSkipped: true }),
     queryKey: ["workspace-file-index", workspaceId],
   });
 
   const fileSearchQuery =
     fileSearchState.workspaceId === workspaceId ? fileSearchState.query : "";
+  const fileSearchInclude =
+    fileSearchState.workspaceId === workspaceId ? fileSearchState.include : "";
+  const fileSearchExclude =
+    fileSearchState.workspaceId === workspaceId
+      ? fileSearchState.exclude
+      : defaultContentSearchExclude;
   const trimmedFileSearchQuery = fileSearchQuery.trim();
+  const trimmedFileSearchInclude = fileSearchInclude.trim();
+  const trimmedFileSearchExclude = fileSearchExclude.trim();
 
   const fileSearchQueryResult = useQuery({
     enabled:
       workspaceId.length > 0 &&
-      panel === "files" &&
+      panel === "search" &&
       trimmedFileSearchQuery.length > 0,
-    queryFn: () => searchFiles(workspaceId, trimmedFileSearchQuery),
-    queryKey: ["workspace-file-search", workspaceId, trimmedFileSearchQuery],
+    queryFn: () =>
+      searchFiles(workspaceId, trimmedFileSearchQuery, {
+        exclude: trimmedFileSearchExclude || undefined,
+        include: trimmedFileSearchInclude || undefined,
+      }),
+    queryKey: [
+      "workspace-file-search",
+      workspaceId,
+      trimmedFileSearchQuery,
+      trimmedFileSearchInclude,
+      trimmedFileSearchExclude,
+    ],
   });
 
   const fileQuery = useQuery({
-    enabled:
-      workspaceId.length > 0 && panel === "files" && selectedPath.length > 0,
+    enabled: workspaceId.length > 0 && selectedPath.length > 0,
     queryFn: () => readFile(workspaceId, selectedPath),
     queryKey: ["workspace-file", workspaceId, selectedPath],
   });
 
   const gitQuery = useQuery({
-    enabled: workspaceId.length > 0 && (panel === "files" || panel === "git"),
+    enabled:
+      workspaceId.length > 0 &&
+      (panel === "files" || panel === "search" || panel === "git"),
     queryFn: () => getGitStatus(workspaceId),
     queryKey: ["workspace-git-status", workspaceId],
   });
@@ -302,7 +328,13 @@ export function useWorkspaceController({
   const refreshFilesMutation = useMutation({
     mutationFn: () => refreshFileIndex(workspaceId),
     onSuccess: (data) => {
-      queryClient.setQueryData(["workspace-file-index", workspaceId], data);
+      queryClient.setQueryData(["workspace-file-index", workspaceId], {
+        ...data,
+        entries: data.entries.filter(isRootFileIndexEntry),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-file-index-directory", workspaceId],
+      });
     },
   });
 
@@ -397,6 +429,17 @@ export function useWorkspaceController({
     void setSelectedPath(path);
   }
 
+  function handleFileOpen(path: string) {
+    openEditorTab(workspaceId, path);
+    void setSelectedPath(path);
+    void setPanel("files");
+  }
+
+  function handleSearchResultOpen(path: string) {
+    openEditorTab(workspaceId, path);
+    void setSelectedPath(path);
+  }
+
   function handleEditorTabClose(path: string) {
     const session = editorSessions[workspaceId];
     const openTabs = session?.openTabs ?? [];
@@ -412,7 +455,30 @@ export function useWorkspaceController({
   }
 
   function handleFileSearchQueryChange(query: string) {
-    setFileSearchState({ query, workspaceId });
+    setFileSearchState({
+      exclude: fileSearchExclude,
+      include: fileSearchInclude,
+      query,
+      workspaceId,
+    });
+  }
+
+  function handleFileSearchIncludeChange(include: string) {
+    setFileSearchState({
+      exclude: fileSearchExclude,
+      include,
+      query: fileSearchQuery,
+      workspaceId,
+    });
+  }
+
+  function handleFileSearchExcludeChange(exclude: string) {
+    setFileSearchState({
+      exclude,
+      include: fileSearchInclude,
+      query: fileSearchQuery,
+      workspaceId,
+    });
   }
 
   function handleWorkspaceSelect(selectedWorkspaceId: string) {
@@ -578,7 +644,11 @@ export function useWorkspaceController({
       onRefresh: () => refreshFilesMutation.mutate(),
       onSave: handleFileSave,
       onSaveAll: handleFileSaveAll,
+      onSearchExcludeChange: handleFileSearchExcludeChange,
+      onSearchIncludeChange: handleFileSearchIncludeChange,
+      onSearchResultOpen: handleSearchResultOpen,
       onSearchQueryChange: handleFileSearchQueryChange,
+      onOpenFile: handleFileOpen,
       onSelectTab: handlePathSelect,
       saveError: writeFileMutation.error
         ? apiErrorMessage(writeFileMutation.error)
@@ -586,6 +656,8 @@ export function useWorkspaceController({
       searchError: fileSearchQueryResult.error
         ? apiErrorMessage(fileSearchQueryResult.error)
         : undefined,
+      searchExclude: fileSearchExclude,
+      searchInclude: fileSearchInclude,
       searchQuery: fileSearchQuery,
       searchResults: fileSearchQueryResult.data?.results ?? [],
       searchTrimmedQuery: trimmedFileSearchQuery,
@@ -693,4 +765,11 @@ function updatePortCache(
       ].sort((a, b) => a.port - b.port),
     }),
   );
+}
+
+function isRootFileIndexEntry(entry: FileIndexEntry) {
+  if (entry.dir !== undefined) {
+    return entry.dir === "";
+  }
+  return !entry.path.includes("/");
 }

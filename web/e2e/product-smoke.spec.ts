@@ -89,7 +89,7 @@ test("covers workspace files, Git, terminal, and preview smoke flows", async ({
   await expect(page.getByText("PatchPilot smoke file")).toBeVisible();
 
   await page.getByRole("button", { name: "Git" }).click();
-  await expect(page.getByText("full workspace diff")).toBeVisible();
+  await expect(page.getByText("PatchPilot smoke file")).toBeVisible();
   await page.getByRole("button", { name: "Changes actions" }).click();
   await expect(
     page.getByRole("button", { name: "Stage all changes" }),
@@ -111,12 +111,11 @@ test("covers workspace files, Git, terminal, and preview smoke flows", async ({
   await expect(
     page.getByLabel("Terminal Dev shell", { exact: true }),
   ).toBeVisible();
-  const previewPorts = page.getByRole("region", { name: "Preview ports" });
-  await expect(previewPorts.getByText("localhost:5173")).toBeVisible();
-  await previewPorts.getByRole("button", { name: "Expose port" }).click();
+  await expect(page.getByText("localhost:5173")).toBeVisible();
+  await page.getByRole("button", { name: "Expose" }).click();
   await expect(
-    previewPorts.getByRole("link", { name: "Open preview" }),
-  ).toHaveAttribute("href", "/workspaces/ws_1/ports/5173/proxy/");
+    page.locator('a[href="/workspaces/ws_1/ports/5173/proxy/"]'),
+  ).toBeVisible();
 });
 
 async function mockPatchPilotApi(

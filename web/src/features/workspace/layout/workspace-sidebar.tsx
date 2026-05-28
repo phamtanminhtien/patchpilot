@@ -61,19 +61,25 @@ export function WorkspaceSidebar({
   onGitCommitMessageChange,
   onGitCommitSubmit,
   onFileIndexRefresh,
+  onFileSearchExcludeChange,
+  onFileSearchIncludeChange,
   onFileSearchQueryChange,
   onPortExpose,
+  onFileOpen,
   onPathSelect,
   onStagedChangesUnstage,
   ports,
   portsError,
   fileSearchError,
+  fileSearchExclude,
+  fileSearchInclude,
   fileSearchQuery,
   fileSearchResults,
   fileSearchTrimmedQuery,
   selectedPath,
   workspace,
   workspaceError,
+  workspaceId,
   portExposeError,
   isExposingPort,
   isLoadingPorts,
@@ -105,13 +111,18 @@ export function WorkspaceSidebar({
   onGitCommitMessageChange: (value: string) => void;
   onGitCommitSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onFileIndexRefresh: () => void;
+  onFileSearchExcludeChange: (query: string) => void;
+  onFileSearchIncludeChange: (query: string) => void;
   onFileSearchQueryChange: (query: string) => void;
   onPortExpose: (port: number) => void;
+  onFileOpen: (path: string) => void;
   onPathSelect: (path: string) => void;
   onStagedChangesUnstage: (paths: string[]) => void;
   ports: Port[];
   portsError?: string;
   fileSearchError?: string;
+  fileSearchExclude: string;
+  fileSearchInclude: string;
   fileSearchQuery: string;
   fileSearchResults: FileSearchResult[];
   fileSearchTrimmedQuery: string;
@@ -121,6 +132,7 @@ export function WorkspaceSidebar({
     name: string;
   };
   workspaceError?: string;
+  workspaceId: string;
 }) {
   return (
     <aside className="border-line/45 bg-panel grid min-h-0 gap-1 border-b lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden lg:border-r lg:border-b-0">
@@ -132,33 +144,39 @@ export function WorkspaceSidebar({
         workspaceError={workspaceError}
       />
 
-      <div className="min-h-0 overflow-auto">
+      <div className="min-h-0 overflow-hidden">
         {activePanel === "files" ? (
-          <div className="grid gap-2 pb-2">
-            <WorkspaceFileSearch
-              error={fileSearchError}
-              isLoading={isSearchingFiles}
-              onQueryChange={onFileSearchQueryChange}
+          <div className="h-full min-h-0 overflow-auto pb-2">
+            <WorkspaceFileTree
+              entries={files}
+              error={filesError}
+              gitChanges={gitChanges}
+              isLoading={isFilesLoading}
               onSelect={onPathSelect}
-              query={fileSearchQuery}
-              results={fileSearchResults}
-              trimmedQuery={fileSearchTrimmedQuery}
+              selectedPath={selectedPath}
+              workspaceId={workspaceId}
             />
-            {fileSearchTrimmedQuery.length > 0 ? null : (
-              <WorkspaceFileTree
-                entries={files}
-                error={filesError}
-                gitChanges={gitChanges}
-                isLoading={isFilesLoading}
-                onSelect={onPathSelect}
-                selectedPath={selectedPath}
-              />
-            )}
           </div>
         ) : null}
 
+        {activePanel === "search" ? (
+          <WorkspaceFileSearch
+            error={fileSearchError}
+            exclude={fileSearchExclude}
+            include={fileSearchInclude}
+            isLoading={isSearchingFiles}
+            onExcludeChange={onFileSearchExcludeChange}
+            onIncludeChange={onFileSearchIncludeChange}
+            onQueryChange={onFileSearchQueryChange}
+            onSelect={onFileOpen}
+            query={fileSearchQuery}
+            results={fileSearchResults}
+            trimmedQuery={fileSearchTrimmedQuery}
+          />
+        ) : null}
+
         {activePanel === "git" ? (
-          <div className="grid gap-2 pb-2">
+          <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 pb-2">
             <GitCommitBox
               commitError={gitCommitError}
               commitMessage={gitCommitMessage}
@@ -170,32 +188,36 @@ export function WorkspaceSidebar({
               stagedCount={stagedGitPathCount(gitChanges)}
               stageError={gitStageError}
             />
-            <GitChangeList
-              changes={gitChanges}
-              error={gitError}
-              isDiscardingChanges={isDiscardingChanges}
-              isLoading={isGitLoading}
-              isStagingChanges={isStagingChanges}
-              isUnstagingChanges={isUnstagingChanges}
-              onChangesDiscard={onChangesDiscard}
-              onChangesStage={onChangesStage}
-              onSelect={onPathSelect}
-              onStagedChangesUnstage={onStagedChangesUnstage}
-              selectedPath={selectedPath}
-            />
+            <div className="min-h-0 overflow-auto">
+              <GitChangeList
+                changes={gitChanges}
+                error={gitError}
+                isDiscardingChanges={isDiscardingChanges}
+                isLoading={isGitLoading}
+                isStagingChanges={isStagingChanges}
+                isUnstagingChanges={isUnstagingChanges}
+                onChangesDiscard={onChangesDiscard}
+                onChangesStage={onChangesStage}
+                onSelect={onPathSelect}
+                onStagedChangesUnstage={onStagedChangesUnstage}
+                selectedPath={selectedPath}
+              />
+            </div>
           </div>
         ) : null}
 
         {activePanel === "preview" ? (
-          <PreviewServerList
-            error={portsError}
-            exposeError={portExposeError}
-            exposingPort={exposingPort}
-            isExposing={isExposingPort}
-            isLoading={isLoadingPorts}
-            onExpose={onPortExpose}
-            ports={ports}
-          />
+          <div className="h-full min-h-0 overflow-auto">
+            <PreviewServerList
+              error={portsError}
+              exposeError={portExposeError}
+              exposingPort={exposingPort}
+              isExposing={isExposingPort}
+              isLoading={isLoadingPorts}
+              onExpose={onPortExpose}
+              ports={ports}
+            />
+          </div>
         ) : null}
       </div>
     </aside>
@@ -204,7 +226,11 @@ export function WorkspaceSidebar({
 
 function WorkspaceFileSearch({
   error,
+  exclude,
+  include,
   isLoading,
+  onExcludeChange,
+  onIncludeChange,
   onQueryChange,
   onSelect,
   query,
@@ -212,7 +238,11 @@ function WorkspaceFileSearch({
   trimmedQuery,
 }: {
   error?: string;
+  exclude: string;
+  include: string;
   isLoading: boolean;
+  onExcludeChange: (query: string) => void;
+  onIncludeChange: (query: string) => void;
   onQueryChange: (query: string) => void;
   onSelect: (path: string) => void;
   query: string;
@@ -220,32 +250,73 @@ function WorkspaceFileSearch({
   trimmedQuery: string;
 }) {
   return (
-    <section className="grid gap-1 pb-1">
-      <div className="px-2">
+    <section className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-1 pb-1">
+      <div className="grid gap-1 px-2">
         <TextField
           className="bg-surface"
           id="workspace-file-search"
-          label="Search files"
+          label="Search file contents"
           labelHidden
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search files"
+          placeholder="Search file contents"
           size="small"
           value={query}
         />
+        <TextField
+          className="bg-surface font-mono"
+          id="workspace-file-search-include"
+          label="Include"
+          onChange={(event) => onIncludeChange(event.target.value)}
+          placeholder="*.ts, **/*.tsx"
+          size="small"
+          value={include}
+        />
+        <TextField
+          className="bg-surface font-mono"
+          id="workspace-file-search-exclude"
+          label="Exclude"
+          onChange={(event) => onExcludeChange(event.target.value)}
+          placeholder="node_modules/**, dist/**"
+          size="small"
+          value={exclude}
+        />
       </div>
-      {trimmedQuery.length === 0 ? null : (
-        <div className="grid gap-1 pt-1">
-          {error ? <ErrorState message={error} /> : null}
-          {isLoading ? <LoadingState label="Searching files" /> : null}
-          {!error && !isLoading && results.length === 0 ? (
-            <p className="text-muted px-1 text-xs">No matching files.</p>
-          ) : null}
-          {!error && !isLoading && results.length > 0 ? (
-            <WorkspaceFileSearchResults onSelect={onSelect} results={results} />
-          ) : null}
-        </div>
-      )}
+      <div className="min-h-5 px-2">
+        {trimmedQuery.length > 0 &&
+        !error &&
+        !isLoading &&
+        results.length > 0 ? (
+          <SearchResultSummary results={results} />
+        ) : null}
+      </div>
+      <div className="min-h-0 overflow-auto pt-1">
+        {trimmedQuery.length === 0 ? null : (
+          <div className="grid gap-1">
+            {error ? <ErrorState message={error} /> : null}
+            {isLoading ? <LoadingState label="Searching files" /> : null}
+            {!error && !isLoading && results.length === 0 ? (
+              <p className="text-muted px-1 text-xs">No matching files.</p>
+            ) : null}
+            {!error && !isLoading && results.length > 0 ? (
+              <WorkspaceFileSearchResults
+                onSelect={onSelect}
+                results={results}
+              />
+            ) : null}
+          </div>
+        )}
+      </div>
     </section>
+  );
+}
+
+function SearchResultSummary({ results }: { results: FileSearchResult[] }) {
+  const fileCount = new Set(results.map((result) => result.path)).size;
+  return (
+    <p className="text-muted text-xs font-medium">
+      {results.length} {results.length === 1 ? "result" : "results"} in{" "}
+      {fileCount} {fileCount === 1 ? "file" : "files"}
+    </p>
   );
 }
 
@@ -260,19 +331,13 @@ function WorkspaceFileSearchResults({
 
   return (
     <div className="grid gap-0.5">
-      <p className="text-muted px-2 text-xs font-medium">
-        {results.length} {results.length === 1 ? "result" : "results"} in{" "}
-        {groups.length} {groups.length === 1 ? "file" : "files"}
-      </p>
-      <div className="grid gap-0.5">
-        {groups.map((group) => (
-          <WorkspaceFileSearchResult
-            group={group}
-            key={group.path}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
+      {groups.map((group) => (
+        <WorkspaceFileSearchResult
+          group={group}
+          key={group.path}
+          onSelect={onSelect}
+        />
+      ))}
     </div>
   );
 }
@@ -693,7 +758,6 @@ function WorkspaceSidebarHeader({
         {activePanel === "files" ? (
           <Button
             aria-label="Refresh index"
-            className="aspect-square px-0"
             disabled={isRefreshingFiles}
             icon={
               <RefreshCw
@@ -704,13 +768,11 @@ function WorkspaceSidebarHeader({
               />
             }
             onClick={onFileIndexRefresh}
-            size="small"
+            size="icon"
             title="Refresh index"
             type="button"
             variant="action"
-          >
-            <span className="sr-only">Refresh index</span>
-          </Button>
+          />
         ) : null}
       </div>
       {!workspace && workspaceError ? (

@@ -229,7 +229,7 @@ func TestListReturnsEntries(t *testing.T) {
 	}
 }
 
-func TestListSkipsIgnoredDirsSymlinksAndLargeFiles(t *testing.T) {
+func TestListShowsHeavyDirsButSkipsGitSymlinksAndLargeFiles(t *testing.T) {
 	root := t.TempDir()
 	mustMkdirAll(t, filepath.Join(root, ".git"))
 	mustMkdirAll(t, filepath.Join(root, "node_modules"))
@@ -249,7 +249,7 @@ func TestListSkipsIgnoredDirsSymlinksAndLargeFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Path != "small.txt" {
+	if len(entries) != 3 || entries[0].Path != "build" || entries[1].Path != "node_modules" || entries[2].Path != "small.txt" {
 		t.Fatalf("unexpected entries: %+v", entries)
 	}
 }
@@ -297,6 +297,37 @@ func TestSearchWithOptionsScopesResults(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Path != "docs/note.txt" {
 		t.Fatalf("expected only docs file result, got %+v", results)
+	}
+}
+
+func TestSearchWithOptionsFiltersIncludeAndExcludeGlobs(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "src"))
+	mustMkdirAll(t, filepath.Join(root, "dist"))
+	mustMkdirAll(t, filepath.Join(root, "docs"))
+	if err := os.WriteFile(filepath.Join(root, "src", "app.ts"), []byte("needle in ts"), 0o644); err != nil {
+		t.Fatalf("write ts file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "app.js"), []byte("needle in js"), 0o644); err != nil {
+		t.Fatalf("write js file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dist", "bundle.ts"), []byte("needle in dist"), 0o644); err != nil {
+		t.Fatalf("write dist file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "note.md"), []byte("needle in docs"), 0o644); err != nil {
+		t.Fatalf("write docs file: %v", err)
+	}
+	service := NewService()
+
+	results, err := service.SearchWithOptions(root, "needle", SearchOptions{
+		ExcludePatterns: []string{"dist/**", "**/dist/**"},
+		IncludePatterns: []string{"*.ts", "**/*.md"},
+	})
+	if err != nil {
+		t.Fatalf("SearchWithOptions returned error: %v", err)
+	}
+	if len(results) != 2 || results[0].Path != "docs/note.md" || results[1].Path != "src/app.ts" {
+		t.Fatalf("unexpected filtered results: %+v", results)
 	}
 }
 
@@ -397,8 +428,8 @@ func TestIndexSkipsIgnoredDirsSymlinksAndLargeFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Index returned error: %v", err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("expected no indexed files, got %+v", entries)
+	if len(entries) != 2 || entries[0].Path != ".git" || entries[0].IndexStatus != "skipped" || entries[1].Path != "node_modules" || entries[1].IndexStatus != "skipped" {
+		t.Fatalf("expected skipped directory markers, got %+v", entries)
 	}
 }
 

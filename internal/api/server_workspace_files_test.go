@@ -250,7 +250,7 @@ func TestCreateWorkspaceRefreshesFileIndex(t *testing.T) {
 		Entries []workspace.FileIndexEntry `json:"entries"`
 	}
 	mustDecode(t, response, &body)
-	if len(body.Entries) != 1 || body.Entries[0].Path != "src/note.txt" || body.Entries[0].Size != 5 || body.Entries[0].ModifiedAt.IsZero() {
+	if len(body.Entries) != 1 || body.Entries[0].Path != "src" || body.Entries[0].Kind != "folder" || body.Entries[0].ModifiedAt.IsZero() {
 		t.Fatalf("unexpected index body: %+v", body)
 	}
 }
@@ -279,8 +279,89 @@ func TestRefreshFileIndexRebuildsEntries(t *testing.T) {
 		Entries []workspace.FileIndexEntry `json:"entries"`
 	}
 	mustDecode(t, response, &body)
-	if len(body.Entries) != 1 || body.Entries[0].Path != "new.txt" || body.Entries[0].Size != 8 {
+	fileEntries := indexedFiles(body.Entries)
+	if len(fileEntries) != 1 || fileEntries[0].Path != "new.txt" || fileEntries[0].Size != 8 {
 		t.Fatalf("unexpected refreshed index body: %+v", body)
+	}
+}
+
+func TestFileIndexSearchesFilenameAndPath(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	mustMkdirAll(t, filepath.Join(root, "web", "src"))
+	mustMkdirAll(t, filepath.Join(root, "internal", "agent"))
+	if err := os.WriteFile(filepath.Join(root, "web", "src", "app.tsx"), []byte("app"), 0o644); err != nil {
+		t.Fatalf("write app file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "agent", "agent.go"), []byte("agent"), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("readme"), 0o644); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	response := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/files/index?q=app&kind=file", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Entries []workspace.FileIndexEntry `json:"entries"`
+	}
+	mustDecode(t, response, &body)
+	if len(body.Entries) != 1 || body.Entries[0].Path != "web/src/app.tsx" {
+		t.Fatalf("unexpected file index search body: %+v", body)
+	}
+
+	response = request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/files/index?q=agt&kind=file", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected fuzzy 200, got %d: %s", response.Code, response.Body.String())
+	}
+	mustDecode(t, response, &body)
+	if len(body.Entries) != 1 || body.Entries[0].Path != "internal/agent/agent.go" {
+		t.Fatalf("unexpected fuzzy file index search body: %+v", body)
+	}
+}
+
+func TestFileIndexListsDirectChildrenByDirectory(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	mustMkdirAll(t, filepath.Join(root, "web", "src"))
+	if err := os.WriteFile(filepath.Join(root, "web", "src", "app.tsx"), []byte("app"), 0o644); err != nil {
+		t.Fatalf("write app file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("readme"), 0o644); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	rootResponse := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/files/index?includeSkipped=true", "")
+	if rootResponse.Code != http.StatusOK {
+		t.Fatalf("expected root 200, got %d: %s", rootResponse.Code, rootResponse.Body.String())
+	}
+	var rootBody struct {
+		Entries []workspace.FileIndexEntry `json:"entries"`
+	}
+	mustDecode(t, rootResponse, &rootBody)
+	visibleRootEntries := withoutSkippedEntries(rootBody.Entries)
+	if len(visibleRootEntries) != 2 || visibleRootEntries[0].Path != "README.md" || visibleRootEntries[1].Path != "web" {
+		t.Fatalf("unexpected root children: %+v", rootBody)
+	}
+
+	webResponse := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/files/index?dir=web&includeSkipped=true", "")
+	if webResponse.Code != http.StatusOK {
+		t.Fatalf("expected web 200, got %d: %s", webResponse.Code, webResponse.Body.String())
+	}
+	var webBody struct {
+		Entries []workspace.FileIndexEntry `json:"entries"`
+	}
+	mustDecode(t, webResponse, &webBody)
+	if len(webBody.Entries) != 1 || webBody.Entries[0].Path != "web/src" {
+		t.Fatalf("unexpected web children: %+v", webBody)
 	}
 }
 
@@ -335,6 +416,37 @@ func TestSearchFilesReturnsMatches(t *testing.T) {
 	}
 }
 
+func TestSearchFilesAcceptsIncludeAndExcludeGlobs(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	mustMkdirAll(t, filepath.Join(root, "src"))
+	mustMkdirAll(t, filepath.Join(root, "docs"))
+	if err := os.WriteFile(filepath.Join(root, "src", "app.ts"), []byte("hello ts"), 0o644); err != nil {
+		t.Fatalf("write ts file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "app.js"), []byte("hello js"), 0o644); err != nil {
+		t.Fatalf("write js file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "note.ts"), []byte("hello docs"), 0o644); err != nil {
+		t.Fatalf("write docs file: %v", err)
+	}
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	response := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/search?q=hello&include=*.ts&exclude=docs/**", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Results []filestore.SearchResult `json:"results"`
+	}
+	mustDecode(t, response, &body)
+	if len(body.Results) != 1 || body.Results[0].Path != "src/app.ts" {
+		t.Fatalf("unexpected filtered search results: %+v", body.Results)
+	}
+}
+
 func TestReadLargeFileReturnsRestError(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	if err := os.WriteFile(filepath.Join(root, "large.txt"), make([]byte, filestore.MaxReadableFileSize+1), 0o644); err != nil {
@@ -354,4 +466,24 @@ func TestReadLargeFileReturnsRestError(t *testing.T) {
 	if body["error"]["code"] != "file_too_large" {
 		t.Fatalf("unexpected error body: %+v", body)
 	}
+}
+
+func indexedFiles(entries []workspace.FileIndexEntry) []workspace.FileIndexEntry {
+	files := make([]workspace.FileIndexEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Kind == "" || entry.Kind == "file" {
+			files = append(files, entry)
+		}
+	}
+	return files
+}
+
+func withoutSkippedEntries(entries []workspace.FileIndexEntry) []workspace.FileIndexEntry {
+	visible := make([]workspace.FileIndexEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IndexStatus != "skipped" {
+			visible = append(visible, entry)
+		}
+	}
+	return visible
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
 	"github.com/phamtanminhtien/patchpilot/internal/workspace"
@@ -129,10 +130,7 @@ func (s *Server) writeFile(w http.ResponseWriter, r *http.Request) {
 		writeFileError(w, err)
 		return
 	}
-	if err := s.refreshWorkspaceIndex(r.Context(), ws); err != nil {
-		writeIndexRefreshError(w, err)
-		return
-	}
+	s.updateWorkspaceIndexEntry(r.Context(), ws, file.Path)
 	s.publishGitChanged(r.Context(), ws)
 	writeJSON(w, http.StatusOK, file)
 }
@@ -146,18 +144,29 @@ func (s *Server) listFileIndex(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	entries, err := s.workspaces.FileIndex(r.Context(), ws.ID)
+	hasSearchQuery := strings.TrimSpace(r.URL.Query().Get("q")) != ""
+	entries, state, err := s.workspaces.FileIndex(r.Context(), ws.ID, workspace.FileIndexListOptions{
+		Query:          r.URL.Query().Get("q"),
+		Dir:            r.URL.Query().Get("dir"),
+		DirectChildren: !hasSearchQuery,
+		Kind:           r.URL.Query().Get("kind"),
+		IncludeSkipped: r.URL.Query().Get("includeSkipped") == "true",
+	})
 	if err != nil {
 		writeWorkspaceError(w, err)
 		return
 	}
-	page, nextCursor, ok := paginateItems(w, entries, pagination, func(entry workspace.FileIndexEntry) string {
-		return entry.Path
-	})
-	if !ok {
-		return
+	page := entries
+	var nextCursor *string
+	if hasSearchQuery {
+		page, nextCursor, ok = paginateItems(w, entries, pagination, func(entry workspace.FileIndexEntry) string {
+			return entry.Path
+		})
+		if !ok {
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": page, "nextCursor": nextCursor})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": page, "nextCursor": nextCursor, "state": state, "total": len(entries)})
 }
 
 func (s *Server) refreshFileIndex(w http.ResponseWriter, r *http.Request) {
@@ -171,12 +180,15 @@ func (s *Server) refreshFileIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.publishWorkspaceState(ws.ID, "workspace.ready", ws)
-	entries, err := s.workspaces.FileIndex(r.Context(), ws.ID)
+	entries, state, err := s.workspaces.FileIndex(r.Context(), ws.ID, workspace.FileIndexListOptions{
+		DirectChildren: true,
+		IncludeSkipped: true,
+	})
 	if err != nil {
 		writeWorkspaceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "state": state, "total": len(entries)})
 }
 
 func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +200,10 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	results, err := s.files.Search(ws.RootPath, r.URL.Query().Get("q"))
+	results, err := s.files.SearchWithOptions(ws.RootPath, r.URL.Query().Get("q"), filestore.SearchOptions{
+		ExcludePatterns: commaSeparatedQueryValues(r, "exclude"),
+		IncludePatterns: commaSeparatedQueryValues(r, "include"),
+	})
 	if err != nil {
 		writeFileError(w, err)
 		return
@@ -202,6 +217,19 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": page, "nextCursor": nextCursor})
 }
 
+func commaSeparatedQueryValues(r *http.Request, key string) []string {
+	values := make([]string, 0)
+	for _, value := range r.URL.Query()[key] {
+		for _, part := range strings.Split(value, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				values = append(values, part)
+			}
+		}
+	}
+	return values
+}
+
 func (s *Server) refreshWorkspaceIndex(ctx context.Context, ws workspace.Workspace) error {
 	fileEntries, err := s.files.Index(ws.RootPath)
 	if err != nil {
@@ -210,12 +238,38 @@ func (s *Server) refreshWorkspaceIndex(ctx context.Context, ws workspace.Workspa
 	entries := make([]workspace.FileIndexEntry, 0, len(fileEntries))
 	for _, entry := range fileEntries {
 		entries = append(entries, workspace.FileIndexEntry{
-			Path:       entry.Path,
-			Size:       entry.Size,
-			ModifiedAt: entry.ModifiedAt,
+			Path:        entry.Path,
+			Name:        entry.Name,
+			Dir:         entry.Dir,
+			Extension:   entry.Extension,
+			Kind:        entry.Kind,
+			IndexStatus: entry.IndexStatus,
+			Size:        entry.Size,
+			ModifiedAt:  entry.ModifiedAt,
 		})
 	}
 	return s.workspaces.ReplaceFileIndex(ctx, ws.ID, entries)
+}
+
+func (s *Server) updateWorkspaceIndexEntry(ctx context.Context, ws workspace.Workspace, path string) {
+	entry, ok, err := s.files.IndexFile(ws.RootPath, path)
+	if err != nil {
+		return
+	}
+	if !ok {
+		_ = s.workspaces.DeleteFileIndexEntry(ctx, ws.ID, path)
+		return
+	}
+	_ = s.workspaces.UpsertFileIndexEntry(ctx, ws.ID, workspace.FileIndexEntry{
+		Path:        entry.Path,
+		Name:        entry.Name,
+		Dir:         entry.Dir,
+		Extension:   entry.Extension,
+		Kind:        entry.Kind,
+		IndexStatus: entry.IndexStatus,
+		Size:        entry.Size,
+		ModifiedAt:  entry.ModifiedAt,
+	})
 }
 
 func (s *Server) workspaceFromRequest(w http.ResponseWriter, r *http.Request) (workspace.Workspace, bool) {

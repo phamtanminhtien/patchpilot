@@ -2,6 +2,7 @@ import { AppShell } from "@/app/app-shell";
 import { useThemePreference } from "@/app/theme";
 import { StarterScreen, ThemeSwitcher } from "@/shared/ui";
 
+import { CommandPalette } from "./components/command-palette";
 import { useWorkspaceController } from "./hooks/use-workspace-controller";
 import { useWorkspaceUrlState } from "./hooks/use-workspace-url-state";
 import { ActivityRail } from "./layout/activity-rail";
@@ -41,6 +42,13 @@ export function WorkspacePage() {
       workspace={controller.workspace.data}
       workspaceId={workspaceId}
     >
+      <CommandPalette
+        onOpenFile={controller.files.onOpenFile}
+        onPanelChange={controller.workspace.onPanelChange}
+        onRefreshFiles={controller.files.onRefresh}
+        selectedPath={selectedPath}
+        workspaceId={workspaceId}
+      />
       <WorkspaceLayout
         activityRail={
           <ActivityRail
@@ -90,6 +98,9 @@ export function WorkspacePage() {
             onChangesDiscard={controller.git.onChangesDiscard}
             onChangesStage={controller.git.onChangesStage}
             onFileIndexRefresh={controller.files.onRefresh}
+            onFileSearchExcludeChange={controller.files.onSearchExcludeChange}
+            onFileSearchIncludeChange={controller.files.onSearchIncludeChange}
+            onFileOpen={controller.files.onSearchResultOpen}
             onFileSearchQueryChange={controller.files.onSearchQueryChange}
             onGitCommitMessageChange={controller.git.onCommitMessageChange}
             onGitCommitSubmit={controller.git.onCommitSubmit}
@@ -100,12 +111,15 @@ export function WorkspacePage() {
             ports={controller.preview.ports}
             portsError={controller.preview.error}
             fileSearchError={controller.files.searchError}
+            fileSearchExclude={controller.files.searchExclude}
+            fileSearchInclude={controller.files.searchInclude}
             fileSearchQuery={controller.files.searchQuery}
             fileSearchResults={controller.files.searchResults}
             fileSearchTrimmedQuery={controller.files.searchTrimmedQuery}
             selectedPath={selectedPath}
             workspace={controller.workspace.data}
             workspaceError={controller.workspace.error}
+            workspaceId={workspaceId}
           />
         }
       />

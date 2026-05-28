@@ -74,6 +74,9 @@ func (s *Store) DeleteWorkspaceMetadata(ctx context.Context, workspaceID string)
 		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&FileIndexRecord{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&WorkspaceIndexStateRecord{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("workspace_id = ?", workspaceID).Delete(&AgentRunEventRecord{}).Error; err != nil {
 			return err
 		}

@@ -1,13 +1,8 @@
-import type { ReactNode } from "react";
-
 import type { Port } from "@/shared/api";
-import { cn } from "@/shared/ui";
 
 import type { GitChange } from "../git/workspace-git";
 import type { WorkspacePanel } from "../workspace-panels";
 import { FilesPanel } from "./files-panel";
-import { GitPanel } from "./git-panel";
-import { PreviewPanel } from "./preview-panel";
 
 interface WorkspaceMainPanelsProps {
   activePanel: WorkspacePanel;
@@ -49,81 +44,27 @@ interface WorkspaceMainPanelsProps {
 }
 
 export function WorkspaceMainPanels({
-  activePanel,
   files,
-  git,
-  preview,
   selectedPath,
 }: WorkspaceMainPanelsProps) {
   return (
-    <section className="workspace-main-scroll bg-raised min-h-0 overflow-hidden">
-      <WorkspaceMainPanelFrame activePanel={activePanel} panel="files">
-        <FilesPanel
-          activeDraft={files.activeDraft}
-          dirtyPaths={files.dirtyPaths}
-          file={files.file}
-          fileError={files.fileError}
-          isLoading={files.isFileLoading}
-          isSaving={files.isSaving}
-          onCloseTab={files.onCloseTab}
-          onDraftChange={files.onDraftChange}
-          onSave={files.onSave}
-          onSaveAll={files.onSaveAll}
-          onSelectTab={files.onSelectTab}
-          openTabs={files.openTabs}
-          saveError={files.saveError}
-          selectedPath={selectedPath}
-        />
-      </WorkspaceMainPanelFrame>
-
-      <WorkspaceMainPanelFrame activePanel={activePanel} panel="git">
-        <GitPanel
-          diff={git.diff}
-          diffError={git.diffError}
-          gitError={git.error}
-          hasChanges={git.changes.length > 0}
-          isLoading={git.isDiffLoading || git.isLoading}
-          isPatchStaging={git.isPatchStaging}
-          onFilePatchStage={git.onStagePatch}
-          onHunkPatchStage={git.onStagePatch}
-          selectedPath={selectedPath}
-        />
-      </WorkspaceMainPanelFrame>
-
-      <WorkspaceMainPanelFrame activePanel={activePanel} panel="preview">
-        <PreviewPanel
-          error={preview.error}
-          exposeError={preview.exposeError}
-          exposingPort={preview.exposingPort}
-          isExposing={preview.isExposing}
-          isLoading={preview.isLoading}
-          onExpose={preview.onExpose}
-          ports={preview.ports}
-        />
-      </WorkspaceMainPanelFrame>
-    </section>
-  );
-}
-
-function WorkspaceMainPanelFrame({
-  activePanel,
-  children,
-  panel,
-}: {
-  activePanel: WorkspacePanel;
-  children: ReactNode;
-  panel: WorkspacePanel;
-}) {
-  const isActive = activePanel === panel;
-
-  return (
-    <section
-      aria-hidden={isActive ? undefined : true}
-      className={cn("h-full min-h-0", isActive ? "grid" : "hidden")}
-      hidden={!isActive}
-      role="tabpanel"
-    >
-      {children}
+    <section className="workspace-main-scroll bg-raised h-full min-h-0 overflow-hidden">
+      <FilesPanel
+        activeDraft={files.activeDraft}
+        dirtyPaths={files.dirtyPaths}
+        file={files.file}
+        fileError={files.fileError}
+        isLoading={files.isFileLoading}
+        isSaving={files.isSaving}
+        onCloseTab={files.onCloseTab}
+        onDraftChange={files.onDraftChange}
+        onSave={files.onSave}
+        onSaveAll={files.onSaveAll}
+        onSelectTab={files.onSelectTab}
+        openTabs={files.openTabs}
+        saveError={files.saveError}
+        selectedPath={selectedPath}
+      />
     </section>
   );
 }

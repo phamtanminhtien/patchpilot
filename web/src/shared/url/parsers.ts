@@ -6,6 +6,7 @@ export const modeParser = parseAsStringLiteral([
 ] as const).withDefault("vibe");
 export const panelParser = parseAsStringLiteral([
   "files",
+  "search",
   "git",
   "preview",
 ] as const).withDefault("files");

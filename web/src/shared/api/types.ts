@@ -13,6 +13,18 @@ export interface PaginationParams {
   limit?: number;
 }
 
+export interface FileSearchParams extends PaginationParams {
+  exclude?: string;
+  include?: string;
+}
+
+export interface FileIndexParams extends PaginationParams {
+  dir?: string;
+  includeSkipped?: boolean;
+  kind?: "file" | "folder";
+  q?: string;
+}
+
 export interface ConversationListParams extends PaginationParams {
   q?: string;
 }
@@ -58,14 +70,32 @@ export interface FileListResponse {
 }
 
 export interface FileIndexEntry {
+  dir?: string;
+  extension?: string;
+  indexStatus?: "indexed" | "skipped";
+  kind?: "file" | "folder";
   modifiedAt: string;
+  name?: string;
   path: string;
   size: number;
+}
+
+export interface FileIndexState {
+  error?: string | null;
+  fileCount: number;
+  lastFullScanAt?: string | null;
+  lastIndexedAt?: string | null;
+  skippedCount: number;
+  status: "ready" | "indexing" | "error";
+  truncated: boolean;
+  updatedAt: string;
 }
 
 export interface FileIndexResponse {
   entries: FileIndexEntry[];
   nextCursor?: string | null;
+  state?: FileIndexState | null;
+  total?: number;
 }
 
 export interface FileContent {

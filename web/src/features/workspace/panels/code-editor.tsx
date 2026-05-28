@@ -168,6 +168,7 @@ const editorTheme = EditorView.theme({
   },
   ".cm-scroller": {
     fontFamily: "var(--pp-font-code)",
+    height: "100%",
     overflow: "auto",
   },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":

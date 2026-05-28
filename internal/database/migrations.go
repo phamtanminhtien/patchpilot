@@ -28,6 +28,7 @@ var migrations = []migration{
 	{version: 4, name: "conversation_active_run_flag", path: "migrations/004_conversation_active_run_flag.sql"},
 	{version: 5, name: "agent_tool_call_sources", path: "migrations/005_agent_tool_call_sources.sql"},
 	{version: 6, name: "terminal_sessions", path: "migrations/006_terminal_sessions.sql"},
+	{version: 7, name: "workspace_file_index_v2", path: "migrations/007_workspace_file_index_v2.sql"},
 }
 
 func (s *Store) Migrate() error {

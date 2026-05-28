@@ -1,10 +1,12 @@
 package filestore
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -50,13 +52,20 @@ type ReadOptions struct {
 }
 
 type SearchOptions struct {
-	Path string
+	ExcludePatterns []string
+	IncludePatterns []string
+	Path            string
 }
 
 type IndexEntry struct {
-	Path       string    `json:"path"`
-	Size       int64     `json:"size"`
-	ModifiedAt time.Time `json:"modifiedAt"`
+	Path        string    `json:"path"`
+	Name        string    `json:"name"`
+	Dir         string    `json:"dir"`
+	Extension   string    `json:"extension"`
+	Kind        string    `json:"kind"`
+	IndexStatus string    `json:"indexStatus"`
+	Size        int64     `json:"size"`
+	ModifiedAt  time.Time `json:"modifiedAt"`
 }
 
 type Service struct{}
@@ -70,7 +79,7 @@ func (s *Service) List(root, relPath string) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if isIgnoredPath(cleanRel) {
+	if hasDotGitPath(cleanRel) {
 		return nil, ErrIgnoredPath
 	}
 
@@ -81,7 +90,7 @@ func (s *Service) List(root, relPath string) ([]Entry, error) {
 
 	entries := make([]Entry, 0, len(infos))
 	for _, info := range infos {
-		if shouldSkipEntry(info) {
+		if shouldSkipListEntry(info) {
 			continue
 		}
 		fileInfo, err := info.Info()
@@ -111,8 +120,18 @@ func (s *Service) Index(root string) ([]IndexEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	if entries, ok, err := gitFileIndex(abs); ok || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		appendAncestorDirectoryMarkers(abs, entries)
+		if err := appendSkippedDirectoryMarkers(abs, entries); err != nil {
+			return nil, err
+		}
+		return sortedIndexEntries(entries), nil
+	}
 
-	entries := make([]IndexEntry, 0)
+	entries := make(map[string]IndexEntry)
 	err = filepath.WalkDir(abs, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -125,8 +144,17 @@ func (s *Service) Index(root string) ([]IndexEntry, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if shouldSkipEntry(entry) || isIgnoredPath(rel) {
+		if entry.Type()&fs.ModeSymlink != 0 {
 			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isIgnoredPath(rel) || isHeavyIndexName(entry.Name()) {
+			if entry.IsDir() {
+				if marker, ok := skippedDirectoryIndexEntry(path, rel); ok {
+					entries[rel] = marker
+				}
 				return filepath.SkipDir
 			}
 			return nil
@@ -141,20 +169,38 @@ func (s *Service) Index(root string) ([]IndexEntry, error) {
 		if info.Size() > MaxReadableFileSize {
 			return nil
 		}
-		entries = append(entries, IndexEntry{
-			Path:       rel,
-			Size:       info.Size(),
-			ModifiedAt: info.ModTime().UTC(),
-		})
+		entries[rel] = fileIndexEntry(rel, info)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Path < entries[j].Path
-	})
-	return entries, nil
+	return sortedIndexEntries(entries), nil
+}
+
+func (s *Service) IndexFile(root, relPath string) (IndexEntry, bool, error) {
+	abs, cleanRel, err := safePath(root, relPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return IndexEntry{}, false, nil
+		}
+		return IndexEntry{}, false, err
+	}
+	cleanRel = filepath.ToSlash(cleanRel)
+	if isIgnoredPath(cleanRel) {
+		return IndexEntry{}, false, nil
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return IndexEntry{}, false, nil
+		}
+		return IndexEntry{}, false, err
+	}
+	if info.IsDir() || info.Mode()&fs.ModeSymlink != 0 || info.Size() > MaxReadableFileSize {
+		return IndexEntry{}, false, nil
+	}
+	return fileIndexEntry(cleanRel, info), true, nil
 }
 
 func (s *Service) Read(root, relPath string) (File, error) {
@@ -271,6 +317,9 @@ func (s *Service) SearchWithOptions(root, query string, opts SearchOptions) ([]S
 		return nil, err
 	}
 	if !scopeInfo.IsDir() {
+		if !shouldSearchFile(cleanScope, filepath.Base(cleanScope), opts) {
+			return results, nil
+		}
 		if scopeInfo.Size() > MaxReadableFileSize {
 			return results, nil
 		}
@@ -292,10 +341,13 @@ func (s *Service) SearchWithOptions(root, query string, opts SearchOptions) ([]S
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if shouldSkipEntry(entry) || isIgnoredPath(rel) {
+		if shouldSkipEntry(entry) || isIgnoredPath(rel) || isSearchExcluded(rel, opts.ExcludePatterns) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if !entry.IsDir() && !shouldSearchFile(rel, entry.Name(), opts) {
 			return nil
 		}
 		info, err := entry.Info()
@@ -361,6 +413,94 @@ func appendSearchFile(results *[]SearchResult, absPath, relPath, name, lowerQuer
 	return nil
 }
 
+func shouldSearchFile(rel, name string, opts SearchOptions) bool {
+	if isSearchExcluded(rel, opts.ExcludePatterns) {
+		return false
+	}
+	if len(opts.IncludePatterns) == 0 {
+		return true
+	}
+	return matchesAnySearchPattern(rel, opts.IncludePatterns) || matchesAnySearchPattern(name, opts.IncludePatterns)
+}
+
+func isSearchExcluded(rel string, patterns []string) bool {
+	return matchesAnySearchPattern(rel, patterns)
+}
+
+func matchesAnySearchPattern(rel string, patterns []string) bool {
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	if rel == "." || rel == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		if searchPatternMatches(pattern, rel) {
+			return true
+		}
+	}
+	return false
+}
+
+func searchPatternMatches(pattern, rel string) bool {
+	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	pattern = strings.TrimPrefix(pattern, "./")
+	pattern = strings.Trim(pattern, "/")
+	if pattern == "" {
+		return false
+	}
+	if !strings.Contains(pattern, "/") {
+		for _, segment := range strings.Split(rel, "/") {
+			if segmentGlobMatches(pattern, segment) {
+				return true
+			}
+		}
+		return false
+	}
+	return pathSegmentsMatch(strings.Split(pattern, "/"), strings.Split(rel, "/"))
+}
+
+func pathSegmentsMatch(patternParts, relParts []string) bool {
+	if len(patternParts) == 0 {
+		return len(relParts) == 0
+	}
+	if patternParts[0] == "**" {
+		return pathSegmentsMatch(patternParts[1:], relParts) ||
+			(len(relParts) > 0 && pathSegmentsMatch(patternParts, relParts[1:]))
+	}
+	if len(relParts) == 0 || !segmentGlobMatches(patternParts[0], relParts[0]) {
+		return false
+	}
+	return pathSegmentsMatch(patternParts[1:], relParts[1:])
+}
+
+func segmentGlobMatches(pattern, value string) bool {
+	return segmentGlobMatchesFrom(pattern, value, 0, 0)
+}
+
+func segmentGlobMatchesFrom(pattern, value string, patternIndex, valueIndex int) bool {
+	for patternIndex < len(pattern) {
+		if pattern[patternIndex] == '*' {
+			for patternIndex < len(pattern) && pattern[patternIndex] == '*' {
+				patternIndex++
+			}
+			if patternIndex == len(pattern) {
+				return true
+			}
+			for next := valueIndex; next <= len(value); next++ {
+				if segmentGlobMatchesFrom(pattern, value, patternIndex, next) {
+					return true
+				}
+			}
+			return false
+		}
+		if valueIndex >= len(value) || pattern[patternIndex] != value[valueIndex] {
+			return false
+		}
+		patternIndex++
+		valueIndex++
+	}
+	return valueIndex == len(value)
+}
+
 func sortSearchResults(results []SearchResult) {
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].Path == results[j].Path {
@@ -368,6 +508,143 @@ func sortSearchResults(results []SearchResult) {
 		}
 		return results[i].Path < results[j].Path
 	})
+}
+
+func gitFileIndex(root string) (map[string]IndexEntry, bool, error) {
+	cmd := exec.Command("git", "-C", root, "ls-files", "-co", "--exclude-standard", "-z")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, false, nil
+	}
+	entries := make(map[string]IndexEntry)
+	for _, raw := range bytes.Split(output, []byte{0}) {
+		if len(raw) == 0 {
+			continue
+		}
+		rel := filepath.ToSlash(string(raw))
+		if isIgnoredPath(rel) {
+			continue
+		}
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Lstat(abs)
+		if err != nil || info.IsDir() || info.Mode()&fs.ModeSymlink != 0 || info.Size() > MaxReadableFileSize {
+			continue
+		}
+		entries[rel] = fileIndexEntry(rel, info)
+	}
+	return entries, true, nil
+}
+
+func appendAncestorDirectoryMarkers(root string, entries map[string]IndexEntry) {
+	for rel := range entries {
+		dir := pathDir(rel)
+		for dir != "" {
+			if _, exists := entries[dir]; !exists {
+				if marker, ok := directoryIndexEntry(filepath.Join(root, filepath.FromSlash(dir)), dir); ok {
+					entries[dir] = marker
+				}
+			}
+			dir = pathDir(dir)
+		}
+	}
+}
+
+func directoryIndexEntry(abs, rel string) (IndexEntry, bool) {
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return IndexEntry{}, false
+	}
+	return IndexEntry{
+		Path:        rel,
+		Name:        pathBase(rel),
+		Dir:         pathDir(rel),
+		Extension:   "",
+		Kind:        "folder",
+		IndexStatus: "indexed",
+		Size:        0,
+		ModifiedAt:  info.ModTime().UTC(),
+	}, true
+}
+
+func appendSkippedDirectoryMarkers(root string, entries map[string]IndexEntry) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root || !entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return filepath.SkipDir
+		}
+		if isIgnoredPath(rel) || isHeavyIndexName(entry.Name()) {
+			if marker, ok := skippedDirectoryIndexEntry(path, rel); ok {
+				entries[rel] = marker
+			}
+			return filepath.SkipDir
+		}
+		return nil
+	})
+}
+
+func fileIndexEntry(rel string, info fs.FileInfo) IndexEntry {
+	name := pathBase(rel)
+	return IndexEntry{
+		Path:        rel,
+		Name:        name,
+		Dir:         pathDir(rel),
+		Extension:   strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), "."),
+		Kind:        "file",
+		IndexStatus: "indexed",
+		Size:        info.Size(),
+		ModifiedAt:  info.ModTime().UTC(),
+	}
+}
+
+func skippedDirectoryIndexEntry(abs, rel string) (IndexEntry, bool) {
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return IndexEntry{}, false
+	}
+	return IndexEntry{
+		Path:        rel,
+		Name:        pathBase(rel),
+		Dir:         pathDir(rel),
+		Extension:   "",
+		Kind:        "folder",
+		IndexStatus: "skipped",
+		Size:        0,
+		ModifiedAt:  info.ModTime().UTC(),
+	}, true
+}
+
+func sortedIndexEntries(entries map[string]IndexEntry) []IndexEntry {
+	list := make([]IndexEntry, 0, len(entries))
+	for _, entry := range entries {
+		list = append(list, entry)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].Path < list[j].Path
+	})
+	return list
+}
+
+func pathBase(rel string) string {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	return parts[len(parts)-1]
+}
+
+func pathDir(rel string) string {
+	dir := filepath.ToSlash(filepath.Dir(filepath.ToSlash(rel)))
+	if dir == "." {
+		return ""
+	}
+	return dir
 }
 
 func safePath(root, relPath string) (string, string, error) {
@@ -409,8 +686,24 @@ func shouldSkipEntry(entry fs.DirEntry) bool {
 	return isIgnoredName(entry.Name())
 }
 
+func shouldSkipListEntry(entry fs.DirEntry) bool {
+	if entry.Type()&fs.ModeSymlink != 0 {
+		return true
+	}
+	return entry.Name() == ".git"
+}
+
 func isIgnoredName(name string) bool {
-	return name == ".git" || name == "node_modules" || name == "build"
+	return name == ".git" || isHeavyIndexName(name)
+}
+
+func isHeavyIndexName(name string) bool {
+	switch name {
+	case "node_modules", ".pnpm", ".yarn", ".next", ".nuxt", "dist", "build", "coverage", ".cache", ".turbo", ".vite":
+		return true
+	default:
+		return false
+	}
 }
 
 func isIgnoredPath(relPath string) bool {
@@ -420,6 +713,19 @@ func isIgnoredPath(relPath string) bool {
 	}
 	for _, part := range strings.Split(relPath, "/") {
 		if isIgnoredName(part) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDotGitPath(relPath string) bool {
+	relPath = filepath.ToSlash(filepath.Clean(relPath))
+	if relPath == "." {
+		return false
+	}
+	for _, part := range strings.Split(relPath, "/") {
+		if part == ".git" {
 			return true
 		}
 	}

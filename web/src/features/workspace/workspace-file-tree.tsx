@@ -1,7 +1,13 @@
+import { useQuery } from "@tanstack/react-query";
 import { Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import type { FileIndexEntry } from "@/shared/api";
+import {
+  type FileEntry,
+  type FileIndexEntry,
+  listFileIndexDirectory,
+  listFiles,
+} from "@/shared/api";
 import { FileIcon } from "@/shared/file-icons";
 import { cn, HoverCard } from "@/shared/ui";
 
@@ -33,6 +39,7 @@ interface WorkspaceFileTreeProps {
   isLoading: boolean;
   onSelect: (path: string) => void;
   selectedPath: string;
+  workspaceId: string;
 }
 
 export function WorkspaceFileTree({
@@ -42,30 +49,68 @@ export function WorkspaceFileTree({
   isLoading,
   onSelect,
   selectedPath,
+  workspaceId,
 }: WorkspaceFileTreeProps) {
-  const tree = useMemo(() => buildFileTree(entries), [entries]);
+  const tree = useMemo(
+    () => entries.map(entryToNode).sort(compareFileTreeNodes),
+    [entries],
+  );
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => new Set(),
   );
+  const [collapsedFolders, setCollapsedFolders] = useState<{
+    paths: Set<string>;
+    selectedPath: string;
+  }>(() => ({ paths: new Set(), selectedPath: "" }));
   const selectedAncestorFolders = useMemo(
     () => new Set(collectAncestorFolders(selectedPath)),
     [selectedPath],
   );
-  const visibleExpandedFolders = useMemo(
-    () => new Set([...expandedFolders, ...selectedAncestorFolders]),
-    [expandedFolders, selectedAncestorFolders],
+  const manuallyCollapsedFolders = useMemo(
+    () =>
+      collapsedFolders.selectedPath === selectedPath
+        ? collapsedFolders.paths
+        : new Set<string>(),
+    [collapsedFolders, selectedPath],
   );
+  const visibleExpandedFolders = useMemo(() => {
+    const next = new Set([...expandedFolders, ...selectedAncestorFolders]);
+    for (const path of manuallyCollapsedFolders) {
+      next.delete(path);
+    }
+    return next;
+  }, [expandedFolders, manuallyCollapsedFolders, selectedAncestorFolders]);
 
   function toggleFolder(path: string) {
-    setExpandedFolders((current) => {
-      const next = new Set(current);
-      if (next.has(path)) {
+    if (visibleExpandedFolders.has(path)) {
+      setExpandedFolders((current) => {
+        const next = new Set(current);
         next.delete(path);
-      } else {
+        return next;
+      });
+      setCollapsedFolders((current) => {
+        const next =
+          current.selectedPath === selectedPath
+            ? new Set(current.paths)
+            : new Set<string>();
         next.add(path);
-      }
-      return next;
-    });
+        return { paths: next, selectedPath };
+      });
+    } else {
+      setExpandedFolders((current) => {
+        const next = new Set(current);
+        next.add(path);
+        return next;
+      });
+      setCollapsedFolders((current) => {
+        const next =
+          current.selectedPath === selectedPath
+            ? new Set(current.paths)
+            : new Set<string>();
+        next.delete(path);
+        return { paths: next, selectedPath };
+      });
+    }
   }
 
   if (error) {
@@ -96,6 +141,7 @@ export function WorkspaceFileTree({
             onSelect={onSelect}
             onToggle={toggleFolder}
             selectedPath={selectedPath}
+            workspaceId={workspaceId}
           />
         ))}
       </div>
@@ -111,6 +157,7 @@ function FileTreeItem({
   onSelect,
   onToggle,
   selectedPath,
+  workspaceId,
 }: {
   depth?: number;
   expandedFolders: Set<string>;
@@ -119,12 +166,29 @@ function FileTreeItem({
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
   selectedPath: string;
+  workspaceId: string;
 }) {
   const isDirectory = node.type === "directory";
   const isExpanded = isDirectory && expandedFolders.has(node.path);
   const isSelected = !isDirectory && selectedPath === node.path;
   const gitStatus = gitStatusForNode(node, gitChanges);
   const isIgnored = gitStatus?.label === "Ignored";
+  const childrenQuery = useQuery({
+    enabled: isExpanded && isDirectory && workspaceId.length > 0,
+    queryFn: async () => {
+      if (node.entry?.indexStatus === "skipped") {
+        const response = await listFiles(workspaceId, node.path);
+        return { entries: response.entries.map(fileEntryToIndexEntry) };
+      }
+      return listFileIndexDirectory(workspaceId, node.path, {
+        includeSkipped: true,
+      });
+    },
+    queryKey: ["workspace-file-index-directory", workspaceId, node.path],
+  });
+  const children = childrenQuery.data?.entries
+    ? childrenQuery.data.entries.map(entryToNode).sort(compareFileTreeNodes)
+    : node.children;
 
   return (
     <div role="none">
@@ -167,7 +231,21 @@ function FileTreeItem({
 
       {isExpanded ? (
         <div role="group">
-          {node.children.map((child) => (
+          {childrenQuery.isPending && node.children.length === 0 ? (
+            <div className="py-0.5" role="none">
+              <WorkspaceFileTreeItem
+                depth={depth + 1}
+                disclosure="none"
+                icon={<span className="size-3" />}
+                isDimmed
+                isSelected={false}
+                label={<span className="text-muted">Loading...</span>}
+                onClick={() => {}}
+                role="treeitem"
+              />
+            </div>
+          ) : null}
+          {children.map((child) => (
             <FileTreeItem
               depth={depth + 1}
               expandedFolders={expandedFolders}
@@ -177,6 +255,7 @@ function FileTreeItem({
               onSelect={onSelect}
               onToggle={onToggle}
               selectedPath={selectedPath}
+              workspaceId={workspaceId}
             />
           ))}
         </div>
@@ -313,78 +392,48 @@ function normalizeGitPath(path: string) {
   return path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
-function buildFileTree(entries: FileIndexEntry[]) {
-  const root = new Map<string, FileTreeNode>();
-
-  const directories = new Map<
-    string,
-    FileTreeNode & { childrenMap: Map<string, FileTreeNode> }
-  >();
-  const rootDirectory = {
+function entryToNode(entry: FileIndexEntry): FileTreeNode {
+  return {
     children: [],
-    childrenMap: root,
-    name: "",
-    path: "",
-    type: "directory" as const,
+    entry,
+    name:
+      entry.name || entry.path.split("/").filter(Boolean).at(-1) || entry.path,
+    path: entry.path,
+    type: entry.kind === "folder" ? "directory" : "file",
   };
-  directories.set("", rootDirectory);
+}
 
-  for (const entry of entries) {
-    const parts = entry.path.split("/").filter(Boolean);
-    let parentPath = "";
-    for (const [index, part] of parts.entries()) {
-      const path = parts.slice(0, index + 1).join("/");
-      const isFile = index === parts.length - 1;
-      const parent = directories.get(parentPath) ?? rootDirectory;
-      if (isFile) {
-        parent.childrenMap.set(path, {
-          children: [],
-          entry,
-          name: part,
-          path,
-          type: "file",
-        });
-      } else if (!directories.has(path)) {
-        const directory = {
-          children: [],
-          childrenMap: new Map<string, FileTreeNode>(),
-          name: part,
-          path,
-          type: "directory" as const,
-        };
-        directories.set(path, directory);
-        parent.childrenMap.set(path, directory);
-      }
-      parentPath = path;
-    }
+function fileEntryToIndexEntry(entry: FileEntry): FileIndexEntry {
+  return {
+    dir: pathDir(entry.path),
+    extension: entry.isDir ? "" : fileExtension(entry.name),
+    indexStatus: "indexed",
+    kind: entry.isDir ? "folder" : "file",
+    modifiedAt: entry.modifiedAt,
+    name: entry.name,
+    path: entry.path,
+    size: entry.size,
+  };
+}
+
+function pathDir(path: string) {
+  const parts = path.split("/").filter(Boolean);
+  return parts.slice(0, -1).join("/");
+}
+
+function fileExtension(name: string) {
+  const index = name.lastIndexOf(".");
+  if (index <= 0 || index === name.length - 1) {
+    return "";
   }
+  return name.slice(index + 1).toLowerCase();
+}
 
-  const materialize = (
-    node: FileTreeNode & { childrenMap?: Map<string, FileTreeNode> },
-  ): FileTreeNode => {
-    const childrenMap =
-      "childrenMap" in node && node.childrenMap ? node.childrenMap : undefined;
-    const children = childrenMap
-      ? [...childrenMap.values()]
-          .sort((left, right) => {
-            if (left.type !== right.type) {
-              return left.type === "directory" ? -1 : 1;
-            }
-            return left.name.localeCompare(right.name);
-          })
-          .map((child) => materialize(child))
-      : [];
-
-    return {
-      children,
-      entry: node.entry,
-      name: node.name,
-      path: node.path,
-      type: node.type,
-    };
-  };
-
-  return materialize(rootDirectory).children;
+function compareFileTreeNodes(left: FileTreeNode, right: FileTreeNode) {
+  if (left.type !== right.type) {
+    return left.type === "directory" ? -1 : 1;
+  }
+  return left.name.localeCompare(right.name);
 }
 
 function collectAncestorFolders(path: string) {

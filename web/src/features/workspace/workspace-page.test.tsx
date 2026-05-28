@@ -25,6 +25,8 @@ import {
   getHealth,
   getWorkspace,
   listFileIndex,
+  listFileIndexDirectory,
+  listFiles,
   listPorts,
   listTerminalSessions,
   listWorkspaces,
@@ -44,6 +46,9 @@ import { WorkspacePage } from "./workspace-page";
 
 const queryState = vi.hoisted(() => new Map<string, string>());
 
+const defaultContentSearchExclude =
+  ".git/**, **/.git/**, node_modules/**, **/node_modules/**, .pnpm/**, **/.pnpm/**, .yarn/**, **/.yarn/**, .next/**, **/.next/**, .nuxt/**, **/.nuxt/**, dist/**, **/dist/**, build/**, **/build/**, coverage/**, **/coverage/**, .cache/**, **/.cache/**, .turbo/**, **/.turbo/**, .vite/**, **/.vite/**";
+
 vi.mock("@/shared/api", () => ({
   apiErrorCode: (error: unknown) =>
     (error as { response?: { data?: { error?: { code?: string } } } }).response
@@ -60,6 +65,8 @@ vi.mock("@/shared/api", () => ({
   getGitDiff: vi.fn(),
   getGitStatus: vi.fn(),
   getWorkspace: vi.fn(),
+  listFileIndexDirectory: vi.fn(),
+  listFiles: vi.fn(),
   listFileIndex: vi.fn(),
   listPorts: vi.fn(),
   listTerminalSessions: vi.fn(),
@@ -188,6 +195,68 @@ function terminalSession(
   };
 }
 
+function fileIndexEntriesByDir(dir = "") {
+  const entries = [
+    {
+      dir: "",
+      indexStatus: "indexed" as const,
+      kind: "folder" as const,
+      modifiedAt: "2026-05-20T00:00:00Z",
+      name: "web",
+      path: "web",
+      size: 0,
+    },
+    {
+      dir: "",
+      indexStatus: "skipped" as const,
+      kind: "folder" as const,
+      modifiedAt: "2026-05-20T00:00:00Z",
+      name: "dist",
+      path: "dist",
+      size: 0,
+    },
+    {
+      dir: "web",
+      indexStatus: "indexed" as const,
+      kind: "folder" as const,
+      modifiedAt: "2026-05-20T00:00:00Z",
+      name: "src",
+      path: "web/src",
+      size: 0,
+    },
+    {
+      dir: "web/src",
+      extension: "tsx",
+      indexStatus: "indexed" as const,
+      kind: "file" as const,
+      modifiedAt: "2026-05-20T00:00:00Z",
+      name: "app.tsx",
+      path: "web/src/app.tsx",
+      size: 128,
+    },
+    {
+      dir: "web/src",
+      indexStatus: "indexed" as const,
+      kind: "folder" as const,
+      modifiedAt: "2026-05-20T00:00:00Z",
+      name: "features",
+      path: "web/src/features",
+      size: 0,
+    },
+    {
+      dir: "web/src/features",
+      extension: "tsx",
+      indexStatus: "indexed" as const,
+      kind: "file" as const,
+      modifiedAt: "2026-05-20T00:00:00Z",
+      name: "workspace-page.tsx",
+      path: "web/src/features/workspace-page.tsx",
+      size: 256,
+    },
+  ];
+  return entries.filter((entry) => entry.dir === dir);
+}
+
 describe("WorkspacePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -209,31 +278,43 @@ describe("WorkspacePage", () => {
     vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
     vi.mocked(getWorkspace).mockResolvedValue(workspace);
     vi.mocked(listWorkspaces).mockResolvedValue({ workspaces: [] });
-    vi.mocked(listFileIndex).mockResolvedValue({
-      entries: [
-        {
-          modifiedAt: "2026-05-20T00:00:00Z",
-          path: "web/src/app.tsx",
-          size: 128,
-        },
-        {
-          modifiedAt: "2026-05-20T00:00:00Z",
-          path: "web/src/features/workspace-page.tsx",
-          size: 256,
-        },
-        {
-          modifiedAt: "2026-05-20T00:00:00Z",
-          path: "dist/app.js",
-          size: 512,
-        },
-      ],
-    });
+    vi.mocked(listFileIndex).mockResolvedValue({ entries: [] });
+    vi.mocked(listFileIndexDirectory).mockImplementation((_workspaceId, dir) =>
+      Promise.resolve({ entries: fileIndexEntriesByDir(dir) }),
+    );
+    vi.mocked(listFiles).mockImplementation((_workspaceId, path = ".") =>
+      Promise.resolve({
+        entries:
+          path === "dist"
+            ? [
+                {
+                  isDir: false,
+                  modifiedAt: "2026-05-20T00:00:00Z",
+                  name: "app.js",
+                  path: "dist/app.js",
+                  size: 96,
+                },
+              ]
+            : [],
+      }),
+    );
     vi.mocked(refreshFileIndex).mockResolvedValue({
       entries: [
         {
+          dir: "",
+          kind: "file",
           modifiedAt: "2026-05-20T00:00:00Z",
+          name: "README.md",
           path: "README.md",
           size: 64,
+        },
+        {
+          dir: "web/src",
+          kind: "file",
+          modifiedAt: "2026-05-20T00:00:00Z",
+          name: "nested.ts",
+          path: "web/src/nested.ts",
+          size: 32,
         },
       ],
     });
@@ -376,13 +457,133 @@ describe("WorkspacePage", () => {
     expect(
       await screen.findByRole("treeitem", { name: /README\.md/i }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("treeitem", { name: /nested\.ts/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it("searches workspace files and opens a selected result", async () => {
+  it("loads file tree entries by directory level", async () => {
+    vi.mocked(listFileIndexDirectory).mockResolvedValueOnce({
+      entries: [
+        {
+          modifiedAt: "2026-05-20T00:00:00Z",
+          path: "first.ts",
+          size: 1,
+        },
+        {
+          modifiedAt: "2026-05-20T00:00:00Z",
+          path: "second.ts",
+          size: 1,
+        },
+      ],
+    });
+
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    expect(
+      await screen.findByRole("treeitem", { name: "first.ts" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("treeitem", { name: "second.ts" }),
+    ).toBeInTheDocument();
+    expect(listFileIndexDirectory).toHaveBeenCalledWith("ws_1", "", {
+      includeSkipped: true,
+    });
+  });
+
+  it("allows collapsing folders that contain the selected file", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(
+      "/workspace?workspaceId=ws_1&panel=files&path=web/src/app.tsx",
+    );
+
+    const webFolder = await screen.findByRole("treeitem", { name: "web" });
+    expect(
+      await screen.findByRole("treeitem", { name: "app.tsx" }),
+    ).toBeInTheDocument();
+
+    await user.click(webFolder);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("treeitem", { name: "app.tsx" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("opens files from the command palette by default", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listFileIndex).mockImplementation((_workspaceId, params) =>
+      Promise.resolve({
+        entries: params?.q
+          ? [
+              {
+                dir: "web/src/features",
+                extension: "tsx",
+                indexStatus: "indexed",
+                kind: "file",
+                modifiedAt: "2026-05-20T00:00:00Z",
+                name: "workspace-page.tsx",
+                path: "web/src/features/workspace-page.tsx",
+                size: 256,
+              },
+            ]
+          : [],
+      }),
+    );
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    fireEvent.keyDown(window, { key: "p", metaKey: true });
+    const palette = await screen.findByRole("dialog", {
+      name: "Command Palette",
+    });
+    expect(palette).toBeInTheDocument();
+
+    await user.type(
+      within(palette).getByRole("textbox", { name: "Command Palette" }),
+      "workspace",
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /workspace-page\.tsx/i }),
+    );
+
+    await waitFor(() => {
+      expect(listFileIndex).toHaveBeenLastCalledWith("ws_1", {
+        kind: "file",
+        limit: 50,
+        q: "workspace",
+      });
+      expect(readFile).toHaveBeenLastCalledWith(
+        "ws_1",
+        "web/src/features/workspace-page.tsx",
+      );
+    });
+  });
+
+  it("switches command palette to command search with the greater-than prefix", async () => {
     const user = userEvent.setup();
     renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
 
-    fireEvent.change(screen.getByLabelText("Search files"), {
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    const palette = await screen.findByRole("dialog", {
+      name: "Command Palette",
+    });
+    await user.type(
+      within(palette).getByRole("textbox", { name: "Command Palette" }),
+      ">git",
+    );
+    await user.click(await screen.findByRole("button", { name: /^Git/i }));
+
+    expect(
+      await screen.findByRole("button", { name: "Git", pressed: true }),
+    ).toBeInTheDocument();
+  });
+
+  it("searches workspace file contents and opens a selected result", async () => {
+    const user = userEvent.setup();
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=search");
+
+    fireEvent.change(screen.getByLabelText("Search file contents"), {
       target: { value: "workspace" },
     });
 
@@ -396,23 +597,50 @@ describe("WorkspacePage", () => {
     await user.click(screen.getByRole("button", { name: /README\.md/i }));
 
     await waitFor(() => {
-      expect(searchFiles).toHaveBeenLastCalledWith("ws_1", "workspace");
+      expect(searchFiles).toHaveBeenLastCalledWith("ws_1", "workspace", {
+        exclude: defaultContentSearchExclude,
+        include: undefined,
+      });
       expect(readFile).toHaveBeenLastCalledWith("ws_1", "README.md");
+    });
+    expect(
+      screen.getByRole("button", { name: "Search", pressed: true }),
+    ).toBeInTheDocument();
+  });
+
+  it("passes include and exclude globs to file content search", async () => {
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=search");
+
+    fireEvent.change(screen.getByLabelText("Include"), {
+      target: { value: "*.ts, **/*.tsx" },
+    });
+    fireEvent.change(screen.getByLabelText("Exclude"), {
+      target: { value: "dist/**, **/dist/**" },
+    });
+    fireEvent.change(screen.getByLabelText("Search file contents"), {
+      target: { value: "workspace" },
+    });
+
+    await waitFor(() => {
+      expect(searchFiles).toHaveBeenLastCalledWith("ws_1", "workspace", {
+        exclude: "dist/**, **/dist/**",
+        include: "*.ts, **/*.tsx",
+      });
     });
   });
 
   it("shows empty and error states for file search", async () => {
     vi.mocked(searchFiles).mockResolvedValueOnce({ results: [] });
-    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=search");
 
-    fireEvent.change(screen.getByLabelText("Search files"), {
+    fireEvent.change(screen.getByLabelText("Search file contents"), {
       target: { value: "missing" },
     });
 
     expect(await screen.findByText("No matching files.")).toBeInTheDocument();
 
     vi.mocked(searchFiles).mockRejectedValueOnce(new Error("Search failed"));
-    fireEvent.change(screen.getByLabelText("Search files"), {
+    fireEvent.change(screen.getByLabelText("Search file contents"), {
       target: { value: "broken" },
     });
 
@@ -421,9 +649,9 @@ describe("WorkspacePage", () => {
 
   it("shows file search loading state", async () => {
     vi.mocked(searchFiles).mockReturnValue(new Promise(() => {}));
-    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=search");
 
-    fireEvent.change(screen.getByLabelText("Search files"), {
+    fireEvent.change(screen.getByLabelText("Search file contents"), {
       target: { value: "slow" },
     });
 
@@ -450,6 +678,26 @@ describe("WorkspacePage", () => {
     });
     expect(await screen.findByLabelText("File content")).toHaveValue(
       "export function App() {\n  return true;\n}",
+    );
+  });
+
+  it("keeps the active editor when switching workspace panels", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(
+      "/workspace?workspaceId=ws_1&panel=files&path=web/src/app.tsx",
+    );
+
+    expect(await screen.findByLabelText("File content")).toHaveValue(
+      "export function App() {\n  return null;\n}",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(
+      await screen.findByLabelText("Search file contents"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("File content")).toHaveValue(
+      "export function App() {\n  return null;\n}",
     );
   });
 
@@ -508,8 +756,6 @@ describe("WorkspacePage", () => {
     fireEvent.change(await screen.findByLabelText("File content"), {
       target: { value: "export function App() {\n  return true;\n}" },
     });
-    await user.click(await screen.findByRole("treeitem", { name: "web" }));
-    await user.click(await screen.findByRole("treeitem", { name: "src" }));
     await user.click(await screen.findByRole("treeitem", { name: "features" }));
     await user.click(
       await screen.findByRole("treeitem", { name: /workspace-page\.tsx/i }),
@@ -589,20 +835,20 @@ describe("WorkspacePage", () => {
     );
   });
 
-  it("loads a selected Git diff from the change list", async () => {
+  it("keeps the editor visible when selecting files from the Git panel", async () => {
     const user = userEvent.setup();
     renderWorkspace("/workspace?workspaceId=ws_1&panel=git");
 
-    expect(await screen.findByText("full workspace diff")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "web/src/app.tsx" }));
+    await user.click(
+      await screen.findByRole("button", { name: "web/src/app.tsx" }),
+    );
 
     await waitFor(() => {
-      expect(getGitDiff).toHaveBeenLastCalledWith("ws_1", "web/src/app.tsx");
+      expect(readFile).toHaveBeenLastCalledWith("ws_1", "web/src/app.tsx");
     });
-    expect(
-      await screen.findByText("diff for web/src/app.tsx"),
-    ).toBeInTheDocument();
+    expect(await screen.findByLabelText("File content")).toHaveValue(
+      "export function App() {\n  return null;\n}",
+    );
   });
 
   it("stages unstaged Git paths from the section action popover", async () => {
@@ -818,26 +1064,18 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("Dev shell")).toBeInTheDocument();
   });
 
-  it("shows preview ports and exposes detected ports from the main panel", async () => {
+  it("shows preview ports and exposes detected ports from the sidebar panel", async () => {
     const user = userEvent.setup();
     renderWorkspace("/workspace?workspaceId=ws_1&panel=preview");
 
-    const previewPorts = await screen.findByRole("region", {
-      name: "Preview ports",
-    });
-    expect(
-      within(previewPorts).getByText("localhost:5173"),
-    ).toBeInTheDocument();
-    expect(
-      within(previewPorts).getByText("localhost:8080"),
-    ).toBeInTheDocument();
-    expect(
-      within(previewPorts).getByRole("link", { name: "Open preview" }),
-    ).toHaveAttribute("href", "/workspaces/ws_1/ports/8080/proxy/");
-
-    await user.click(
-      within(previewPorts).getByRole("button", { name: "Expose port" }),
+    expect(await screen.findByText("localhost:5173")).toBeInTheDocument();
+    expect(screen.getByText("localhost:8080")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      "/workspaces/ws_1/ports/8080/proxy/",
     );
+
+    await user.click(screen.getByRole("button", { name: "Expose" }));
 
     await waitFor(() => {
       expect(exposePort).toHaveBeenCalledWith("ws_1", 5173);
