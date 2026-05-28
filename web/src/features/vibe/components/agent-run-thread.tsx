@@ -70,7 +70,6 @@ export function AgentRunThread({
   runs: AgentRun[];
   toolCalls: AgentToolCall[];
 }) {
-  const activeApprovalId = nextApprovalToolCall(toolCalls)?.id ?? "";
   const sortedRuns = [...runs].sort(
     (first, second) =>
       new Date(first.createdAt).getTime() -
@@ -79,6 +78,7 @@ export function AgentRunThread({
 
   const renderToolCallReview = (
     toolCall: AgentToolCall,
+    activeApprovalId: string,
     options: { compact?: boolean; showIcon?: boolean } = {},
   ) => (
     <ToolCallReview
@@ -108,6 +108,8 @@ export function AgentRunThread({
             const runToolCalls = toolCalls.filter(
               (toolCall) => toolCall.runId === run.id,
             );
+            const activeApprovalId =
+              nextApprovalToolCall(runToolCalls)?.id ?? "";
             const assistantMessages = assistantMessagesForRun(messages, run);
             const timelineItems = [
               ...assistantMessages.map((message) => ({
@@ -178,13 +180,13 @@ export function AgentRunThread({
                     </div>
                   ) : item.kind === "tool_call" ? (
                     <div className="grid w-full gap-2" key={item.id}>
-                      {renderToolCallReview(item.item)}
+                      {renderToolCallReview(item.item, activeApprovalId)}
                     </div>
                   ) : (
                     <div className="grid w-full gap-2" key={item.id}>
                       <ToolCallGroup toolCalls={item.items}>
                         {item.items.map((toolCall) =>
-                          renderToolCallReview(toolCall, {
+                          renderToolCallReview(toolCall, activeApprovalId, {
                             compact: true,
                             showIcon: false,
                           }),
