@@ -25,6 +25,7 @@ import {
   getGitStatus,
   getWorkspace,
   listFileIndexDirectory,
+  listGitBranches,
   listPorts,
   listTerminalSessions,
   listWorkspaces,
@@ -36,6 +37,7 @@ import {
   searchFiles,
   stageGitFiles,
   stageGitPatch,
+  switchGitBranch,
   type TerminalSession,
   type TerminalSessionListResponse,
   unstageGitFiles,
@@ -199,6 +201,12 @@ export function useWorkspaceController({
     queryKey: ["workspace-git-diff", workspaceId, selectedPath],
   });
 
+  const gitBranchesQuery = useQuery({
+    enabled: workspaceId.length > 0,
+    queryFn: () => listGitBranches(workspaceId),
+    queryKey: ["workspace-git-branches", workspaceId],
+  });
+
   const terminalSessionsQuery = useQuery({
     enabled: workspaceId.length > 0,
     queryFn: () => listTerminalSessions(workspaceId),
@@ -322,6 +330,25 @@ export function useWorkspaceController({
         queryKey: ["workspace-git-diff", workspaceId],
       });
       commitMutation.reset();
+    },
+  });
+
+  const switchBranchMutation = useMutation({
+    mutationFn: (branch: string) => switchGitBranch(workspaceId, { branch }),
+    onSuccess: (status) => {
+      queryClient.setQueryData(["workspace-git-status", workspaceId], status);
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-branches", workspaceId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-git-diff", workspaceId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-file-index", workspaceId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-file-index-directory", workspaceId],
+      });
     },
   });
 
@@ -664,6 +691,13 @@ export function useWorkspaceController({
       isSearching: fileSearchQueryResult.isFetching,
     },
     git: {
+      author: gitQuery.data?.author,
+      branch: gitQuery.data?.branch,
+      branches: gitBranchesQuery.data?.branches ?? [],
+      branchesError: gitBranchesQuery.error
+        ? apiErrorMessage(gitBranchesQuery.error)
+        : undefined,
+      changesCount: gitChanges.length,
       changes: gitChanges,
       commitError: commitMutation.error
         ? apiErrorMessage(commitMutation.error)
@@ -674,10 +708,13 @@ export function useWorkspaceController({
         ? apiErrorMessage(gitDiffQuery.error)
         : undefined,
       error: gitQuery.error ? apiErrorMessage(gitQuery.error) : undefined,
+      head: gitQuery.data?.head,
       isCommitPending: commitMutation.isPending,
       isDiscardingChanges: discardMutation.isPending,
       isDiffLoading: gitDiffQuery.isPending,
       isLoading: gitQuery.isPending,
+      isBranchListLoading: gitBranchesQuery.isPending,
+      isSwitchingBranch: switchBranchMutation.isPending,
       isPatchStaging: stagePatchMutation.isPending,
       isStagingChanges: stageMutation.isPending,
       isUnstagingChanges: unstageMutation.isPending,
@@ -689,6 +726,8 @@ export function useWorkspaceController({
       onStageChanges: handleStageChanges,
       onStagePatch: handleStagePatch,
       onStagedChangesUnstage: handleUnstageChanges,
+      onSwitchBranch: (branch: string) =>
+        switchBranchMutation.mutateAsync(branch),
       rawStatus: gitQuery.data?.porcelain,
       stagedPathCount: stagedGitPaths.length,
       stagedPathsForCommit: stagedGitPaths,
@@ -696,6 +735,9 @@ export function useWorkspaceController({
         stageMutation.error || stagePatchMutation.error
           ? apiErrorMessage(stageMutation.error ?? stagePatchMutation.error)
           : undefined,
+      switchBranchError: switchBranchMutation.error
+        ? apiErrorMessage(switchBranchMutation.error)
+        : undefined,
       unstagedPathCount: unstagedGitPaths.length,
     },
     preview: {

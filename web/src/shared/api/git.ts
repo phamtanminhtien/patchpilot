@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import type {
+  GitBranchListResponse,
   GitCommitRequest,
   GitCommitResponse,
   GitDiff,
@@ -7,8 +8,29 @@ import type {
   GitStagePatchRequest,
   GitStageRequest,
   GitStatus,
+  GitSwitchBranchRequest,
   GitUnstageRequest,
 } from "./types";
+
+export async function listGitBranches(
+  workspaceId: string,
+): Promise<GitBranchListResponse> {
+  const response = await apiClient.get<GitBranchListResponse>(
+    `/workspaces/${workspaceId}/git/branches`,
+  );
+  return response.data;
+}
+
+export async function switchGitBranch(
+  workspaceId: string,
+  request: GitSwitchBranchRequest,
+): Promise<GitStatus> {
+  const response = await apiClient.post<GitStatus>(
+    `/workspaces/${workspaceId}/git/branch`,
+    request,
+  );
+  return response.data;
+}
 
 export async function commitGitChanges(
   workspaceId: string,

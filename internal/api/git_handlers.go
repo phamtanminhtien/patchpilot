@@ -23,6 +23,42 @@ type gitCommitRequest struct {
 	Paths   []string `json:"paths"`
 }
 
+type gitSwitchBranchRequest struct {
+	Branch string `json:"branch"`
+}
+
+func (s *Server) gitBranches(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	branches, err := s.git.Branches(r.Context(), ws.RootPath)
+	if err != nil {
+		writeGitError(w, err, "git_branch_list_failed", "Git branches could not be listed")
+		return
+	}
+	writeJSON(w, http.StatusOK, branches)
+}
+
+func (s *Server) gitSwitchBranch(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req gitSwitchBranchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	status, err := s.git.SwitchBranch(r.Context(), ws.RootPath, req.Branch)
+	if err != nil {
+		writeGitError(w, err, "git_branch_switch_failed", "Git branch switch failed")
+		return
+	}
+	s.publishGitChanged(r.Context(), ws)
+	writeJSON(w, http.StatusOK, status)
+}
+
 func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.workspaceFromRequest(w, r)
 	if !ok {

@@ -27,6 +27,7 @@ import {
   listFileIndex,
   listFileIndexDirectory,
   listFiles,
+  listGitBranches,
   listPorts,
   listTerminalSessions,
   listWorkspaces,
@@ -36,6 +37,7 @@ import {
   searchFiles,
   stageGitFiles,
   stageGitPatch,
+  switchGitBranch,
   type TerminalSession,
   unstageGitFiles,
   writeFile,
@@ -64,6 +66,7 @@ vi.mock("@/shared/api", () => ({
   getHealth: vi.fn(),
   getGitDiff: vi.fn(),
   getGitStatus: vi.fn(),
+  listGitBranches: vi.fn(),
   getWorkspace: vi.fn(),
   listFileIndexDirectory: vi.fn(),
   listFiles: vi.fn(),
@@ -77,6 +80,7 @@ vi.mock("@/shared/api", () => ({
   searchFiles: vi.fn(),
   stageGitFiles: vi.fn(),
   stageGitPatch: vi.fn(),
+  switchGitBranch: vi.fn(),
   terminalSocketUrl: vi.fn(() => "ws://localhost/terminal"),
   unstageGitFiles: vi.fn(),
   writeFile: vi.fn(),
@@ -349,7 +353,16 @@ describe("WorkspacePage", () => {
       }),
     );
     vi.mocked(getGitStatus).mockResolvedValue({
+      author: "Patch Pilot <pilot@example.com>",
+      branch: "main",
+      head: "abc1234",
       porcelain: " M web/src/app.tsx\n?? scratch.md\n!! dist/",
+    });
+    vi.mocked(listGitBranches).mockResolvedValue({
+      branches: [
+        { current: true, name: "main" },
+        { current: false, name: "feature/status-bar" },
+      ],
     });
     vi.mocked(getGitDiff).mockImplementation((_workspaceId, path) =>
       Promise.resolve({
@@ -362,6 +375,12 @@ describe("WorkspacePage", () => {
     });
     vi.mocked(stageGitPatch).mockResolvedValue({
       porcelain: "A  web/src/app.tsx\n?? scratch.md\n!! dist/",
+    });
+    vi.mocked(switchGitBranch).mockResolvedValue({
+      author: "Patch Pilot <pilot@example.com>",
+      branch: "feature/status-bar",
+      head: "def5678",
+      porcelain: "",
     });
     vi.mocked(unstageGitFiles).mockResolvedValue({
       porcelain: " M web/src/app.tsx\n?? scratch.md\n!! dist/",
@@ -424,6 +443,42 @@ describe("WorkspacePage", () => {
     vi.mocked(closeTerminalSession).mockResolvedValue(
       terminalSession({ id: "term_1", status: "closed" }),
     );
+  });
+
+  it("shows workspace status bar metadata", async () => {
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    expect(
+      await screen.findByText("Patch Pilot <pilot@example.com>"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("patchpilot").length).toBeGreaterThan(0);
+    expect(screen.getByText("main")).toBeInTheDocument();
+    expect(screen.getByText("abc1234")).toBeInTheDocument();
+    expect(screen.getByText("3 changed / 0 staged")).toBeInTheDocument();
+  });
+
+  it("opens the branch switch dialog from the status bar", async () => {
+    const user = userEvent.setup();
+    renderWorkspace("/workspace?workspaceId=ws_1&panel=files");
+
+    await user.click(
+      await screen.findByRole("button", { name: /switch branch main/i }),
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Switch branch",
+    });
+    expect(within(dialog).getByText("feature/status-bar")).toBeInTheDocument();
+
+    await user.click(
+      within(dialog).getByRole("button", { name: /feature\/status-bar/i }),
+    );
+
+    await waitFor(() => {
+      expect(switchGitBranch).toHaveBeenCalledWith("ws_1", {
+        branch: "feature/status-bar",
+      });
+    });
   });
 
   it("renders the workspace shell and reads a selected file", async () => {

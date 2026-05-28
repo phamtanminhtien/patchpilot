@@ -55,6 +55,63 @@ func TestGitStageAndCommitHandlers(t *testing.T) {
 	}
 }
 
+func TestGitBranchHandlers(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	configureCommitter(t, root)
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("main\n"), 0o644); err != nil {
+		t.Fatalf("write tracked file: %v", err)
+	}
+	run(t, root, "git", "add", "tracked.txt")
+	run(t, root, "git", "commit", "-m", "initial")
+	defaultBranch := currentAPITestBranch(t, root)
+	run(t, root, "git", "switch", "-c", "feature/status-bar")
+	server := newTestServer(t, root)
+	create := request(server, http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws workspace.Workspace
+	mustDecode(t, create, &ws)
+
+	branchesResponse := request(server, http.MethodGet, "/api/workspaces/"+ws.ID+"/git/branches", "")
+	if branchesResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", branchesResponse.Code, branchesResponse.Body.String())
+	}
+	var branchesBody gitrepo.BranchList
+	mustDecode(t, branchesResponse, &branchesBody)
+	if !containsAPIBranch(branchesBody.Branches, defaultBranch, false) || !containsAPIBranch(branchesBody.Branches, "feature/status-bar", true) {
+		t.Fatalf("unexpected branches: %+v", branchesBody.Branches)
+	}
+
+	switchResponse := request(server, http.MethodPost, "/api/workspaces/"+ws.ID+"/git/branch", `{"branch":"`+defaultBranch+`"}`)
+	if switchResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", switchResponse.Code, switchResponse.Body.String())
+	}
+	var statusBody gitrepo.Status
+	mustDecode(t, switchResponse, &statusBody)
+	if statusBody.Branch != defaultBranch {
+		t.Fatalf("expected switched branch %q, got %q", defaultBranch, statusBody.Branch)
+	}
+}
+
+func currentAPITestBranch(t *testing.T, root string) string {
+	t.Helper()
+	output, err := gitrepo.NewClient().Status(context.Background(), root, gitrepo.StatusOptions{})
+	if err != nil {
+		t.Fatalf("read git status: %v", err)
+	}
+	if output.Branch == "" {
+		t.Fatal("expected current branch")
+	}
+	return output.Branch
+}
+
+func containsAPIBranch(branches []gitrepo.Branch, name string, current bool) bool {
+	for _, branch := range branches {
+		if branch.Name == name && branch.Current == current {
+			return true
+		}
+	}
+	return false
+}
+
 func TestGitUnstageAndDiscardHandlers(t *testing.T) {
 	root := initGitRepo(t, t.TempDir())
 	configureCommitter(t, root)

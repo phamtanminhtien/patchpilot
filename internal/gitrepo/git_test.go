@@ -13,6 +13,8 @@ import (
 
 func TestStatusReturnsPorcelain(t *testing.T) {
 	root := initGitRepo(t)
+	run(t, root, "git", "config", "user.email", "pilot@example.com")
+	run(t, root, "git", "config", "user.name", "Patch Pilot")
 	if err := os.WriteFile(filepath.Join(root, "new.txt"), []byte("new"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -25,6 +27,62 @@ func TestStatusReturnsPorcelain(t *testing.T) {
 	if !strings.Contains(status.Porcelain, "?? new.txt") {
 		t.Fatalf("expected untracked file in status, got %q", status.Porcelain)
 	}
+	if status.Author != "Patch Pilot <pilot@example.com>" {
+		t.Fatalf("expected git author metadata, got %q", status.Author)
+	}
+	if status.Branch == "" {
+		t.Fatal("expected git branch metadata")
+	}
+}
+
+func TestBranchesAndSwitchBranch(t *testing.T) {
+	root := initGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	run(t, root, "git", "add", "tracked.txt")
+	commit(t, root, "initial")
+	defaultBranch := currentTestBranch(t, root)
+	run(t, root, "git", "switch", "-c", "feature/status-bar")
+	client := NewClient()
+
+	branches, err := client.Branches(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Branches returned error: %v", err)
+	}
+	if !containsBranch(branches.Branches, defaultBranch, false) || !containsBranch(branches.Branches, "feature/status-bar", true) {
+		t.Fatalf("unexpected branches: %+v", branches.Branches)
+	}
+
+	status, err := client.SwitchBranch(context.Background(), root, defaultBranch)
+	if err != nil {
+		t.Fatalf("SwitchBranch returned error: %v", err)
+	}
+	if status.Branch != defaultBranch {
+		t.Fatalf("expected branch %q, got %q", defaultBranch, status.Branch)
+	}
+}
+
+func currentTestBranch(t *testing.T, root string) string {
+	t.Helper()
+	output, err := runGitCurrentBranch(context.Background(), root)
+	if err != nil {
+		t.Fatalf("read current branch: %v", err)
+	}
+	branch := strings.TrimSpace(output)
+	if branch == "" {
+		t.Fatal("expected current branch")
+	}
+	return branch
+}
+
+func containsBranch(branches []Branch, name string, current bool) bool {
+	for _, branch := range branches {
+		if branch.Name == name && branch.Current == current {
+			return true
+		}
+	}
+	return false
 }
 
 func TestStatusExpandsUntrackedDirectories(t *testing.T) {

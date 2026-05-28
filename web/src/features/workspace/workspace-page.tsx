@@ -63,6 +63,20 @@ export function WorkspacePage() {
             workspaceId={workspaceId}
           />
         }
+        git={{
+          author: controller.git.author,
+          branch: controller.git.branch,
+          branches: controller.git.branches,
+          branchesError: controller.git.branchesError,
+          changesCount: controller.git.changesCount,
+          head: controller.git.head,
+          isBranchListLoading: controller.git.isBranchListLoading,
+          isLoading: controller.git.isLoading,
+          isSwitchingBranch: controller.git.isSwitchingBranch,
+          onSwitchBranch: controller.git.onSwitchBranch,
+          stagedPathCount: controller.git.stagedPathCount,
+          switchBranchError: controller.git.switchBranchError,
+        }}
         mainPanels={
           <WorkspaceMainPanels
             activePanel={panel}
@@ -122,6 +136,7 @@ export function WorkspacePage() {
             workspaceId={workspaceId}
           />
         }
+        workspace={controller.workspace.data}
       />
     </AppShell>
   );

@@ -139,6 +139,8 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/file", s.readFile)
 	mux.HandleFunc("PUT /api/workspaces/{workspaceId}/file", s.writeFile)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/search", s.searchFiles)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/branches", s.gitBranches)
+	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/branch", s.gitSwitchBranch)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/status", s.gitStatus)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/git/diff", s.gitDiff)
 	mux.HandleFunc("POST /api/workspaces/{workspaceId}/git/stage", s.gitStage)

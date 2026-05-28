@@ -121,7 +121,23 @@ export interface FileSearchResponse {
 }
 
 export interface GitStatus {
+  author?: string;
+  branch?: string;
+  head?: string;
   porcelain: string;
+}
+
+export interface GitBranch {
+  current: boolean;
+  name: string;
+}
+
+export interface GitBranchListResponse {
+  branches: GitBranch[];
+}
+
+export interface GitSwitchBranchRequest {
+  branch: string;
 }
 
 export interface GitDiff {

@@ -275,14 +275,7 @@ function TerminalSurface({
       fontFamily: terminalFontFamily,
       fontSize: 12,
       scrollback: 1000,
-      theme: {
-        background: styles.getPropertyValue("--pp-bg-terminal").trim(),
-        cursor: styles.getPropertyValue("--pp-color-focus").trim(),
-        foreground: styles.getPropertyValue("--pp-color-terminal-ink").trim(),
-        selectionBackground: styles
-          .getPropertyValue("--pp-bg-accent-soft")
-          .trim(),
-      },
+      theme: terminalThemeFromStyles(styles),
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -326,9 +319,25 @@ function TerminalSurface({
     socket.addEventListener("open", sendResize);
     const resizeObserver = new ResizeObserver(sendResize);
     resizeObserver.observe(container);
+    const syncTheme = () => {
+      terminal.options.theme = terminalThemeFromStyles(
+        getComputedStyle(document.documentElement),
+      );
+    };
+    const themeObserver = new MutationObserver(syncTheme);
+    themeObserver.observe(document.documentElement, {
+      attributeFilter: ["data-theme", "style"],
+      attributes: true,
+    });
+    const colorSchemeQuery = window.matchMedia?.(
+      "(prefers-color-scheme: dark)",
+    );
+    colorSchemeQuery?.addEventListener("change", syncTheme);
 
     return () => {
       resizeObserver.disconnect();
+      themeObserver.disconnect();
+      colorSchemeQuery?.removeEventListener("change", syncTheme);
       inputDisposable.dispose();
       socket.close();
       terminal.dispose();
@@ -354,6 +363,55 @@ function TerminalSurface({
       />
     </div>
   );
+}
+
+function terminalThemeFromStyles(styles: CSSStyleDeclaration) {
+  const color = (name: string, fallback?: string) =>
+    styles.getPropertyValue(name).trim() || fallback || "";
+
+  return {
+    background: color("--pp-bg-terminal"),
+    black: color("--pp-terminal-ansi-black", color("--pp-color-message")),
+    blue: color("--pp-terminal-ansi-blue", color("--pp-code-variable")),
+    brightBlack: color(
+      "--pp-terminal-ansi-bright-black",
+      color("--pp-color-muted"),
+    ),
+    brightBlue: color("--pp-terminal-ansi-bright-blue", color("--pp-code-def")),
+    brightCyan: color(
+      "--pp-terminal-ansi-bright-cyan",
+      color("--pp-code-property"),
+    ),
+    brightGreen: color(
+      "--pp-terminal-ansi-bright-green",
+      color("--pp-code-link"),
+    ),
+    brightMagenta: color(
+      "--pp-terminal-ansi-bright-magenta",
+      color("--pp-code-type"),
+    ),
+    brightRed: color("--pp-terminal-ansi-bright-red", color("--pp-code-tag")),
+    brightWhite: color(
+      "--pp-terminal-ansi-bright-white",
+      color("--pp-color-ink"),
+    ),
+    brightYellow: color(
+      "--pp-terminal-ansi-bright-yellow",
+      color("--pp-code-literal"),
+    ),
+    cursor: color("--pp-color-focus"),
+    cyan: color("--pp-terminal-ansi-cyan", color("--pp-code-property")),
+    foreground: color("--pp-color-terminal-ink"),
+    green: color("--pp-terminal-ansi-green", color("--pp-code-string")),
+    magenta: color("--pp-terminal-ansi-magenta", color("--pp-code-atom")),
+    red: color("--pp-terminal-ansi-red", color("--pp-code-keyword")),
+    selectionBackground: color(
+      "--pp-terminal-selection",
+      color("--pp-bg-accent-soft"),
+    ),
+    white: color("--pp-terminal-ansi-white", color("--pp-color-ink")),
+    yellow: color("--pp-terminal-ansi-yellow", color("--pp-code-number")),
+  };
 }
 
 function TerminalEmptyState({

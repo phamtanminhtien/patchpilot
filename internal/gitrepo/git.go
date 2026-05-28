@@ -14,6 +14,7 @@ import (
 var (
 	ErrEmptyCommitMessage = errors.New("commit message is required")
 	ErrEmptyPathList      = errors.New("at least one path is required")
+	ErrEmptyBranchName    = errors.New("branch name is required")
 	ErrInvalidPath        = errors.New("invalid workspace-relative path")
 	ErrInvalidRoot        = errors.New("invalid workspace root")
 	ErrGitFailed          = errors.New("git command failed")
@@ -23,6 +24,9 @@ var (
 type Client struct{}
 
 type Status struct {
+	Author    string `json:"author,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+	Head      string `json:"head,omitempty"`
 	Porcelain string `json:"porcelain"`
 }
 
@@ -31,6 +35,15 @@ type StatusOptions struct {
 	Untracked        string   `json:"untracked"`         // "all", "normal", "no"
 	IgnoreSubmodules string   `json:"ignore_submodules"` // "none", "untracked", "dirty", "all"
 	Paths            []string `json:"paths"`
+}
+
+type Branch struct {
+	Current bool   `json:"current"`
+	Name    string `json:"name"`
+}
+
+type BranchList struct {
+	Branches []Branch `json:"branches"`
 }
 
 type statusUntrackedMode int
@@ -118,7 +131,50 @@ func (c *Client) Status(ctx context.Context, root string, opts StatusOptions) (S
 		filteredLines = truncated
 	}
 
-	return Status{Porcelain: strings.Join(filteredLines, "\n")}, nil
+	branch, _ := runGitCurrentBranch(ctx, root)
+	head, _ := runGitShortHead(ctx, root)
+	author, _ := runGitAuthor(ctx, root)
+
+	return Status{
+		Author:    strings.TrimSpace(author),
+		Branch:    strings.TrimSpace(branch),
+		Head:      strings.TrimSpace(head),
+		Porcelain: strings.Join(filteredLines, "\n"),
+	}, nil
+}
+
+func (c *Client) Branches(ctx context.Context, root string) (BranchList, error) {
+	if err := validateRepositoryRoot(ctx, root); err != nil {
+		return BranchList{}, err
+	}
+	current, _ := runGitCurrentBranch(ctx, root)
+	output, err := runGitBranches(ctx, root)
+	if err != nil {
+		return BranchList{}, err
+	}
+	current = strings.TrimSpace(current)
+	branches := make([]Branch, 0)
+	for _, line := range strings.Split(output, "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		branches = append(branches, Branch{Name: name, Current: name == current})
+	}
+	return BranchList{Branches: branches}, nil
+}
+
+func (c *Client) SwitchBranch(ctx context.Context, root, branch string) (Status, error) {
+	if strings.TrimSpace(branch) == "" {
+		return Status{}, ErrEmptyBranchName
+	}
+	if err := validateRepositoryRoot(ctx, root); err != nil {
+		return Status{}, err
+	}
+	if _, err := runGitSwitchBranch(ctx, root, branch); err != nil {
+		return Status{}, err
+	}
+	return c.Status(ctx, root, StatusOptions{})
 }
 
 func shouldFilterStatusLine(line string) bool {
@@ -524,6 +580,61 @@ func runGitRevParseVerifyHead(ctx context.Context, root string) (string, error) 
 	args := []string{"rev-parse", "--verify", "HEAD"}
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "HEAD")
 	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitCurrentBranch(ctx context.Context, root string) (string, error) {
+	args := []string{"branch", "--show-current"}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitBranches(ctx context.Context, root string) (string, error) {
+	args := []string{"for-each-ref", "--format=%(refname:short)", "refs/heads"}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitSwitchBranch(ctx context.Context, root, branch string) (string, error) {
+	args := []string{"switch", "--", branch}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitShortHead(ctx context.Context, root string) (string, error) {
+	args := []string{"rev-parse", "--short", "HEAD"}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, _, err := runPreparedGit(cmd, root, args, "")
+	return output, err
+}
+
+func runGitAuthor(ctx context.Context, root string) (string, error) {
+	name, _ := runGitConfig(ctx, root, "user.name")
+	email, _ := runGitConfig(ctx, root, "user.email")
+	name = strings.TrimSpace(name)
+	email = strings.TrimSpace(email)
+	if name != "" && email != "" {
+		return fmt.Sprintf("%s <%s>", name, email), nil
+	}
+	if name != "" {
+		return name, nil
+	}
+	if email != "" {
+		return email, nil
+	}
+	return "", nil
+}
+
+func runGitConfig(ctx context.Context, root, key string) (string, error) {
+	args := []string{"config", "--get", key}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, exitCode, err := runPreparedGit(cmd, root, args, "")
+	if err != nil && exitCode == 1 {
+		return "", nil
+	}
 	return output, err
 }
 

@@ -285,6 +285,8 @@ func writeGitError(w http.ResponseWriter, err error, fallbackCode, fallbackMessa
 		writeError(w, http.StatusBadRequest, "invalid_path", "Path must be workspace-relative", nil)
 	case errors.Is(err, gitrepo.ErrEmptyPathList):
 		writeError(w, http.StatusBadRequest, "empty_path_list", "At least one path is required", nil)
+	case errors.Is(err, gitrepo.ErrEmptyBranchName):
+		writeError(w, http.StatusBadRequest, "empty_branch_name", "Branch name is required", nil)
 	case errors.Is(err, gitrepo.ErrEmptyCommitMessage):
 		writeError(w, http.StatusBadRequest, "empty_commit_message", "Commit message is required", nil)
 	case errors.Is(err, gitrepo.ErrInvalidRoot):
