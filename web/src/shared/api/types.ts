@@ -175,6 +175,21 @@ export type AgentReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type ThemePreference = "system" | "light" | "dark";
 
+export type PermissionMode = "safe" | "balanced" | "autonomous";
+
+export interface WorkspacePermissions {
+  mode: PermissionMode;
+  editFiles: boolean;
+  runCommands: boolean;
+  gitOperations: boolean;
+}
+
+export type PatchWorkspacePermissionsRequest = Partial<WorkspacePermissions>;
+
+export interface WorkspacePermissionsResponse {
+  permissions: WorkspacePermissions;
+}
+
 export interface SettingsPreferences {
   theme: ThemePreference;
   appFontFamily: string;

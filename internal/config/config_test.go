@@ -180,6 +180,35 @@ func TestLoadDotEnvUsesGodotenvSyntax(t *testing.T) {
 	}
 }
 
+func TestUserConfigPersistsWorkspacePermissionsByRoot(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(t.TempDir(), "repo")
+	cfg := UserConfig{
+		WorkspacePermissions: map[string]WorkspacePermission{
+			root: {Mode: "autonomous", EditFiles: true, RunCommands: true, GitOperations: false},
+		},
+	}
+
+	if err := SaveUserConfig(home, cfg); err != nil {
+		t.Fatalf("SaveUserConfig returned error: %v", err)
+	}
+	loaded, err := LoadUserConfig(home)
+	if err != nil {
+		t.Fatalf("LoadUserConfig returned error: %v", err)
+	}
+	permission := loaded.WorkspacePermissions[root]
+	if permission.Mode != "autonomous" || !permission.EditFiles || !permission.RunCommands || permission.GitOperations {
+		t.Fatalf("unexpected workspace permission: %+v", permission)
+	}
+}
+
+func TestDefaultWorkspacePermissionIsBalancedAndEnabled(t *testing.T) {
+	permission := DefaultWorkspacePermission()
+	if permission.Mode != "balanced" || !permission.EditFiles || !permission.RunCommands || !permission.GitOperations {
+		t.Fatalf("unexpected default permission: %+v", permission)
+	}
+}
+
 func emptyEnv(string) string {
 	return ""
 }

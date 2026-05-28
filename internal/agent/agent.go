@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/phamtanminhtien/patchpilot/internal/config"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
 	"github.com/phamtanminhtien/patchpilot/internal/events"
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
@@ -68,6 +69,7 @@ type CreateRunInput struct {
 	TriggerMessageID string
 	Model            string
 	ReasoningEffort  string
+	Permissions      config.WorkspacePermission
 }
 
 type Run struct {
@@ -205,6 +207,7 @@ type runRuntime struct {
 	history             []ProviderHistoryItem
 	pendingBatch        string
 	activeCommands      map[string]struct{}
+	permissions         config.WorkspacePermission
 	draftText           strings.Builder
 }
 
@@ -234,6 +237,11 @@ func (m *Manager) Create(ctx context.Context, workspaceID, workspaceRoot string,
 	if _, ok := supportedEfforts[input.ReasoningEffort]; !ok {
 		return Run{}, ErrInvalidEffort
 	}
+	if input.Permissions == (config.WorkspacePermission{}) {
+		input.Permissions = config.DefaultWorkspacePermission()
+	} else {
+		input.Permissions = config.NormalizeWorkspacePermission(input.Permissions)
+	}
 	if m.provider == nil || !m.provider.Configured() {
 		return Run{}, ErrProviderUnavailable
 	}
@@ -258,6 +266,7 @@ func (m *Manager) Create(ctx context.Context, workspaceID, workspaceRoot string,
 		runID:            run.ID,
 		triggerMessageID: input.TriggerMessageID,
 		prompt:           input.Prompt,
+		permissions:      input.Permissions,
 		ctx:              runCtx,
 		cancel:           cancel,
 		activeCommands:   map[string]struct{}{},

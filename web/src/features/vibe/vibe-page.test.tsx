@@ -18,9 +18,11 @@ import {
   getConversation,
   getHealth,
   getWorkspace,
+  getWorkspacePermissions,
   listConversations,
   listFileIndex,
   listWorkspaces,
+  patchWorkspacePermissions,
   refreshAgentContext,
   rejectAgentToolCall,
   setAgentSkillEnabled,
@@ -48,6 +50,7 @@ import {
   toolCall,
   waitForWorkspaceEventSource,
   workspace,
+  workspacePermissions,
 } from "./vibe-page.test-utils";
 
 vi.mock("@/shared/api", () => ({
@@ -62,9 +65,11 @@ vi.mock("@/shared/api", () => ({
   getConversation: vi.fn(),
   getHealth: vi.fn(),
   getWorkspace: vi.fn(),
+  getWorkspacePermissions: vi.fn(),
   listFileIndex: vi.fn(),
   listConversations: vi.fn(),
   listWorkspaces: vi.fn(),
+  patchWorkspacePermissions: vi.fn(),
   refreshAgentContext: vi.fn(),
   rejectAgentToolCall: vi.fn(),
   setAgentSkillEnabled: vi.fn(),
@@ -83,6 +88,8 @@ beforeEach(() => {
   vi.mocked(createWorkspace).mockResolvedValue(workspace);
   vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
   vi.mocked(getWorkspace).mockResolvedValue(workspace);
+  vi.mocked(getWorkspacePermissions).mockResolvedValue(workspacePermissions);
+  vi.mocked(patchWorkspacePermissions).mockResolvedValue(workspacePermissions);
   vi.mocked(listFileIndex).mockResolvedValue(fileIndex);
   vi.mocked(getAgentContext).mockResolvedValue(agentContext);
   vi.mocked(refreshAgentContext).mockResolvedValue(agentContext);
@@ -140,6 +147,92 @@ it("creates an agent run with selected model and reasoning effort", async () => 
     });
   });
   expect(await screen.findAllByText("Fix the failing test")).toHaveLength(3);
+});
+
+it("submits with enter and inserts a line break with ctrl enter", async () => {
+  const user = userEvent.setup();
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  const promptInput = await screen.findByLabelText("Ask AI");
+  await waitFor(() => {
+    expect(promptInput).toBeEnabled();
+  });
+  await user.type(promptInput, "First line");
+  await user.keyboard("{Control>}{Enter}{/Control}");
+  await user.type(promptInput, "Second line");
+  expect(createMessage).not.toHaveBeenCalled();
+
+  await user.keyboard("{Enter}");
+
+  await waitFor(() => {
+    expect(createMessage).toHaveBeenCalledWith("ws_1", "conv_1", {
+      content: "First line\nSecond line",
+      model: "gpt-5.5",
+      reasoningEffort: "medium",
+    });
+  });
+});
+
+it("configures workspace permissions from the composer", async () => {
+  const user = userEvent.setup();
+  vi.mocked(patchWorkspacePermissions).mockImplementation(
+    (_workspaceId, permissions) =>
+      Promise.resolve({
+        ...workspacePermissions,
+        ...permissions,
+      }),
+  );
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  await user.click(
+    await screen.findByRole("button", { name: /Balanced permissions/i }),
+  );
+
+  expect(screen.getByRole("group", { name: "Permission mode" })).toBeVisible();
+  expect(screen.getByText("apply_patch needs approval")).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      "safe commands auto-run; confirmation commands need approval",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByText("MCP tools need approval")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Autonomous" }));
+  await waitFor(() => {
+    expect(patchWorkspacePermissions).toHaveBeenCalledWith("ws_1", {
+      editFiles: true,
+      gitOperations: true,
+      mode: "autonomous",
+      runCommands: true,
+    });
+  });
+  expect(
+    screen.getByRole("button", { name: /Autonomous permissions/i }),
+  ).toBeInTheDocument();
+
+  await user.click(screen.getByRole("switch", { name: "Git operations" }));
+  await waitFor(() => {
+    expect(patchWorkspacePermissions).toHaveBeenLastCalledWith("ws_1", {
+      gitOperations: false,
+    });
+  });
+  expect(screen.getByText("git commands are blocked")).toBeInTheDocument();
+});
+
+it("shows workspace permission loading and save errors", async () => {
+  const user = userEvent.setup();
+  vi.mocked(getWorkspacePermissions).mockResolvedValue(workspacePermissions);
+  vi.mocked(patchWorkspacePermissions).mockRejectedValue(
+    new Error("Save failed"),
+  );
+  renderVibe("/vibe?workspaceId=ws_1");
+
+  await user.click(
+    await screen.findByRole("button", { name: /Balanced permissions/i }),
+  );
+  await user.click(screen.getByRole("button", { name: "Safe" }));
+
+  expect(await screen.findByText("Save failed")).toBeInTheDocument();
 });
 
 it("inserts slash skill links without submitting", async () => {

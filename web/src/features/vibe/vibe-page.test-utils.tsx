@@ -51,6 +51,13 @@ export const workspace = {
   updatedAt: "2026-05-20T00:00:00Z",
 };
 
+export const workspacePermissions = {
+  editFiles: true,
+  gitOperations: true,
+  mode: "balanced" as const,
+  runCommands: true,
+};
+
 export const run = {
   conversationId: "conv_1",
   createdAt: "2026-05-20T00:00:00Z",

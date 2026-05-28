@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/phamtanminhtien/patchpilot/internal/agent"
+	"github.com/phamtanminhtien/patchpilot/internal/config"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
 	"github.com/phamtanminhtien/patchpilot/internal/events"
 )
@@ -148,6 +149,11 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
 		return
 	}
+	cfg, err := config.LoadUserConfig(s.userConfigHome())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "settings_config_failed", "Workspace permissions could not be loaded", nil)
+		return
+	}
 	message, err := s.store.CreateMessage(r.Context(), database.MessageRecord{
 		WorkspaceID:    ws.ID,
 		ConversationID: conversationID,
@@ -164,6 +170,7 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		TriggerMessageID: message.ID,
 		Model:            req.Model,
 		ReasoningEffort:  req.ReasoningEffort,
+		Permissions:      workspacePermissionForRoot(cfg, ws.RootPath),
 	})
 	if err != nil {
 		writeAgentError(w, err)

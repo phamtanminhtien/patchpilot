@@ -29,6 +29,7 @@ var (
 	settingsModels    = map[string]struct{}{"gpt-5.5": {}, "gpt-5.4": {}, "gpt-5.4-mini": {}}
 	settingsEfforts   = map[string]struct{}{"low": {}, "medium": {}, "high": {}, "xhigh": {}}
 	settingsThemes    = map[string]struct{}{"system": {}, "light": {}, "dark": {}}
+	permissionModes   = map[string]struct{}{"safe": {}, "balanced": {}, "autonomous": {}}
 )
 
 type settingsResponse struct {
@@ -74,6 +75,17 @@ type patchSettingsPreferencesRequest struct {
 	DefaultReasoningEffort *string `json:"defaultReasoningEffort"`
 }
 
+type workspacePermissionsResponse struct {
+	Permissions config.WorkspacePermission `json:"permissions"`
+}
+
+type patchWorkspacePermissionsRequest struct {
+	Mode          *string `json:"mode"`
+	EditFiles     *bool   `json:"editFiles"`
+	RunCommands   *bool   `json:"runCommands"`
+	GitOperations *bool   `json:"gitOperations"`
+}
+
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	cfg, err := config.LoadUserConfig(s.userConfigHome())
 	if err != nil {
@@ -105,6 +117,65 @@ func (s *Server) patchSettingsPreferences(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, s.settingsResponse(cfg))
+}
+
+func (s *Server) getWorkspacePermissions(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	cfg, err := config.LoadUserConfig(s.userConfigHome())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "settings_config_failed", "Workspace permissions could not be loaded", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspacePermissionsResponse{Permissions: workspacePermissionForRoot(cfg, ws.RootPath)})
+}
+
+func (s *Server) patchWorkspacePermissions(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.workspaceFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req patchWorkspacePermissionsRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must be valid JSON", nil)
+		return
+	}
+	cfg, err := config.LoadUserConfig(s.userConfigHome())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "settings_config_failed", "Workspace permissions could not be loaded", nil)
+		return
+	}
+	permission := workspacePermissionForRoot(cfg, ws.RootPath)
+	if req.Mode != nil {
+		mode := strings.TrimSpace(*req.Mode)
+		if _, ok := permissionModes[mode]; !ok {
+			writeError(w, http.StatusBadRequest, "invalid_workspace_permissions", "Permission mode must be safe, balanced, or autonomous", nil)
+			return
+		}
+		permission.Mode = mode
+	}
+	if req.EditFiles != nil {
+		permission.EditFiles = *req.EditFiles
+	}
+	if req.RunCommands != nil {
+		permission.RunCommands = *req.RunCommands
+	}
+	if req.GitOperations != nil {
+		permission.GitOperations = *req.GitOperations
+	}
+	if cfg.WorkspacePermissions == nil {
+		cfg.WorkspacePermissions = map[string]config.WorkspacePermission{}
+	}
+	cfg.WorkspacePermissions[ws.RootPath] = permission
+	if err := config.SaveUserConfig(s.userConfigHome(), cfg); err != nil {
+		writeError(w, http.StatusInternalServerError, "settings_config_failed", "Workspace permissions could not be saved", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspacePermissionsResponse{Permissions: permission})
 }
 
 func (s *Server) listSettingsFonts(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +344,17 @@ func preferencesResponse(preferences config.SettingsPreferences) settingsPrefere
 		DefaultModel:           defaultString(preferences.DefaultModel, settingsDefaultModel),
 		DefaultReasoningEffort: defaultString(preferences.DefaultReasoningEffort, "medium"),
 	}
+}
+
+func workspacePermissionForRoot(cfg config.UserConfig, rootPath string) config.WorkspacePermission {
+	if cfg.WorkspacePermissions == nil {
+		return config.DefaultWorkspacePermission()
+	}
+	permission, ok := cfg.WorkspacePermissions[rootPath]
+	if !ok {
+		return config.DefaultWorkspacePermission()
+	}
+	return config.NormalizeWorkspacePermission(permission)
 }
 
 func (s *Server) fontResponses(fonts []config.InstalledFont) []settingsFontResponse {

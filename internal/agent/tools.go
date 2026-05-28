@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/phamtanminhtien/patchpilot/internal/config"
 	"github.com/phamtanminhtien/patchpilot/internal/database"
 	"github.com/phamtanminhtien/patchpilot/internal/filestore"
 	"github.com/phamtanminhtien/patchpilot/internal/gitrepo"
@@ -13,8 +14,16 @@ import (
 )
 
 func (m *Manager) prepareToolRequest(ctx context.Context, workspaceRoot string, request ToolRequest) (bool, string, string) {
+	return m.prepareToolRequestWithPermissions(ctx, workspaceRoot, config.DefaultWorkspacePermission(), request)
+}
+
+func (m *Manager) prepareToolRequestWithPermissions(ctx context.Context, workspaceRoot string, permissions config.WorkspacePermission, request ToolRequest) (bool, string, string) {
+	permissions = config.NormalizeWorkspacePermission(permissions)
 	switch request.Name {
 	case "apply_patch":
+		if !permissions.EditFiles {
+			return false, ToolStatusFailed, openToolError(fmt.Errorf("file edits are disabled for this workspace"))
+		}
 		var args struct {
 			Diff string `json:"diff"`
 		}
@@ -24,11 +33,14 @@ func (m *Manager) prepareToolRequest(ctx context.Context, workspaceRoot string, 
 		if err := m.git.CheckPatch(ctx, workspaceRoot, normalizeProviderPatch(args.Diff)); err != nil {
 			return false, ToolStatusFailed, openToolError(fmt.Errorf("patch failed git apply check: %w", err))
 		}
-		if policy, ok := staticToolPolicy(request.Name); ok && policy == toolRequiresApproval {
+		if permissions.Mode != "autonomous" {
 			return true, ToolStatusWaitingApproval, "{}"
 		}
 		return false, ToolStatusPending, "{}"
 	case "run_command":
+		if !permissions.RunCommands {
+			return false, ToolStatusFailed, openToolError(fmt.Errorf("command execution is disabled for this workspace"))
+		}
 		var args struct {
 			Command string `json:"command"`
 		}
@@ -39,7 +51,13 @@ func (m *Manager) prepareToolRequest(ctx context.Context, workspaceRoot string, 
 		if err != nil {
 			return false, ToolStatusFailed, openToolError(err)
 		}
-		if decision.Level == runner.SafetyNeedsConfirmation {
+		if isGitCommand(decision) && !permissions.GitOperations {
+			return false, ToolStatusFailed, openToolError(fmt.Errorf("git operations are disabled for this workspace"))
+		}
+		if decision.Level == runner.SafetyBlocked {
+			return false, ToolStatusPending, "{}"
+		}
+		if permissions.Mode == "safe" || (permissions.Mode == "balanced" && decision.Level == runner.SafetyNeedsConfirmation) {
 			return true, ToolStatusWaitingApproval, "{}"
 		}
 		return false, ToolStatusPending, "{}"
@@ -88,6 +106,9 @@ func (m *Manager) executeTool(ctx context.Context, runtime *runRuntime, record d
 	case "run_command":
 		return m.executeCommandTool(ctx, runtime, record)
 	case "apply_patch":
+		if !runtime.permissions.EditFiles {
+			return openToolJSON(map[string]any{"status": "blocked", "reason": "file edits are disabled for this workspace"}), nil
+		}
 		var args struct {
 			Diff    string `json:"diff"`
 			Summary string `json:"summary"`
@@ -134,10 +155,16 @@ func (m *Manager) executeCommandTool(ctx context.Context, runtime *runRuntime, r
 	if err != nil {
 		return "", err
 	}
+	if !runtime.permissions.RunCommands {
+		return openToolJSON(map[string]any{"status": "blocked", "reason": "command execution is disabled for this workspace"}), nil
+	}
+	if isGitCommand(decision) && !runtime.permissions.GitOperations {
+		return openToolJSON(map[string]any{"status": "blocked", "reason": "git operations are disabled for this workspace"}), nil
+	}
 	if decision.Level == runner.SafetyBlocked {
 		return openToolJSON(map[string]any{"status": "blocked", "decision": decision}), nil
 	}
-	if decision.Level == runner.SafetyNeedsConfirmation && record.Decision == nil {
+	if commandRequiresApproval(runtime.permissions, decision) && record.Decision == nil {
 		return "", fmt.Errorf("command requires approval: %s", decision.Reason)
 	}
 	done := make(chan runner.FinishResult, 1)
@@ -170,6 +197,21 @@ func (m *Manager) executeCommandTool(ctx context.Context, runtime *runRuntime, r
 	case result = <-done:
 	}
 	return openToolJSON(map[string]any{"status": result.Status, "exitCode": result.ExitCode, "output": output.String()}), nil
+}
+
+func commandRequiresApproval(permissions config.WorkspacePermission, decision runner.SafetyDecision) bool {
+	switch permissions.Mode {
+	case "safe":
+		return decision.Level != runner.SafetyBlocked
+	case "autonomous":
+		return false
+	default:
+		return decision.Level == runner.SafetyNeedsConfirmation
+	}
+}
+
+func isGitCommand(decision runner.SafetyDecision) bool {
+	return len(decision.Parts) > 0 && decision.Parts[0] == "git"
 }
 
 func openToolError(err error) string {

@@ -33,10 +33,11 @@ type Config struct {
 }
 
 type UserConfig struct {
-	Preferences SettingsPreferences        `json:"preferences,omitempty"`
-	Fonts       []InstalledFont            `json:"fonts,omitempty"`
-	Skills      map[string]SkillConfig     `json:"skills,omitempty"`
-	MCPServers  map[string]MCPServerConfig `json:"mcpServers,omitempty"`
+	Preferences          SettingsPreferences            `json:"preferences,omitempty"`
+	Fonts                []InstalledFont                `json:"fonts,omitempty"`
+	Skills               map[string]SkillConfig         `json:"skills,omitempty"`
+	MCPServers           map[string]MCPServerConfig     `json:"mcpServers,omitempty"`
+	WorkspacePermissions map[string]WorkspacePermission `json:"workspacePermissions,omitempty"`
 }
 
 type SettingsPreferences struct {
@@ -46,6 +47,29 @@ type SettingsPreferences struct {
 	TerminalFontFamily     string `json:"terminalFontFamily,omitempty"`
 	DefaultModel           string `json:"defaultModel,omitempty"`
 	DefaultReasoningEffort string `json:"defaultReasoningEffort,omitempty"`
+}
+
+type WorkspacePermission struct {
+	Mode          string `json:"mode"`
+	EditFiles     bool   `json:"editFiles"`
+	RunCommands   bool   `json:"runCommands"`
+	GitOperations bool   `json:"gitOperations"`
+}
+
+func DefaultWorkspacePermission() WorkspacePermission {
+	return WorkspacePermission{
+		Mode:          "balanced",
+		EditFiles:     true,
+		RunCommands:   true,
+		GitOperations: true,
+	}
+}
+
+func NormalizeWorkspacePermission(permission WorkspacePermission) WorkspacePermission {
+	if permission.Mode == "" {
+		permission.Mode = "balanced"
+	}
+	return permission
 }
 
 type InstalledFont struct {
