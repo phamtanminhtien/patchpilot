@@ -5,6 +5,7 @@ export * from "./errors";
 export * from "./files";
 export * from "./git";
 export * from "./health";
+export * from "./permissions";
 export * from "./ports";
 export * from "./settings";
 export * from "./terminal";

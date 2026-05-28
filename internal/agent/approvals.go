@@ -60,7 +60,7 @@ func (m *Manager) prepareOrExecuteBatch(ctx context.Context, run Run, runtime *r
 		if input == "" {
 			input = "{}"
 		}
-		callRequiresApproval, initialStatus, initialOutput := m.prepareToolRequest(ctx, runtime.workspaceRoot, request)
+		callRequiresApproval, initialStatus, initialOutput := m.prepareToolRequestWithPermissions(ctx, runtime.workspaceRoot, runtime.permissions, request)
 		source, sourceRef, policyReason := toolSourceMetadata(request.Name, request.Arguments, callRequiresApproval)
 		if callRequiresApproval {
 			requiresApproval = true

@@ -35,8 +35,19 @@ import type {
   AgentReasoningEffort,
   AgentSkill,
   FileIndexEntry,
+  PatchWorkspacePermissionsRequest,
+  PermissionMode,
+  WorkspacePermissions,
 } from "@/shared/api";
-import { Button, cn, Select } from "@/shared/ui";
+import {
+  Button,
+  cn,
+  PopoverContent,
+  PopoverRoot,
+  PopoverTrigger,
+  Select,
+  Switch,
+} from "@/shared/ui";
 
 import {
   type ComposerSuggestion,
@@ -83,12 +94,17 @@ export function Composer({
   isStopping,
   model,
   onModelChange,
+  onPermissionsChange,
   onPromptChange,
   onReasoningEffortChange,
   onStop,
   onSubmit,
   prompt,
   promptResetKey,
+  permissions,
+  permissionsError,
+  permissionsLoading,
+  permissionsSaving,
   reasoningEffort,
   skills,
   skillsError,
@@ -104,12 +120,17 @@ export function Composer({
   isStopping: boolean;
   model: AgentModel;
   onModelChange: (model: AgentModel) => void;
+  onPermissionsChange: (permissions: PatchWorkspacePermissionsRequest) => void;
   onPromptChange: (prompt: string) => void;
   onReasoningEffortChange: (effort: AgentReasoningEffort) => void;
   onStop: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   prompt: string;
   promptResetKey: number;
+  permissions: WorkspacePermissions;
+  permissionsError?: string;
+  permissionsLoading: boolean;
+  permissionsSaving: boolean;
   reasoningEffort: AgentReasoningEffort;
   skills: AgentSkill[];
   skillsError?: string;
@@ -246,11 +267,14 @@ export function Composer({
         />
         <div className="bg-composer-bar flex min-w-0 flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="bg-surface hover:bg-hover text-muted inline-flex min-h-7 min-w-0 cursor-pointer items-center gap-1.5 rounded-xl px-2 text-xs font-medium transition">
-              <ShieldCheck aria-hidden="true" className="size-3.5" />
-              <span className="truncate">Default permissions</span>
-              <ChevronDown aria-hidden="true" className="size-3.5" />
-            </span>
+            <PermissionMenu
+              disabled={!workspaceReady || permissionsLoading}
+              error={permissionsError}
+              isLoading={permissionsLoading}
+              isSaving={permissionsSaving}
+              onChange={onPermissionsChange}
+              permissions={permissions}
+            />
           </div>
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
             <Select
@@ -300,6 +324,173 @@ export function Composer({
       ) : null}
     </form>
   );
+}
+
+const permissionModes: PermissionMode[] = ["safe", "balanced", "autonomous"];
+
+const permissionPresets: Record<PermissionMode, WorkspacePermissions> = {
+  autonomous: {
+    editFiles: true,
+    gitOperations: true,
+    mode: "autonomous",
+    runCommands: true,
+  },
+  balanced: {
+    editFiles: true,
+    gitOperations: true,
+    mode: "balanced",
+    runCommands: true,
+  },
+  safe: {
+    editFiles: true,
+    gitOperations: true,
+    mode: "safe",
+    runCommands: true,
+  },
+};
+
+function PermissionMenu({
+  disabled,
+  error,
+  isLoading,
+  isSaving,
+  onChange,
+  permissions,
+}: {
+  disabled: boolean;
+  error?: string;
+  isLoading: boolean;
+  isSaving: boolean;
+  onChange: (permissions: PatchWorkspacePermissionsRequest) => void;
+  permissions: WorkspacePermissions;
+}) {
+  const modeLabel = modeDisplayName(permissions.mode);
+  return (
+    <PopoverRoot>
+      <PopoverTrigger asChild>
+        <button
+          className="bg-surface hover:bg-hover text-muted inline-flex min-h-7 min-w-0 cursor-pointer items-center gap-1.5 rounded-xl px-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={disabled}
+          type="button"
+        >
+          <ShieldCheck aria-hidden="true" className="size-3.5" />
+          <span className="truncate">
+            {isLoading ? "Loading permissions" : `${modeLabel} permissions`}
+          </span>
+          {isSaving ? (
+            <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+          ) : (
+            <ChevronDown aria-hidden="true" className="size-3.5" />
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 gap-3 p-3">
+        <div
+          aria-label="Permission mode"
+          className="bg-surface grid grid-cols-3 gap-1 rounded-lg p-1"
+          role="group"
+        >
+          {permissionModes.map((mode) => (
+            <button
+              aria-pressed={permissions.mode === mode}
+              className={cn(
+                "text-muted hover:text-ink rounded-md px-2 py-1.5 text-xs font-semibold transition",
+                permissions.mode === mode && "bg-panel text-ink",
+              )}
+              key={mode}
+              onClick={() => onChange(permissionPresets[mode])}
+              type="button"
+            >
+              {modeDisplayName(mode)}
+            </button>
+          ))}
+        </div>
+        <div className="grid gap-2">
+          <PermissionSwitch
+            checked={permissions.editFiles}
+            label="Edit files"
+            onCheckedChange={(checked) => onChange({ editFiles: checked })}
+          />
+          <PermissionSwitch
+            checked={permissions.runCommands}
+            label="Run commands"
+            onCheckedChange={(checked) => onChange({ runCommands: checked })}
+          />
+          <PermissionSwitch
+            checked={permissions.gitOperations}
+            label="Git operations"
+            onCheckedChange={(checked) => onChange({ gitOperations: checked })}
+          />
+        </div>
+        <div className="border-border grid gap-1 border-t pt-3 text-xs">
+          {approvalRules(permissions).map((rule) => (
+            <div
+              className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2"
+              key={rule.label}
+            >
+              <span className="text-muted font-medium">{rule.label}</span>
+              <span className="text-ink">{rule.value}</span>
+            </div>
+          ))}
+        </div>
+        {error ? (
+          <p className="text-warning text-xs font-medium">{error}</p>
+        ) : null}
+      </PopoverContent>
+    </PopoverRoot>
+  );
+}
+
+function PermissionSwitch({
+  checked,
+  label,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  label: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3 text-sm font-medium">
+      <span>{label}</span>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </label>
+  );
+}
+
+function approvalRules(permissions: WorkspacePermissions) {
+  const edits = permissions.editFiles
+    ? permissions.mode === "autonomous"
+      ? "apply_patch auto-runs"
+      : "apply_patch needs approval"
+    : "apply_patch is blocked";
+  const commands = !permissions.runCommands
+    ? "run_command is blocked"
+    : permissions.mode === "safe"
+      ? "all commands need approval"
+      : permissions.mode === "autonomous"
+        ? "safe and confirmation commands auto-run"
+        : "safe commands auto-run; confirmation commands need approval";
+  const git = permissions.gitOperations
+    ? "git commands follow command rules"
+    : "git commands are blocked";
+  return [
+    { label: "Files", value: edits },
+    { label: "Commands", value: commands },
+    { label: "Git", value: git },
+    { label: "MCP", value: "MCP tools need approval" },
+  ];
+}
+
+function modeDisplayName(mode: PermissionMode) {
+  switch (mode) {
+    case "safe":
+      return "Safe";
+    case "autonomous":
+      return "Autonomous";
+    default:
+      return "Balanced";
+  }
 }
 
 const ComposerEditor = forwardRef<
@@ -413,6 +604,16 @@ const ComposerEditor = forwardRef<
       onKeyDownCapture={(event) => {
         onKeyDown(event);
         if (event.defaultPrevented || !editor) {
+          return;
+        }
+        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          if (event.metaKey || event.ctrlKey) {
+            editor.commands.splitBlock();
+            onTriggerChange(activeTrigger(editor));
+            return;
+          }
+          event.currentTarget.closest("form")?.requestSubmit();
           return;
         }
         if (deleteAdjacentComposerToken(editor, event.key)) {

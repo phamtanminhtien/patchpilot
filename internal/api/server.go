@@ -130,6 +130,8 @@ func (s *Server) RoutesWithStatic(staticDir string) http.Handler {
 	mux.HandleFunc("POST /api/workspaces", s.createWorkspace)
 	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}", s.getWorkspace)
+	mux.HandleFunc("GET /api/workspaces/{workspaceId}/permissions", s.getWorkspacePermissions)
+	mux.HandleFunc("PATCH /api/workspaces/{workspaceId}/permissions", s.patchWorkspacePermissions)
 	mux.HandleFunc("DELETE /api/workspaces/{workspaceId}", s.deleteWorkspace)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files", s.listFiles)
 	mux.HandleFunc("GET /api/workspaces/{workspaceId}/files/index", s.listFileIndex)

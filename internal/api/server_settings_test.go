@@ -77,6 +77,66 @@ func TestSettingsRejectsUnknownPreferenceFields(t *testing.T) {
 	}
 }
 
+func TestWorkspacePermissionsDefaultPatchAndPersistByRoot(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	home := t.TempDir()
+	fixture := newServerFixture(t, root, fakeAgentProvider{})
+	fixture.server.SetSettingsHome(home)
+	createResponse := request(fixture.server.Routes(), http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws struct {
+		ID       string `json:"id"`
+		RootPath string `json:"rootPath"`
+	}
+	mustDecode(t, createResponse, &ws)
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+ws.ID+"/permissions", nil)
+	getRecorder := httptest.NewRecorder()
+	fixture.server.Routes().ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", getRecorder.Code, getRecorder.Body.String())
+	}
+	var getBody workspacePermissionsResponse
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &getBody); err != nil {
+		t.Fatalf("json.Unmarshal returned error: %v", err)
+	}
+	if getBody.Permissions.Mode != "balanced" || !getBody.Permissions.EditFiles || !getBody.Permissions.RunCommands || !getBody.Permissions.GitOperations {
+		t.Fatalf("unexpected default permissions: %+v", getBody.Permissions)
+	}
+
+	patchRequest := httptest.NewRequest(http.MethodPatch, "/api/workspaces/"+ws.ID+"/permissions", bytes.NewBufferString(`{"mode":"autonomous","gitOperations":false}`))
+	patchRecorder := httptest.NewRecorder()
+	fixture.server.Routes().ServeHTTP(patchRecorder, patchRequest)
+	if patchRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", patchRecorder.Code, patchRecorder.Body.String())
+	}
+	cfg, err := config.LoadUserConfig(home)
+	if err != nil {
+		t.Fatalf("LoadUserConfig returned error: %v", err)
+	}
+	permission := cfg.WorkspacePermissions[ws.RootPath]
+	if permission.Mode != "autonomous" || !permission.EditFiles || !permission.RunCommands || permission.GitOperations {
+		t.Fatalf("permissions were not persisted by root: %+v", cfg.WorkspacePermissions)
+	}
+}
+
+func TestWorkspacePermissionsRejectsInvalidMode(t *testing.T) {
+	root := initGitRepo(t, t.TempDir())
+	fixture := newServerFixture(t, root, fakeAgentProvider{})
+	fixture.server.SetSettingsHome(t.TempDir())
+	createResponse := request(fixture.server.Routes(), http.MethodPost, "/api/workspaces", `{"rootPath":"`+root+`"}`)
+	var ws struct {
+		ID string `json:"id"`
+	}
+	mustDecode(t, createResponse, &ws)
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/workspaces/"+ws.ID+"/permissions", bytes.NewBufferString(`{"mode":"reckless"}`))
+	recorder := httptest.NewRecorder()
+	fixture.server.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestSettingsFontInstallServeAndDeleteGuardsInUse(t *testing.T) {
 	home := t.TempDir()
 	fixture := newServerFixture(t, t.TempDir(), fakeAgentProvider{})

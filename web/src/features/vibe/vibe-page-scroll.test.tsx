@@ -18,9 +18,11 @@ import {
   getConversation,
   getHealth,
   getWorkspace,
+  getWorkspacePermissions,
   listConversations,
   listFileIndex,
   listWorkspaces,
+  patchWorkspacePermissions,
   refreshAgentContext,
   rejectAgentToolCall,
   setAgentSkillEnabled,
@@ -47,6 +49,7 @@ import {
   waitForRunEventSource,
   waitForWorkspaceEventSource,
   workspace,
+  workspacePermissions,
 } from "./vibe-page.test-utils";
 
 vi.mock("@/shared/api", () => ({
@@ -61,9 +64,11 @@ vi.mock("@/shared/api", () => ({
   getConversation: vi.fn(),
   getHealth: vi.fn(),
   getWorkspace: vi.fn(),
+  getWorkspacePermissions: vi.fn(),
   listFileIndex: vi.fn(),
   listConversations: vi.fn(),
   listWorkspaces: vi.fn(),
+  patchWorkspacePermissions: vi.fn(),
   refreshAgentContext: vi.fn(),
   rejectAgentToolCall: vi.fn(),
   setAgentSkillEnabled: vi.fn(),
@@ -82,6 +87,8 @@ beforeEach(() => {
   vi.mocked(createWorkspace).mockResolvedValue(workspace);
   vi.mocked(getHealth).mockResolvedValue({ status: "ok" });
   vi.mocked(getWorkspace).mockResolvedValue(workspace);
+  vi.mocked(getWorkspacePermissions).mockResolvedValue(workspacePermissions);
+  vi.mocked(patchWorkspacePermissions).mockResolvedValue(workspacePermissions);
   vi.mocked(listFileIndex).mockResolvedValue(fileIndex);
   vi.mocked(getAgentContext).mockResolvedValue(agentContext);
   vi.mocked(refreshAgentContext).mockResolvedValue(agentContext);

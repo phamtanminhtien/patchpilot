@@ -22,14 +22,18 @@ import {
   getAgentContext,
   getConversation,
   getWorkspace,
+  getWorkspacePermissions,
   listConversations,
   listFileIndex,
   listWorkspaces,
   type Message,
+  patchWorkspacePermissions,
+  type PatchWorkspacePermissionsRequest,
   refreshAgentContext,
   rejectAgentToolCall,
   setAgentSkillEnabled,
   type WorkspaceEvent,
+  type WorkspacePermissions,
 } from "@/shared/api";
 import { useRunEvents, useWorkspaceEvents } from "@/shared/events";
 import { conversationIdParser, workspaceIdParser } from "@/shared/url";
@@ -41,6 +45,13 @@ import {
 } from "../lib/conversation-cache";
 import { transientAssistantEvent } from "../lib/run-text";
 import { newConversationId } from "../vibe-options";
+
+const defaultWorkspacePermissions: WorkspacePermissions = {
+  editFiles: true,
+  gitOperations: true,
+  mode: "balanced",
+  runCommands: true,
+};
 
 export function useVibeController() {
   const [workspaceId, setWorkspaceId] = useQueryState(
@@ -115,6 +126,12 @@ export function useVibeController() {
     queryKey: ["composer-file-index", workspaceId],
   });
 
+  const permissionsQuery = useQuery({
+    enabled: workspaceId.length > 0,
+    queryFn: () => getWorkspacePermissions(workspaceId),
+    queryKey: ["workspace-permissions", workspaceId],
+  });
+
   const refreshContextMutation = useMutation({
     mutationFn: () => refreshAgentContext(workspaceId),
     onSuccess: (context) =>
@@ -128,6 +145,40 @@ export function useVibeController() {
       void queryClient.invalidateQueries({
         queryKey: ["agent-context", workspaceId],
       }),
+  });
+
+  const permissionsMutation = useMutation({
+    mutationFn: (input: PatchWorkspacePermissionsRequest) =>
+      patchWorkspacePermissions(workspaceId, input),
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({
+        queryKey: ["workspace-permissions", workspaceId],
+      });
+      const previous = queryClient.getQueryData<WorkspacePermissions>([
+        "workspace-permissions",
+        workspaceId,
+      ]);
+      if (previous) {
+        queryClient.setQueryData<WorkspacePermissions>(
+          ["workspace-permissions", workspaceId],
+          { ...previous, ...input },
+        );
+      }
+      return { previous };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          ["workspace-permissions", workspaceId],
+          context.previous,
+        );
+      }
+    },
+    onSuccess: (permissions) =>
+      queryClient.setQueryData(
+        ["workspace-permissions", workspaceId],
+        permissions,
+      ),
   });
 
   const createMessageMutation = useMutation({
@@ -380,6 +431,8 @@ export function useVibeController() {
       model,
       onModelChange: setModel,
       onPromptChange: handlePromptChange,
+      onPermissionsChange: (permissions: PatchWorkspacePermissionsRequest) =>
+        permissionsMutation.mutate(permissions),
       onReasoningEffortChange: setReasoningEffort,
       onStop: () => {
         if (activeRun === undefined || currentConversationId.length === 0) {
@@ -393,6 +446,13 @@ export function useVibeController() {
       onSubmit: handleTaskSubmit,
       prompt,
       promptResetKey,
+      permissions: permissionsQuery.data ?? defaultWorkspacePermissions,
+      permissionsError:
+        permissionsQuery.error || permissionsMutation.error
+          ? apiErrorMessage(permissionsQuery.error ?? permissionsMutation.error)
+          : undefined,
+      permissionsLoading: permissionsQuery.isPending,
+      permissionsSaving: permissionsMutation.isPending,
       reasoningEffort,
       skills: agentContextQuery.data?.skills ?? [],
       skillsError: agentContextQuery.error
